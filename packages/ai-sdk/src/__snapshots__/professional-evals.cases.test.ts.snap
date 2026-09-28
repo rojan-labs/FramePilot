@@ -23,6 +23,8 @@ exports[`professional capability outcome evals > records a machine-readable scor
   "graphics.sticker-add.outcome passed not_acquired",
   "motion.opacity.outcome passed not_acquired",
   "motion.rotation.outcome passed not_acquired",
+  "motion.scale-x.outcome passed not_acquired",
+  "motion.scale-y.outcome passed not_acquired",
   "motion.scale.outcome passed not_acquired",
   "motion.x.outcome passed not_acquired",
   "motion.y.outcome passed not_acquired",

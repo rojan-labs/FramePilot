@@ -44,6 +44,17 @@ export const EXECUTION_PACE =
   'separate tool calls: they apply in order, and each result says where its clips landed, ' +
   'so nothing needs reading back between them. One edit per step is a round trip wasted.';
 
+/**
+ * Who settled a DECIDED line. Without it the run's own inference reads exactly like an
+ * answer the editor gave, and the model tells the editor what "you chose" about a choice
+ * nobody made (run `6cb12e30`: "you chose to keep the default font").
+ */
+const DECISION_SOURCE_LABEL: Readonly<Record<'user' | 'inferred' | 'reference', string>> = {
+  user: "the editor's answer",
+  inferred: "your inference, not the editor's choice",
+  reference: 'from an attached reference',
+};
+
 /** Characters of a distilled statement — one line, never a payload. */
 const STATEMENT_CHARS = 180;
 
@@ -124,7 +135,15 @@ export function distil(args: {
   // What a GUIDANCE call establishes is a fact about this run's own context — a pinned
   // playbook, a loaded tool domain, a catalogue browsed — not about the footage. It must
   // survive every edit of this run and never reach the next one (`FactScopeSchema`).
-  const scope: FactScope = args.role === 'guidance' ? 'run_local' : args.scope;
+  //
+  // A WARNING is the same kind of thing: the tool answered with a caveat about its own
+  // state, not a finding about the material. Filed under the tool's footage scope,
+  // `describe_footage`'s "this clip has not been indexed" crossed into the next session as
+  // nine ESTABLISHED lines ("do not gather again") while indexing carried on in the
+  // background (run `6cb12e30`, turns 2-4). It still holds for this run — the tool will not
+  // say anything different in the next minute — and goes no further.
+  const qualified = args.role === 'guidance' || args.status === 'warning';
+  const scope: FactScope = qualified ? 'run_local' : args.scope;
   return {
     statement,
     kind: kindFor(args.role, args.toolName),
@@ -136,9 +155,10 @@ export function distil(args: {
             id: args.evidenceId,
             source: args.toolName,
             descriptor: args.descriptor,
-            // The EVIDENCE handle keeps the tool's own scope: the store it points into is
-            // per-run anyway, and its validity is the tool's business.
-            scope: args.scope,
+            // The EVIDENCE handle keeps the tool's own scope — the store it points into is
+            // per-run anyway, and its validity is the tool's business — except for a
+            // qualified reading, which must not outlive the run through its handle either.
+            scope: qualified && args.status === 'warning' ? 'run_local' : args.scope,
           },
         }
       : {}),
@@ -322,7 +342,10 @@ export function buildStateBriefing(
   if (decisions.length > 0) {
     sections.push(
       `DECIDED — keep unless the stated trigger fires\n${decisions
-        .map((d) => `- ${d.decision} (revisit only if: ${d.reconsiderIf})`)
+        .map(
+          (d) =>
+            `- ${d.decision} [${DECISION_SOURCE_LABEL[d.source]}] (revisit only if: ${d.reconsiderIf})`,
+        )
         .join('\n')}`,
     );
   }

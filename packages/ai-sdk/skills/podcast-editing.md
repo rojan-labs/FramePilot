@@ -1,7 +1,7 @@
 ---
 name: podcast-editing
 description: Edit spoken multi-speaker conversations for clarity, thought continuity, reaction value, natural cadence, and consistent audio without over-cutting.
-tools: [get_mapped_transcript, get_timeline, analyze_silence, split_clip, ripple_delete, move_clip, punch_in, adjust_audio, render_preview]
+tools: [get_mapped_transcript, get_timeline, analyze_silence, split_clip, ripple_delete, move_clip, punch_in, adjust_audio, get_frame]
 ---
 
 # Podcast editing

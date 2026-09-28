@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 117,
+  "toolCount": 119,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -1051,7 +1051,18 @@
                 "toClipId"
               ],
               "properties": {
+                "durationSeconds": {
+                  "type": [
+                    "number"
+                  ],
+                  "exclusiveMinimum": 0
+                },
                 "fromClipId": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "kind": {
                   "type": [
                     "string"
                   ]
@@ -2472,10 +2483,12 @@
           "object"
         ],
         "additionalProperties": false,
-        "required": [
-          "timeSeconds"
-        ],
         "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
           "burnCaptions": {
             "type": [
               "boolean"
@@ -2487,6 +2500,12 @@
             ],
             "minimum": 128,
             "maximum": 1280
+          },
+          "sourceSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
           },
           "timeSeconds": {
             "type": [
@@ -3392,6 +3411,16 @@
               "music",
               "sfx"
             ]
+          },
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
           },
           "dynamics": {
             "type": [
@@ -4390,6 +4419,104 @@
               "frame",
               "source"
             ]
+          }
+        }
+      }
+    },
+    "reframe_pan": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "from"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "easing": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "bezier",
+              "ease-in",
+              "ease-in-out",
+              "ease-out",
+              "hold",
+              "linear"
+            ]
+          },
+          "endTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "from": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x"
+            ],
+            "properties": {
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "startTime": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "to": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x"
+            ],
+            "properties": {
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
           }
         }
       }
@@ -5631,13 +5758,22 @@
         ],
         "additionalProperties": false,
         "required": [
-          "clipId",
-          "speed"
+          "clipId"
         ],
         "properties": {
           "clipId": {
             "type": [
               "string"
+            ]
+          },
+          "playback": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "forward",
+              "freeze",
+              "reverse"
             ]
           },
           "speed": {
@@ -6048,6 +6184,254 @@
             ],
             "minimum": 0.05,
             "maximum": 10
+          }
+        }
+      }
+    },
+    "set_text_style": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId"
+        ],
+        "properties": {
+          "align": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "center",
+              "left",
+              "right"
+            ]
+          },
+          "background": {
+            "type": [
+              "string"
+            ]
+          },
+          "boxWidthPercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
+          "fontFamily": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "Abril Fatface",
+              "Alfa Slab One",
+              "Amatic SC",
+              "Anton",
+              "Archivo Black",
+              "Bangers",
+              "Barlow",
+              "Barlow Condensed",
+              "Bebas Neue",
+              "Big Shoulders",
+              "Bodoni Moda",
+              "Bricolage Grotesque",
+              "Bungee",
+              "Caveat",
+              "Caveat Brush",
+              "Chewy",
+              "Cinzel",
+              "Courier Prime",
+              "DM Sans",
+              "DM Serif Display",
+              "Dancing Script",
+              "Exo 2",
+              "Figtree",
+              "Fraunces",
+              "Fredoka",
+              "Geist",
+              "Gloock",
+              "Gloria Hallelujah",
+              "Great Vibes",
+              "Homemade Apple",
+              "IBM Plex Mono",
+              "Instrument Serif",
+              "Inter",
+              "JetBrains Mono",
+              "Josefin Sans",
+              "Kanit",
+              "Kaushan Script",
+              "Knewave",
+              "Lato",
+              "League Gothic",
+              "League Spartan",
+              "Lexend",
+              "Libre Baskerville",
+              "Lilita One",
+              "Lobster",
+              "Lora",
+              "Luckiest Guy",
+              "Manrope",
+              "Merriweather",
+              "Montserrat",
+              "Mr Dafoe",
+              "Nunito",
+              "Open Sans",
+              "Orbitron",
+              "Oswald",
+              "Outfit",
+              "Pacifico",
+              "Passion One",
+              "Patrick Hand",
+              "Paytone One",
+              "Permanent Marker",
+              "Playfair Display",
+              "Plus Jakarta Sans",
+              "Poppins",
+              "Prata",
+              "Press Start 2P",
+              "Quicksand",
+              "Raleway",
+              "Righteous",
+              "Roboto",
+              "Roboto Slab",
+              "Rock Salt",
+              "Rubik",
+              "Rubik Mono One",
+              "Russo One",
+              "Sacramento",
+              "Satisfy",
+              "Shadows Into Light",
+              "Shrikhand",
+              "Silkscreen",
+              "Sora",
+              "Space Grotesk",
+              "Space Mono",
+              "Staatliches",
+              "Syne",
+              "Teko",
+              "Titan One",
+              "Unbounded",
+              "Urbanist",
+              "VT323",
+              "Yellowtail",
+              "Young Serif"
+            ]
+          },
+          "fontWeight": {
+            "type": [
+              "integer"
+            ],
+            "minimum": 100,
+            "maximum": 900
+          },
+          "sizePercent": {
+            "type": [
+              "number"
+            ],
+            "maximum": 100,
+            "exclusiveMinimum": 0
+          },
+          "style": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "accent-bar",
+              "arcade",
+              "big-number",
+              "block",
+              "body",
+              "brush",
+              "bubble",
+              "chrome",
+              "cinematic",
+              "comment-bubble",
+              "editorial",
+              "follow",
+              "frosted",
+              "glass-pill",
+              "handle",
+              "heading",
+              "heads-up",
+              "highlight",
+              "hollow",
+              "hook",
+              "impact-title",
+              "label",
+              "like-share",
+              "link-in-bio",
+              "look-here",
+              "luxury",
+              "manifesto",
+              "marker",
+              "minimal-lower",
+              "mono-tag",
+              "name-tag",
+              "neon",
+              "news-bar",
+              "notebook",
+              "outline-caps",
+              "pill-tag",
+              "pixel",
+              "poster",
+              "price-tag",
+              "quote-hand",
+              "quote-serif",
+              "retro-pop",
+              "rounded",
+              "serif-credit",
+              "serif-heading",
+              "seventies",
+              "signature",
+              "slab",
+              "smoked-lower",
+              "statement",
+              "sticker",
+              "subheading",
+              "subscribe",
+              "sweet",
+              "terminal",
+              "testimonial",
+              "tracked-caps",
+              "typewriter-card",
+              "watch-to-end",
+              "white-box"
+            ]
+          },
+          "text": {
+            "type": [
+              "string"
+            ]
+          },
+          "xPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "yPercent": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         }
       }

@@ -184,6 +184,7 @@ from framepilot_engine.render.mattes import (
     assert_frames_align,
     prepare_matte,
 )
+from framepilot_engine.render.picture_window import PictureWindow
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.pts_reader import (
     VideoTiming,
@@ -509,6 +510,8 @@ def _compile_image_clip(
     lut_base_dir: Path,
     media_size: tuple[float, float] | None = None,
     layer_mattes: LayerMatteResolver | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Any:
     """A still through the picture pipeline, in the video path's order (plan/elements EL2a, EL2b).
 
@@ -532,8 +535,11 @@ def _compile_image_clip(
         None,
         None
         if layer_mattes is None
-        else _layer_matte_binding(layer_mattes, clip, target, transition),
-        _frame_placement_binding(clip, target, transition),
+        else _layer_matte_binding(
+            layer_mattes, clip, target, transition, project_size=project_size
+        ),
+        _frame_placement_binding(clip, target, transition, project_size=project_size),
+        project_size=project_size,
     )
     source = _apply_color_grade(source, clip, lut_base_dir, stacks)
     source = _apply_transition_blur(source, transition)
@@ -542,7 +548,9 @@ def _compile_image_clip(
     source = _apply_key_despill(source, stacks)
     source = _apply_edge_styles(source, clip, stacks, media_size, transition, own_alpha, still=True)
     source = _apply_catalog_transition(source, clip, use_legacy)
-    placed = _place_video_clip(source, clip, target, transition, still=True)
+    placed = _place_video_clip(
+        source, clip, target, transition, still=True, project_size=project_size
+    )
     return placed.with_start(clip.start)
 
 
@@ -564,7 +572,8 @@ def _compile_text_clip(
 
     EL2b: its mask stack (the kinds a title can take: a track matte, a Frame-space shape, a key)
     and its edge styles, which trace its glyphs. A title has no source picture, so a style's
-    lengths are frame pixels at the project's own size (``project_size``), scaled with the frame.
+    lengths are frame pixels at the project's own size (``project_size``), scaled with the frame;
+    its ``x``/``y`` keyframes are project pixels too, converted the same way.
 
     A frosted chip (``typography.background.blur``) comes back as the layer's :class:`_Frost`:
     its coverage placed through the same transform, opacity, fade, wipe and catalog transition
@@ -592,8 +601,11 @@ def _compile_text_clip(
         None,
         None
         if layer_mattes is None
-        else _layer_matte_binding(layer_mattes, clip, target, transition, centre),
-        _frame_placement_binding(clip, target, transition, centre),
+        else _layer_matte_binding(
+            layer_mattes, clip, target, transition, centre, project_size=project_size
+        ),
+        _frame_placement_binding(clip, target, transition, centre, project_size=project_size),
+        project_size=project_size,
     )
     layer = _apply_transition_blur(layer, transition)
     own_alpha = layer.mask
@@ -617,13 +629,21 @@ def _compile_text_clip(
         fit_to_frame=False,
         centre=(layout.centre_x, layout.centre_y),
         still=True,
+        project_size=project_size,
     )
     frost = (
         None
         if drawn.backdrop is None or drawn.backdrop_sigma_px <= 0
         else _Frost(
             _place_text_backdrop(
-                image_clip_cls, drawn.backdrop, clip, target, transition, use_legacy, centre
+                image_clip_cls,
+                drawn.backdrop,
+                clip,
+                target,
+                transition,
+                use_legacy,
+                centre,
+                project_size=project_size,
             ),
             drawn.backdrop_sigma_px,
         )
@@ -639,6 +659,8 @@ def _place_text_backdrop(
     transition: transitions.Transition | None,
     use_legacy: bool,
     centre: tuple[float, float],
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Any:
     """A frosted chip's coverage, placed exactly as its text overlay's letters are.
 
@@ -655,7 +677,14 @@ def _place_text_backdrop(
     backdrop = _attach_mask(backdrop, clip, transition, None, None, with_stack=False)
     backdrop = _apply_catalog_transition(backdrop, clip, use_legacy)
     placed = _place_video_clip(
-        backdrop, clip, target, transition, fit_to_frame=False, centre=centre, still=True
+        backdrop,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=centre,
+        still=True,
+        project_size=project_size,
     )
     return placed.with_start(clip.start)
 
@@ -681,7 +710,13 @@ def _title_edge_size(
     return raster[0] * factor, raster[1] * factor
 
 
-def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]) -> Any | None:
+def _compile_shape_clip(
+    image_clip_cls: Any,
+    clip: Clip,
+    target: tuple[int, int],
+    *,
+    project_size: tuple[int, int] | None,
+) -> Any | None:
     """Rasterise a shape and place it: the title's pipeline around the raster's own centre.
 
     The engine is the only shape rasteriser (``render/shape_raster.py``); the desktop monitor draws
@@ -699,7 +734,14 @@ def _compile_shape_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int]
     layer = _attach_mask(layer, clip, transition, with_stack=False)
     layer = _apply_catalog_transition(layer, clip, use_legacy)
     placed = _place_video_clip(
-        layer, clip, target, transition, fit_to_frame=False, centre=bounds.centre, still=True
+        layer,
+        clip,
+        target,
+        transition,
+        fit_to_frame=False,
+        centre=bounds.centre,
+        still=True,
+        project_size=project_size,
     )
     return placed.with_start(clip.start)
 
@@ -713,6 +755,7 @@ def _place_video_clip(
     fit_to_frame: bool = True,
     centre: tuple[float, float] | None = None,
     still: bool = False,
+    project_size: tuple[int, int] | None,
 ) -> VideoClip:
     """Scale, animate and position one picture layer inside the target frame.
 
@@ -727,6 +770,9 @@ def _place_video_clip(
         every overlay exported dead centre whatever the editor had positioned.
     :param still: ``True`` for a layer made from one picture (a still, a title, a shape): its
         resize is reused while its picture and size repeat (:func:`_resized`).
+    :param project_size: The project's frame, which the clip's ``x``/``y`` keyframes are authored
+        in; ``None`` only when ``target`` is that frame or the clip has no such keyframes.
+        Required so no caller at another size can forget it (frame grabs, review renders).
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
@@ -756,7 +802,14 @@ def _place_video_clip(
 
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
-            clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
+            clip,
+            t,
+            (clip_w, clip_h),
+            base_scale,
+            target,
+            (centre_x, centre_y),
+            transition,
+            project_size=project_size,
         )
 
     placed = _resized(source, size_at if has_stretch(clip) else scale_at, still)
@@ -846,7 +899,8 @@ def _underlay_layer(
     # plain picture — it is the thing being revealed, never a second reveal) and without its
     # keyframed motion, which is timed to the neighbour's own clip-local clock.
     plain = neighbour.model_copy(update={"keyframes": []})
-    placed = _place_video_clip(material, plain, target, None)
+    # No keyframes, so there is no x/y to convert: the project's size would change nothing.
+    placed = _place_video_clip(material, plain, target, None, project_size=None)
     return placed.with_start(start).with_duration(span)
 
 
@@ -902,11 +956,24 @@ def _clip_mask_stacks(
     layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
     | None = None,
     placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None,
+    *,
+    project_size: tuple[int, int] | None = None,
 ) -> ClipMaskStacks | None:
-    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
+    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one.
+
+    :param project_size: The project's frame, which frame-space masks are authored in; needed
+        with ``placements`` whenever the target frame may be another size.
+    """
     try:
         return clip_mask_stacks(
-            clip, media_size, mattes, decoded_size, tracks, layer_mattes, placements
+            clip,
+            media_size,
+            mattes,
+            decoded_size,
+            tracks,
+            layer_mattes,
+            placements,
+            None if project_size is None else (float(project_size[0]), float(project_size[1])),
         )
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
@@ -921,6 +988,7 @@ def picture_placement_at(
     *,
     fit_to_frame: bool = True,
     centre: tuple[float, float] | None = None,
+    project_size: tuple[int, int] | None = None,
 ) -> PicturePlacement:
     """Where :func:`_place_video_clip` lands a clip's ``size`` picture at clip-local ``t``.
 
@@ -931,6 +999,8 @@ def picture_placement_at(
 
     :param fit_to_frame: ``False`` and ``centre`` for a layer drawn at its finished size around
         its own centre, as a title is (EL2b): the arguments ``_place_video_clip`` takes.
+    :param project_size: The frame the clip's ``x``/``y`` keyframes are authored in, when
+        ``target`` is not the project's own (``_place_video_clip``'s argument). ``None``: it is.
     """
     clip_w, clip_h = size
     target_w, target_h = target
@@ -952,7 +1022,14 @@ def picture_placement_at(
     scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
     centre_xy = centre if centre is not None else (target_w / 2, target_h / 2)
     left, top = layer_position_at(
-        clip, t, (clip_w, clip_h), base_scale, target, centre_xy, transition
+        clip,
+        t,
+        (clip_w, clip_h),
+        base_scale,
+        target,
+        centre_xy,
+        transition,
+        project_size=project_size,
     )
     rotation = (
         float(evaluate_clip_transform(clip, t).rotation)
@@ -969,6 +1046,8 @@ def _frame_placement_binding(
     target: tuple[int, int],
     transition: transitions.Transition | None,
     centre: tuple[float, float] | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]]:
     """Where a clip's raster lands on the frame at clip-local ``t``, and the frame's size (MK9.1).
 
@@ -986,6 +1065,7 @@ def _frame_placement_binding(
             transition,
             fit_to_frame=centre is None,
             centre=centre,
+            project_size=project_size,
         )
         return placement, target
 
@@ -998,6 +1078,8 @@ def _layer_matte_binding(
     target: tuple[int, int],
     transition: transitions.Transition | None,
     centre: tuple[float, float] | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]:
     """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement.
 
@@ -1016,6 +1098,7 @@ def _layer_matte_binding(
             transition,
             fit_to_frame=centre is None,
             centre=centre,
+            project_size=project_size,
         )
         return frame, placement
 
@@ -1838,6 +1921,23 @@ def _apply_audio_effects(source: Any, clip: Clip, timeline: Timeline) -> Any:
     return _carry_owned_resources(source, source.transform(gained, keep_duration=True))
 
 
+class PictureWindowMiss(CompileError):
+    """A windowed compile built no picture layer; the caller composites the whole timeline."""
+
+
+def _refuse_like_the_full_compile(
+    clip: Clip, kind: str, track: Any, asset_index: AssetIndex
+) -> None:
+    """Outside a picture window, refuse what the full compile would refuse for this clip.
+
+    A windowed frame is the full compile's frame, and that includes its failures: a clip
+    whose media is missing fails every frame of the export, so it fails every grab too,
+    whichever instant the grab asks for. Only the lookup runs; no reader opens.
+    """
+    if (kind in _PICTURE_KINDS and not track.hidden) or (kind == "audio" and not track.muted):
+        _resolve_clip_asset(clip, asset_index)
+
+
 def compile_timeline(
     project: Project,
     asset_index: AssetIndex,
@@ -1846,6 +1946,7 @@ def compile_timeline(
     burn_captions: bool = False,
     max_decode_dimension: int | None = None,
     on_progress: Callable[[float], None] | None = None,
+    window: PictureWindow | None = None,
 ) -> VideoClip:
     """Build the MoviePy composition for ``project``.
 
@@ -1853,6 +1954,15 @@ def compile_timeline(
     share of an export's wall time — about 13% of a 30 s 4K render, spent opening readers
     and building the graph — and reporting it as one flat number made the bar sit still
     and then lag: measured 5.5 percentage points behind reality at the 20% mark.
+
+    ``window`` (the single-frame grab, :mod:`framepilot_engine.render.picture_window`)
+    builds the picture layers of the clips it names and nothing else — no other clip's
+    reader, and no sound at all — so the composite's frame at ``window.time`` is the full
+    compile's frame at that instant, for the cost of the clips in it. The returned clip's
+    ``duration`` is then where its picture layers end: past it, the full compile's caption
+    compositor would hold ITS picture's last frame, which this composite does not have, so a
+    caller must not read at or beyond it. Raises :class:`PictureWindowMiss` when the window
+    builds no picture layer.
     """
     from moviepy import (
         AudioFileClip,
@@ -1866,7 +1976,12 @@ def compile_timeline(
     # the same pixels, without a full-frame blend per sticker (render/bounded_composite.py).
     from framepilot_engine.render.bounded_composite import BoundedCompositeVideoClip
 
+    # A window composites a picture: its readers skip the audio probe and decoder that
+    # `VideoFileClip` opens by default, which nothing downstream of a picture would read.
+    open_video: Any = VideoFileClip if window is None else partial(VideoFileClip, audio=False)
     target = (preset.width, preset.height)
+    # Keyframed x/y are project pixels; a preset at another size converts them (frame_plan).
+    project_size = (project.resolution.width, project.resolution.height)
     fps = preset.fps or project.fps
     asset_kinds = {entry.asset_id: entry.kind for entry in asset_index.entries}
     lut_base_dir = Path(asset_index.base_dir)
@@ -1896,6 +2011,11 @@ def compile_timeline(
             for position, clip in enumerate(ordered):
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
+                if window is not None and clip.id not in window.clip_ids:
+                    # Still in `ordered`, so a windowed clip's transition finds this one as
+                    # its neighbour and borrows its handle exactly as the full compile does.
+                    _refuse_like_the_full_compile(clip, kind, track, asset_index)
+                    continue
                 if kind in _PICTURE_KINDS:
                     if track.hidden:
                         continue
@@ -1909,6 +2029,7 @@ def compile_timeline(
                             lut_base_dir,
                             _asset_media_size(project, clip),
                             layer_mattes,
+                            project_size=project_size,
                         )
                         opened.append(picture)
                         if matte_sources.consumes(track.id, clip.id, None):
@@ -1930,7 +2051,7 @@ def compile_timeline(
                             and transitions.transition_from_clip(clip) is None
                         )
                         reader = _open_source_reader(
-                            VideoFileClip,
+                            open_video,
                             path,
                             max_decode_dimension
                             if max_decode_dimension is not None
@@ -1955,9 +2076,16 @@ def compile_timeline(
                             (int(reader.size[0]), int(reader.size[1])),
                             prepared_tracks.get(clip.id, {}),
                             _layer_matte_binding(
-                                layer_mattes, clip, target, legacy_transition(clip)
+                                layer_mattes,
+                                clip,
+                                target,
+                                legacy_transition(clip),
+                                project_size=project_size,
                             ),
-                            _frame_placement_binding(clip, target, legacy_transition(clip)),
+                            _frame_placement_binding(
+                                clip, target, legacy_transition(clip), project_size=project_size
+                            ),
+                            project_size=project_size,
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
@@ -1972,7 +2100,9 @@ def compile_timeline(
                             source, clip, stacks, _asset_media_size(project, clip), transition
                         )
                         source = _apply_catalog_transition(source, clip, use_legacy)
-                        placed = _place_video_clip(source, clip, target, transition)
+                        placed = _place_video_clip(
+                            source, clip, target, transition, project_size=project_size
+                        )
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side
                         # of its cut, and butt-joined clips leave nothing there — so the
                         # neighbour's handle is placed beneath the ramp before the clip itself
@@ -1981,7 +2111,7 @@ def compile_timeline(
                         for planned in transition_underlays(clip, position, ordered, asset_kinds):
                             resolved_neighbour = planned.neighbour
                             underlay = _underlay_layer(
-                                VideoFileClip,
+                                open_video,
                                 ImageClip,
                                 resolved_neighbour,
                                 planned.role,
@@ -2020,14 +2150,12 @@ def compile_timeline(
                         continue
                     if kind == "text":
                         graphic = _compile_text_clip(
-                            ImageClip,
-                            clip,
-                            target,
-                            (project.resolution.width, project.resolution.height),
-                            layer_mattes,
+                            ImageClip, clip, target, project_size, layer_mattes
                         )
                     else:
-                        shape = _compile_shape_clip(ImageClip, clip, target)
+                        shape = _compile_shape_clip(
+                            ImageClip, clip, target, project_size=project_size
+                        )
                         graphic = None if shape is None else _PictureLayer(shape, clip.blend_mode)
                     if graphic is not None:
                         opened.append(graphic.picture)
@@ -2054,6 +2182,11 @@ def compile_timeline(
                     None,
                 )
             )
+        if not video_layers and window is not None:
+            raise PictureWindowMiss(
+                f"No picture layer of the timeline is near {window.time:.3f}s; "
+                "the whole timeline has to be composited for this frame."
+            )
         if not video_layers:
             raise CompileError(
                 "Timeline has no renderable video clips; rendering requires at least "
@@ -2072,14 +2205,17 @@ def compile_timeline(
             composite = BoundedCompositeVideoClip(
                 [layer.picture for layer in video_layers], size=target, bg_color=(0, 0, 0)
             ).with_fps(fps)
-        composite = apply_effect_layers(composite, project.timeline, fps=fps)
+        picture_end = composite.duration
+        composite = apply_effect_layers(
+            composite, project.timeline, fps=fps, project_size=project_size
+        )
         # Burned captions go on AFTER the effect layers. A look restyles the picture; the
         # captions are delivery text with a design of their own, and the preview draws them as
         # a DOM overlay the effect stage never reaches. Composited before it, the captured
         # short's opening caption was radial-blurred and every cue vignetted in the export
         # while the monitor showed them crisp.
         if burn_captions:
-            captions = _caption_layers(project, target)
+            captions = _caption_layers(project, target, None if window is None else window.clip_ids)
             if any(caption.backdrop is not None for caption in captions):
                 # A frosted-glass chip blurs the DELIVERED picture behind it, which no
                 # MoviePy layer can see; the caption compositor draws each playing
@@ -2102,6 +2238,9 @@ def compile_timeline(
                 ).with_fps(fps)
         if audio_layers:
             composite = composite.with_audio(CompositeAudioClip(audio_layers))
+        if window is not None and picture_end is not None:
+            # See the docstring: only instants before the picture's end are the full frame.
+            composite = composite.with_duration(float(picture_end))
         return composite
     except BaseException:
         for clip_obj in opened:
@@ -2320,10 +2459,15 @@ class _CaptionLayer:
     backdrop_sigma_px: float = 0.0
 
 
-def _caption_layers(project: Project, target: tuple[int, int]) -> list[_CaptionLayer]:
+def _caption_layers(
+    project: Project, target: tuple[int, int], only: frozenset[str] | None = None
+) -> list[_CaptionLayer]:
+    """Every burned caption's layer, or (``only``) those of the named cues, in track order."""
     layers: list[_CaptionLayer] = []
     for track in caption_tracks(project):
         for clip in track.clips:
+            if only is not None and clip.id not in only:
+                continue
             cue = resolve_caption_cue(clip, project.transcript)
             if not cue.text.strip():
                 continue

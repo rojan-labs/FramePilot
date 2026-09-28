@@ -532,6 +532,39 @@ def layer_scale_at(clip: Clip, t: float, transition: transitions.Transition | No
     return scale
 
 
+def authored_offset_scale(
+    target: tuple[int, int], project_size: tuple[int, int] | None
+) -> tuple[float, float]:
+    """Target pixels per project pixel, per axis: what a keyframed ``x``/``y`` is multiplied by.
+
+    WHY: ``x``/``y`` keyframes are offsets from the frame centre in PROJECT pixels — the unit the
+    editor, the AI tools and the preview author them in (the monitor scales them to its canvas).
+    Everything else a layer is placed by is already relative to the frame it is drawn on (the
+    fit, a title's ``xPercent``, a transition's travel), so a frame grab or review render at a
+    smaller size than the project used to move only the ``x``/``y`` part by full project pixels:
+    a reframing pan's ends slid the picture off a 288 x 512 grab entirely and showed black.
+
+    :param project_size: The project's ``(width, height)``; ``None`` when ``target`` is the
+        project frame. A non-positive dimension leaves that axis unscaled.
+    """
+    if project_size is None:
+        return (1.0, 1.0)
+    project_w, project_h = project_size
+    return (
+        target[0] / project_w if project_w > 0 else 1.0,
+        target[1] / project_h if project_h > 0 else 1.0,
+    )
+
+
+def authored_offset_at(
+    clip: Clip, t: float, target: tuple[int, int], project_size: tuple[int, int] | None
+) -> tuple[float, float]:
+    """The clip's keyframed ``x``/``y`` at clip-local ``t``, converted to ``target`` pixels."""
+    transform = evaluate_clip_transform(clip, t)
+    scale_x, scale_y = authored_offset_scale(target, project_size)
+    return (transform.x * scale_x, transform.y * scale_y)
+
+
 def layer_stretch_at(clip: Clip, t: float) -> tuple[float, float]:
     """The clip's non-uniform stretch ``(scaleX, scaleY)`` at clip-local ``t``; ``(1, 1)`` when
     it keyframes neither. It multiplies :func:`layer_scale_at` per axis, in the layer's own axes
@@ -562,12 +595,18 @@ def layer_position_at(
     target: tuple[int, int],
     centre: tuple[float, float],
     transition: transitions.Transition | None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> tuple[float, float]:
-    """The layer's top-left in frame pixels at clip-local ``t`` (the compiler's ``position_at``)."""
+    """The layer's top-left in frame pixels at clip-local ``t`` (the compiler's ``position_at``).
+
+    :param project_size: The frame the clip's ``x``/``y`` keyframes were authored in (see
+        :func:`authored_offset_scale`); ``None`` when ``target`` is that frame.
+    """
     target_w, target_h = target
     clip_w, clip_h = source_size
     centre_x, centre_y = centre
-    transform = evaluate_clip_transform(clip, t)
+    offset_x, offset_y = authored_offset_at(clip, t, target, project_size)
     scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
     width = clip_w * scale_x
     height = clip_h * scale_y
@@ -577,7 +616,7 @@ def layer_position_at(
         else (0.0, 0.0)
     )
     dy += title_envelope_at(clip, t).dy * target_h
-    return (centre_x - width / 2 + transform.x + dx, centre_y - height / 2 + transform.y + dy)
+    return (centre_x - width / 2 + offset_x + dx, centre_y - height / 2 + offset_y + dy)
 
 
 def layer_opacity_at(clip: Clip, t: float, transition: transitions.Transition | None) -> float:
@@ -849,6 +888,8 @@ class _Context:
     project: Project
     t: float
     target: tuple[int, int]
+    #: The project's frame, which ``x``/``y`` keyframes are authored in (``authored_offset_at``).
+    project_size: tuple[int, int]
     asset_kinds: dict[str, str | None]
     asset_sizes: dict[str, tuple[float, float]]
     asset_durations: dict[str, float | None]
@@ -890,7 +931,16 @@ def _picture_geometry(
     centre = (ctx.target[0] / 2, ctx.target[1] / 2)
     scale = base * layer_scale_at(clip, local, transition)
     stretch_x, stretch_y = layer_stretch_at(clip, local)
-    left, top = layer_position_at(clip, local, source_size, base, ctx.target, centre, transition)
+    left, top = layer_position_at(
+        clip,
+        local,
+        source_size,
+        base,
+        ctx.target,
+        centre,
+        transition,
+        project_size=ctx.project_size,
+    )
     width = source_size[0] * (scale * stretch_x)
     height = source_size[1] * (scale * stretch_y)
     return LayerGeometry(
@@ -1063,6 +1113,7 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
         else (0.0, 0.0)
     )
     dy += title_envelope_at(clip, local).dy * ctx.target[1]
+    offset_x, offset_y = authored_offset_at(clip, local, ctx.target, ctx.project_size)
     return PlanLayer(
         kind="text",
         role="clip",
@@ -1074,8 +1125,8 @@ def _text_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
         geometry=LayerGeometry(
             base_scale=1.0,
             scale=layer_scale_at(clip, local, transition),
-            anchor_x=layout.centre_x + transform.x + dx,
-            anchor_y=layout.centre_y + transform.y + dy,
+            anchor_x=layout.centre_x + offset_x + dx,
+            anchor_y=layout.centre_y + offset_y + dy,
             rotation=transform.rotation,
             stretch_x=transform.scale_x,
             stretch_y=transform.scale_y,
@@ -1108,8 +1159,9 @@ def _shape_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer | None:
         else (0.0, 0.0)
     )
     scale = layer_scale_at(clip, local, transition)
-    anchor_x = centre_x + transform.x + dx
-    anchor_y = centre_y + transform.y + dy
+    offset_x, offset_y = authored_offset_at(clip, local, ctx.target, ctx.project_size)
+    anchor_x = centre_x + offset_x + dx
+    anchor_y = centre_y + offset_y + dy
     width = bounds.width * (scale * transform.scale_x)
     height = bounds.height * (scale * transform.scale_y)
     return PlanLayer(
@@ -1237,6 +1289,8 @@ def frame_plan_at(
     :param project: The project to describe.
     :param t: Sequence time in seconds.
     :param target: Output frame size; defaults to the project resolution, as the preview uses.
+        At another size the plan is the project-size plan scaled: keyframed ``x``/``y`` are
+        project pixels and are converted to ``target`` pixels (:func:`authored_offset_scale`).
     :param burn_captions: Whether the export burns caption tracks in.
     :param source_fps: Probed frame rate per asset id. Needed for frame numbers and for
         reverse playback, whose time mirror is one source frame short.
@@ -1259,6 +1313,7 @@ def frame_plan_at(
         project=project,
         t=t,
         target=size,
+        project_size=(project.resolution.width, project.resolution.height),
         asset_kinds={asset.id: asset.kind for asset in project.assets},
         asset_sizes=asset_sizes,
         asset_durations={asset.id: asset.duration_seconds for asset in project.assets},

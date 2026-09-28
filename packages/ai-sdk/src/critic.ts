@@ -265,168 +265,6 @@ const VERTICAL_PLATFORMS: ReadonlySet<TargetPlatform> = new Set(['reels', 'tikto
 
 const round = (n: number): string => (Math.round(n * 1000) / 1000).toString();
 
-/**
- * A figure that is explicitly PER-UNIT is a pacing spec, never a deliverable length.
- *
- * "0.3–0.6s per clip" is the shape every montage brief uses to describe cutting rhythm,
- * and reading it as the length of the finished video is not a near miss — it is off by
- * two orders of magnitude. Matched immediately after the number's unit.
- */
-const PER_UNIT_QUALIFIER = /^\s*(?:\/|per\b|each\b|a |an )\s*(?:clip|shot|cut|frame|image|photo)/;
-
-/**
- * Is the number that starts at `index` the far end of a RANGE ("0.3–0.6s")?
- *
- * A range states a spread the editor may work within; it does not name a target. Checked
- * by looking backwards for a dash of any flavour — ASCII hyphen, en dash, em dash — with
- * a number before it.
- */
-function endsARange(text: string, index: number): boolean {
-  return /\d\s*[-–—]\s*$/.test(text.slice(0, index));
-}
-
-/**
- * Read an explicit deliverable length from ordinary creator language.
- *
- * Deliberately conservative: a bare timestamp such as "cut at 30 seconds" is not a
- * duration target. A match must connect the number to a deliverable word (video,
- * montage, reel, short, timeline), an explicit length phrase ("make it … long"), or
- * the whole-output qualifiers "full"/"complete"/"entire".
- *
- * It was not conservative ENOUGH, and the gap failed a real run. The anchor list contains
- * verbs — `build`, `create`, `produce` — because that is how people ask ("build me a
- * 30-second reel"). But `build` is also a PACING PHASE, and a montage brief that wrote
- *
- *     ### BUILD
- *     Approximately:
- *     **0.3–0.6s per clip**
- *
- * matched the heading, skipped lazily past `0.3–`, and returned **0.6** as the length of a
- * fifty-clip montage. Run `f014f3ac` was then told "Timeline is 203.068s but the target is
- * 0.6s (off by 202.468s)" and reported itself failed for hitting a number nobody asked
- * for. Two structural guards close it, both of which read what the text actually says
- * rather than adding another anchor word: a per-unit figure is pacing
- * ({@link PER_UNIT_QUALIFIER}), and the far end of a range is not a target
- * ({@link endsARange}). Both generalise past this brief — every montage request describes
- * its rhythm this way.
- */
-export function explicitDurationTargetSeconds(prompt: string): number | undefined {
-  return explicitDurationTarget(prompt)?.seconds;
-}
-
-/**
- * A stated deliverable length, with the slack the request itself allowed.
- *
- * A brief that says "20–35 seconds" has not named one number and a tolerance nobody chose;
- * it has named an interval, and the honest target is its midpoint with the half-width as
- * the tolerance, so anything inside the stated range passes and nothing outside it does.
- */
-export interface DurationTarget {
-  readonly seconds: number;
-  /** Half-width of a stated range. Absent when the request named a single length. */
-  readonly toleranceSeconds?: number;
-}
-
-/**
- * Read an explicit deliverable length — a single length or a stated range.
- *
- * Ranges used to be dropped whole. {@link endsARange} exists to stop "0.3–0.6s per clip"
- * being read as a 0.6-second deliverable, and it did that by refusing the FAR end; the
- * near end was never matched in the first place, because in `20–35 seconds` only the far
- * number carries the unit. So a brief that stated its length as plainly as
- *
- *     **Duration:** Approximately 20–35 seconds
- *
- * yielded nothing at all. Run 4c9b5f82 delivered 10.0 seconds against it and
- * `duration_target` reported `skipped — no duration target was set`.
- *
- * Reading the range as an interval keeps the guard's actual intent (the far end alone is
- * never the target) while stopping the range from being silently discarded. `duration` and
- * `length` join the lead anchors for the same reason: that is the word the brief used, and
- * the deliverable noun sat ninety characters upstream under a `# FORMAT` heading.
- */
-export function explicitDurationTarget(prompt: string): DurationTarget | undefined {
-  const normalized = prompt.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized) return undefined;
-  const unitValue = (value: string, unit: string): number => {
-    const amount = Number(value);
-    return /^m(?:in(?:ute)?s?)?$/.test(unit) ? amount * 60 : amount;
-  };
-  const units = '(s|sec|secs|second|seconds|m|min|mins|minute|minutes)';
-  // `highlight`, `supercut`, `teaser` and `trailer` are deliverable nouns exactly as
-  // `montage` and `reel` are — a request naming one has named the thing being made.
-  // `best` carries the commonest idiom of all ("the best 60 seconds of this"), where the
-  // deliverable is named by the length itself and no other anchor appears anywhere.
-  const deliverables = 'video|montage|reel|short|timeline|highlight|supercut|teaser|trailer';
-  const anchors =
-    `full|complete|entire|${deliverables}|duration|length|runtime|run time|` +
-    'make it|create|build|produce|export|best|' +
-    // "Cut this down to 45 seconds" states a target as plainly as any phrasing here, and
-    // was read as nothing. The OBJECT is what makes it safe to read: `this`, `it` or the
-    // sequence itself is the whole deliverable, whereas "trim the first clip down to 5s"
-    // is about one clip and must stay unread — which is why the bare preposition is not an
-    // anchor on its own.
-    `(?:cut|trim|shorten|tighten|bring|get)\\s+(?:this|it|the (?:${deliverables}))\\s+down to`;
-  // A candidate survives only if it is neither the far end of a range nor qualified
-  // per-clip. Scanning rather than taking the first hit: the brief that broke this had a
-  // dozen pacing figures before any real length, and stopping at the first match would
-  // still read one of them.
-  const firstDeliverableLength = (
-    pattern: RegExp,
-    /** Index of the capture group holding the range's far end, when the pattern has one. */
-    farGroup?: number,
-  ): DurationTarget | undefined => {
-    for (const match of normalized.matchAll(pattern)) {
-      const value = match[1];
-      const far = farGroup === undefined ? undefined : match[farGroup];
-      const unit = match[farGroup === undefined ? 2 : farGroup + 1];
-      if (value === undefined || unit === undefined) continue;
-      // The capture's own offset, not a search for its text: an anchor phrase can contain
-      // the same digits ("1080 x 1920 ... duration: 20-35 seconds"), and either a first- or
-      // a last-match search picks the wrong one on some brief.
-      const numberAt = match.indices?.[1]?.[0] ?? match.index + match[0].lastIndexOf(value);
-      if (endsARange(normalized, numberAt)) continue;
-      if (PER_UNIT_QUALIFIER.test(normalized.slice(match.index + match[0].length))) continue;
-      const near = unitValue(value, unit);
-      if (far === undefined) return { seconds: near };
-      const end = unitValue(far, unit);
-      // A malformed or degenerate range is one number stated twice; take it as one.
-      if (!(end > near)) return { seconds: near };
-      return { seconds: (near + end) / 2, toleranceSeconds: (end - near) / 2 };
-    }
-    return undefined;
-  };
-  // Ranges first: `20-35 seconds` also matches the single-length pattern at `35`, and that
-  // match is the far end — the one reading the guard exists to refuse.
-  const leadingRange = firstDeliverableLength(
-    new RegExp(
-      `\\b(?:${anchors})\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*${units}\\b`,
-      'gd',
-    ),
-    2,
-  );
-  if (leadingRange !== undefined) return leadingRange;
-  const leading = firstDeliverableLength(
-    new RegExp(`\\b(?:${anchors})\\b.{0,40}?\\b(\\d+(?:\\.\\d+)?)\\s*${units}\\b`, 'gd'),
-  );
-  if (leading !== undefined) return leading;
-  const trailingRange = firstDeliverableLength(
-    new RegExp(
-      `\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b` +
-        `.{0,28}?\\b(?:${deliverables}|long)\\b`,
-      'gd',
-    ),
-    2,
-  );
-  if (trailingRange !== undefined) return trailingRange;
-  return firstDeliverableLength(
-    new RegExp(
-      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:${deliverables}|long)\\b`,
-      'gd',
-    ),
-  );
-}
-
 const allClips = (timeline: Timeline): readonly Clip[] =>
   timeline.tracks.flatMap((track) => track.clips);
 
@@ -1160,8 +998,12 @@ function checkTrackerMotion(project: Project): CriticCheck {
     'warn',
     `${String(empty.length)} of ${String(trackers)} tracker(s) hold no motion at all — a ` +
       `highlight on them will not follow anything: ${[...new Set(empty)].slice(0, 4).join(', ')}. ` +
-      'The AI cannot compute the track by itself: draw a mask around the subject on that clip ' +
-      'in the editor and run automatic tracking, or remove the tracker.',
+      // track_object attaches an empty tracker; the path that measures motion is a mask.
+      // This used to say the AI could not track at all, which was false on the desktop
+      // wherever the masking tools are on (run 6cb12e30 audit).
+      'An object tracker attaches no motion by itself: find the subject with find_mask_targets ' +
+      'and create a mask on it with track:true (or track_mask an existing one), or remove the ' +
+      'tracker.',
   );
 }
 

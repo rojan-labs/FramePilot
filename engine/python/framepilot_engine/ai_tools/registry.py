@@ -298,6 +298,24 @@ class AddTextLayerArgs(BaseModel):
     font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
 
 
+class SetTextStyleArgs(BaseModel):
+    """Restyle one text overlay; mirrors the TS ``set_text_style`` schema."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    text: str | None = Field(default=None, min_length=1)
+    style: TextOverlayStyleId | None = None
+    size_percent: float | None = Field(default=None, alias="sizePercent", gt=0.0, le=100.0)
+    color: str | None = None
+    background: str | None = None
+    align: Literal["left", "center", "right"] | None = None
+    box_width_percent: float | None = Field(default=None, alias="boxWidthPercent", gt=0.0, le=100.0)
+    x_percent: float | None = Field(default=None, alias="xPercent", ge=0.0, le=100.0)
+    y_percent: float | None = Field(default=None, alias="yPercent", ge=0.0, le=100.0)
+    font_family: BundledFontFamily | None = Field(default=None, alias="fontFamily")
+    font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
+
+
 class ShapeBoxArg(BaseModel):
     """A box shape's centre (percent of each frame axis) and size (percent of frame height)."""
 
@@ -482,6 +500,26 @@ class PunchInArgs(BaseModel):
     end_time: float | None = Field(default=None, alias="endTime", ge=0.0)
 
 
+class ReframePointArg(BaseModel):
+    """Where the reframing window's centre sits in the source, as 0..1 fractions."""
+
+    model_config = _STRICT
+    x: float = Field(ge=0.0, le=1.0)
+    y: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class ReframePanArgs(BaseModel):
+    """A reframe that holds on, or pans across, a wider source; mirrors TS ``reframe_pan``."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId", min_length=1)
+    from_: ReframePointArg = Field(alias="from")
+    to: ReframePointArg | None = None
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out", "hold", "bezier"] | None = None
+    start_time: float | None = Field(default=None, alias="startTime", ge=0.0)
+    end_time: float | None = Field(default=None, alias="endTime", ge=0.0)
+
+
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
@@ -636,6 +674,9 @@ class TransitionCut(BaseModel):
     from_clip_id: str = Field(alias="fromClipId")
     to_clip_id: str = Field(alias="toClipId")
     reason: TransitionReason | None = None
+    #: A catalog id the editor named for this cut (mirrors TS ``add_transitions``).
+    kind: str | None = Field(default=None, min_length=1)
+    duration_seconds: float | None = Field(default=None, alias="durationSeconds", gt=0.0)
 
 
 class AddTransitionsArgs(BaseModel):
@@ -1009,11 +1050,29 @@ class DiscoverCaptionStylesArgs(BaseModel):
 
 
 class SetClipSpeedArgs(BaseModel):
-    """Set a clip's constant playback speed (schema v6 time-remap). ``None`` resets to 1x."""
+    """Set a clip's constant playback speed (schema v6 time-remap). ``None`` resets to 1x.
+
+    Mirrors ``domain-tools/timeline.ts#set_clip_speed``: ``playback`` ``"reverse"`` plays the
+    clip backwards (``speed`` optional, default 1x) and ``"freeze"`` holds its first frame and
+    takes no ``speed`` (schema v15, ADR 0090).
+    """
 
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
-    speed: float | None = Field(gt=0.0)
+    speed: float | None = Field(default=None, gt=0.0)
+    playback: Literal["forward", "reverse", "freeze"] | None = None
+
+    @model_validator(mode="after")
+    def _speed_matches_playback(self) -> SetClipSpeedArgs:
+        # ``"speed" in model_fields_set`` separates an omitted speed from ``speed: null``
+        # (reset to 1x), which the TS refine tells apart as ``undefined`` vs ``null``.
+        given = "speed" in self.model_fields_set
+        valid = not given if self.playback == "freeze" else self.playback == "reverse" or given
+        if not valid:
+            raise ValueError(
+                'Give speed (a rate, or null for 1x) - or playback: "freeze", which takes no speed.'
+            )
+        return self
 
 
 class SetClipCropArgs(BaseModel):
@@ -1118,9 +1177,34 @@ class GetFrameArgs(BaseModel):
     """
 
     model_config = _STRICT
-    time_seconds: float = Field(alias="timeSeconds")
+    time_seconds: float | None = Field(
+        default=None,
+        alias="timeSeconds",
+        ge=0.0,
+        description="A moment of the EDIT, in timeline seconds. Omit when you pass assetId.",
+    )
+    asset_id: str | None = Field(
+        default=None,
+        alias="assetId",
+        min_length=1,
+        description="Look at this media file as shot instead of the edit. Omit timeSeconds.",
+    )
+    source_seconds: float | None = Field(
+        default=None,
+        alias="sourceSeconds",
+        ge=0.0,
+        description="With assetId: the moment in the SOURCE file (default its start).",
+    )
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
+
+    @model_validator(mode="after")
+    def _edit_or_source(self) -> GetFrameArgs:
+        if (self.time_seconds is None) == (self.asset_id is None):
+            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        if self.source_seconds is not None and self.asset_id is None:
+            raise ValueError("sourceSeconds needs assetId.")
+        return self
 
 
 class DetectBeatsArgs(BaseModel):
@@ -1700,6 +1784,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=AddTextLayerArgs,
         mutating=True,
     ),
+    "set_text_style": _spec(
+        "set_text_style",
+        "Restyle a title or other text overlay already on the timeline.",
+        kind="mutate",
+        input_model=SetTextStyleArgs,
+        mutating=True,
+    ),
     "search_elements": _spec(
         "search_elements",
         "Find shapes for add_shape by what they look like or are for (plan/elements EL5.6).",
@@ -1757,6 +1848,13 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "changes nothing rather than failing.",
         kind="mutate",
         input_model=RemoveKeyframesArgs,
+        mutating=True,
+    ),
+    "reframe_pan": _spec(
+        "reframe_pan",
+        "Reframe a clip whose shape differs from the frame by where the window sits in the source.",
+        kind="mutate",
+        input_model=ReframePanArgs,
         mutating=True,
     ),
     "punch_in": _spec(

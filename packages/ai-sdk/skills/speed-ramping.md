@@ -1,6 +1,6 @@
 ---
 name: speed-ramping
-description: Design credible speed ramps and constant retimes around action peaks, source frame-rate limits, speech intelligibility, and the timeline room a retime needs.
+description: Design credible speed ramps, constant retimes, freeze frames and reverse playback around action peaks, source frame-rate limits, speech intelligibility, and the timeline room a retime needs.
 tools: [get_clip, get_project_state, set_clip_speed_ramp, set_clip_speed, split_clip, punch_in]
 ---
 
@@ -33,6 +33,10 @@ Slow significance; speed process. Retiming must reveal the action, not announce 
 ## Professional heuristics
 
 - A ramp within one clip is `set_clip_speed_ramp`: rate points in the clip's own source seconds (fast in, slow on the moment, back up). By default it keeps the clip's timeline length, so the cut around it does not move. Reach for `split_clip` + `set_clip_speed` only when whole sections must run at different constant rates and may change length.
+- A freeze frame is `set_clip_speed { playback: "freeze" }`: the clip holds its FIRST frame,
+  silent, for the length it already has. To hold a moment, `split_clip` at the moment and again
+  where the hold should end, then freeze the middle piece. `playback: "reverse"` plays a clip
+  backwards.
 - 60fps may tolerate 0.5×; unknown/30fps calls for roughly 0.7–0.8×.
 - Keep ordinary dialogue near 0.9–1.3×.
 - Bracket the apex, usually 0.5–1.5s, rather than slowing an entire clip.

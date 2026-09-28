@@ -198,13 +198,26 @@ def apply_layer_to_frame(
     return result
 
 
-def apply_effect_layers(source: Any, timeline: Timeline, *, fps: float) -> Any:
+def apply_effect_layers(
+    source: Any,
+    timeline: Timeline,
+    *,
+    fps: float,
+    project_size: tuple[int, int] | None = None,
+) -> Any:
     """Wrap a composited MoviePy clip with the timeline's effect layers.
 
     Returns ``source`` unchanged when the timeline has no effect layers at all, so
     a project without effects renders byte-identically to before v13 and pays no
     per-frame cost.
+
+    :param project_size: The project's frame, which a lane's mask geometry is authored in; a
+        composite at another size (a frame grab, a review render) maps the masks onto its own
+        frame through it. ``None``: the composite is the project's frame.
     """
+    geometry_size = (
+        None if project_size is None else (float(project_size[0]), float(project_size[1]))
+    )
     has_any = any(track.effect_layers for track in timeline.tracks)
     if not has_any:
         return source
@@ -227,11 +240,11 @@ def apply_effect_layers(source: Any, timeline: Timeline, *, fps: float) -> Any:
         height, width = frame.shape[0], frame.shape[1]
         local = max(0.0, t - layer.start)
         if stack.animated:
-            return stack.alpha_at(local, width, height)
+            return stack.alpha_at(local, width, height, geometry_size)
         key = (layer.id, width, height)
         drawn = static.get(key)
         if drawn is None:
-            drawn = stack.alpha_at(local, width, height)
+            drawn = stack.alpha_at(local, width, height, geometry_size)
             static[key] = drawn
         return drawn
 

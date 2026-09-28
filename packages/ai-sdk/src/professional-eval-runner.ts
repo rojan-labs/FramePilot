@@ -12,6 +12,7 @@ import { EDITOR_CAPABILITIES } from './editor-capabilities.js';
 import type { EditorInteractionContext } from './editor-context/interaction-context.js';
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
+  authoredBlackFrames,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
@@ -360,7 +361,10 @@ async function reviewCaseEvidence(
     // Evidence must describe the applied edit. Rendering the setup fixture would either fail the
     // revision-bound engine request or, worse, review the before state as though it were the result.
     const batch = await acquire(editedProject, requests);
-    return { status: 'reviewed', report: reviewTemporalEvidence(requests, batch.results) };
+    return {
+      status: 'reviewed',
+      report: reviewTemporalEvidence(requests, batch.results, authoredBlackFrames(editedProject)),
+    };
   } catch (error) {
     return {
       status: 'acquisition_failed',

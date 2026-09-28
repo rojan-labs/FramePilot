@@ -57,6 +57,35 @@ describe('historyFromEvents', () => {
   it('returns empty for a fresh conversation', () => {
     expect(historyFromEvents([])).toEqual([]);
   });
+
+  it("keeps one assistant message per turn — the turn's last — so narration cannot crowd out the request", () => {
+    // Run 6cb12e30: 28 narration messages in one agent turn filled the SDK's eight-message
+    // window, and the follow-up "load the tools and complete the task" reached the model
+    // without the brief it referred to.
+    const turn = (turnId: string) => ({ ...base, turnId });
+    const narration: AiEvent[] = Array.from({ length: 12 }, (_, index) => ({
+      ...turn('t1'),
+      type: 'assistant_message' as const,
+      text: `step ${String(index)}`,
+    }));
+    const events: AiEvent[] = [
+      { ...turn('t1'), type: 'user_message', text: 'THE BRIEF' },
+      ...narration,
+      { ...turn('t1'), type: 'assistant_message', text: 'Applied 83 edits' },
+      { ...turn('t2'), type: 'user_message', text: 'load the tools and complete the task' },
+      { ...turn('t2'), type: 'assistant_message', text: 'fading the music' },
+      { ...turn('t2'), type: 'assistant_message', text: 'measuring the clips' },
+    ];
+    const history = historyFromEvents(events);
+    expect(history).toEqual([
+      { role: 'user', content: 'THE BRIEF' },
+      { role: 'assistant', content: 'Applied 83 edits' },
+      { role: 'user', content: 'load the tools and complete the task' },
+      { role: 'assistant', content: 'measuring the clips' },
+    ]);
+    // Inside the SDK's eight-message window, which is the point.
+    expect(history.slice(-8)[0]).toEqual({ role: 'user', content: 'THE BRIEF' });
+  });
 });
 
 describe('toReviewCard', () => {

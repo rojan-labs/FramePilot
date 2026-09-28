@@ -102,12 +102,23 @@ class FrameMaskStack:
             for mask in self.masks
         )
 
-    def alpha_at(self, local: float, width: int, height: int) -> FloatArray:
-        """The stack's alpha on a ``width`` x ``height`` output frame, ``local`` seconds in."""
+    def alpha_at(
+        self,
+        local: float,
+        width: int,
+        height: int,
+        geometry_size: tuple[float, float] | None = None,
+    ) -> FloatArray:
+        """The stack's alpha on a ``width`` x ``height`` output frame, ``local`` seconds in.
+
+        :param geometry_size: The frame the masks are authored in: the PROJECT's, which the editor
+            draws them on. A render at another size (a frame grab, a review render) maps them onto
+            its own frame through it. ``None``: the output frame is that frame.
+        """
         return stack_alpha(
             self.masks,
             FrameOwner(self.layer_id),
-            (float(width), float(height)),
+            geometry_size if geometry_size is not None else (float(width), float(height)),
             width,
             height,
             local,

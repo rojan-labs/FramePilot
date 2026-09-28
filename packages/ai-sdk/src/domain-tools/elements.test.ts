@@ -12,7 +12,6 @@ import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
 import { ToolRefusalError } from '../tool-refusal.js';
-import { requestedDomainsNeverLoaded } from '../tool-domains.js';
 import { shapeColour } from './elements.js';
 
 const project = (): Project =>
@@ -434,27 +433,5 @@ describe('shapeColour', () => {
     expect(shapeColour('#ff3b3080')).toBe('#ff3b3080');
     expect(shapeColour('none')).toBeNull();
     expect(shapeColour('rgb(1,2,3)')).toBeUndefined();
-  });
-});
-
-describe('the elements domain is what a callout request names', () => {
-  it.each([
-    'circle the export button when I mention it',
-    'put an arrow pointing at the price',
-    'draw a highlight box around the settings menu',
-    'underline the headline',
-    'add a callout on the pricing page',
-    'number each step with a badge',
-    'add a speech bubble over the host',
-  ])('%s', (request) => {
-    const named = requestedDomainsNeverLoaded(request, new Set()).map((entry) => entry.domain);
-    expect(named).toContain('elements');
-  });
-
-  it('does not claim colour-grade highlights or a highlight reel', () => {
-    for (const request of ['pull down the highlights', 'make a highlight reel']) {
-      const named = requestedDomainsNeverLoaded(request, new Set()).map((entry) => entry.domain);
-      expect(named).not.toContain('elements');
-    }
   });
 });

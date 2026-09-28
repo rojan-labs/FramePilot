@@ -111,6 +111,7 @@ nothing in a non-empty bin.
 | `add_clips`                         | Place a whole sequence on one track in a single call           | write            | yes        |
 | `add_text_layer`                    | Add a text overlay (`add_text_overlay` op)                     | write            | yes        |
 | `discover_text_overlay_styles`      | Text overlay styles by category, each with a one-line look     | read             | yes        |
+| `set_text_style`                    | Restyle a placed text overlay (`set_effect_params`)            | write            | yes        |
 | `search_elements`                   | Find shapes, icons or stickers by words (kind, collection)     | read             | yes        |
 | `add_shape`                         | Draw a catalogue shape or icon on an overlay (`add_shape`)     | write            | yes        |
 | `set_shape_style`                   | Restyle or move a shape (`set_effect_params`)                  | write            | yes        |
@@ -246,6 +247,13 @@ Words that would run out of the frame are fitted, not refused: the box is widene
 92% of the width, recentred so it stays inside the frame), then the size comes down. The fit
 measures the overlay's own face and, for a capitalising style, the capitals it draws. A style's
 size and box are fitted the same way as explicit ones.
+
+`set_text_style` (`clipId` plus any of `text`, `style` and the same styling args) restyles an
+overlay already on the timeline in one `set_effect_params`. A `style` is applied the way the
+Text panel's Apply does (`applyTextOverlayStylePatch`): its whole look except `xPercent`,
+`yPercent` and `boxWidthPercent`, so the overlay stays where it was placed. The result is
+fitted like a new overlay, and a call that changes nothing is refused. `adjust_effect` given a
+clip's own effect id (`<clipId>__text`) points here instead of failing as an unknown layer.
 
 `discover_text_overlay_styles` (`query`, `category`) lists the styles grouped by category, each
 with a look line derived from the catalog data (typeface and weight, colour, size, where it

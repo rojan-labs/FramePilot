@@ -434,6 +434,10 @@ describe('the note that rides with an automatic reframe', () => {
     const note = autoReframeNote('add_clips', ops);
     expect(note).toContain('2 clips auto-reframed with a CENTRED crop');
     expect(note).toContain('set_clip_crop');
+    // The way to SEE where the subject is: the source as shot, not the cropped timeline
+    // (run 6cb12e30 re-cropped a shot the wrong way from the cropped view).
+    expect(note).toContain('get_frame { assetId, sourceSeconds }');
+    expect(note).toContain('reframe_pan');
     expect(autoReframeNote('add_clip', ops.slice(0, 1))).toBe('');
     // Only the placement tools write a crop on the run's behalf.
     expect(autoReframeNote('set_clip_crop', ops)).toBe('');

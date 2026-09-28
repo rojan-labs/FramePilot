@@ -52,7 +52,7 @@ function buildProfessionalTrackingMask(rawArgs: unknown, ctx: ToolContext) {
 export const PROFESSIONAL_TRACKING_MASK_TOOL: ToolSpec = {
   name: 'professional_tracking_mask',
   description:
-    'Track the existing bounded rectangle/ellipse mask on the selected shot using deterministic manual corrections. The mask supplies the region and motion; never guess coordinates. Automatic face/object/planar/segmentation tracking is unavailable until a real CV engine is installed.',
+    'Track the existing bounded rectangle/ellipse mask on the selected shot using deterministic manual corrections. The mask supplies the region and motion; never guess coordinates. For a subject nobody has drawn a mask around, use find_mask_targets and create_mask with track:true instead.',
   version: '1',
   capabilities: ['tracking', 'masking', 'professional-editing'],
   permissions: ['write'],

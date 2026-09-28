@@ -132,6 +132,8 @@ follow its supersession notes. Important current boundaries include:
   keyframes (0192), and Pexels media may be a manual picture-in-picture (0193).
 - Text overlays take the caption typography, drawn by the caption rasterizer (0194).
 - One bounding box moves, resizes, stretches and rotates every layer on the monitor (0195).
+- The router reads a request's finished length and what it continues, quote-grounded; no
+  pattern reads a request (0196).
 
 ADRs are historical records. Do not silently rewrite an accepted decision to describe a new
 architecture. Add or supersede an ADR when the decision changes.

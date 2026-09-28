@@ -20,7 +20,6 @@ import {
   explicitMinShotCount,
   hasCheckableAcceptance,
   mentionsUnreadableShotCount,
-  unmeetableDeliverables,
 } from './acceptance.js';
 import { referenceDirectives } from './references/directives.js';
 import { buildReferenceProfile } from './references/profile.js';
@@ -248,9 +247,37 @@ describe('asksForRenderedFile', () => {
 
 describe('checkableAcceptance', () => {
   it('carries the duration its caller already read, plus any shot count', () => {
-    const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', 30);
+    const acceptance = checkableAcceptance('a 30s reel from at least 20 moments', { seconds: 30 });
     expect(acceptance).toEqual({ durationSeconds: 30, minShotCount: 20 });
     expect(hasCheckableAcceptance(acceptance)).toBe(true);
+  });
+
+  it("names the request's own words for the length, so a target can be traced to its source", () => {
+    // Run 6cb12e30 was held to "about 3s" read from "Use only the best 2–4s of each" (per
+    // shot), and argued with a bare number five times. A criterion that quotes its source
+    // makes a misreading visible to the run and to the editor.
+    const acceptance = checkableAcceptance('a travel reel, 58–62s master', {
+      seconds: 60,
+      toleranceSeconds: 2,
+      statedAs: '58–62s',
+    });
+    expect(acceptance).toMatchObject({
+      durationSeconds: 60,
+      durationToleranceSeconds: 2,
+      durationStatedAs: '58–62s',
+    });
+    expect(acceptanceCriteria(acceptance)[0]).toBe(
+      'The finished sequence runs 58–62s (the request says “58–62s”).',
+    );
+  });
+
+  it('never reads a length out of the prompt itself', () => {
+    // The length is the command reader's (or the host's); this module no longer has a
+    // pattern for it, so a brief full of pacing figures cannot produce one.
+    expect(
+      checkableAcceptance('Use only the best 2–4s of each. Make a 30 second reel.', undefined)
+        .durationSeconds,
+    ).toBeUndefined();
   });
 
   it('reads the count when it is hyphenated onto the noun', () => {
@@ -290,7 +317,7 @@ describe('checkableAcceptance', () => {
 
   it('records a requested file as a condition, so the run can say it cannot make one', () => {
     const prompt = 'a 30s reel, delivered as a rendered mp4';
-    const acceptance = checkableAcceptance(prompt, 30);
+    const acceptance = checkableAcceptance(prompt, { seconds: 30 });
     expect(acceptance.deliverableFile).toBe(true);
     const criteria = acceptanceCriteria(acceptance);
     expect(criteria.some((line) => line.includes('Export dialog'))).toBe(true);
@@ -306,23 +333,12 @@ describe('checkableAcceptance', () => {
   });
 });
 
-/**
- * GAP-009. A captured brief specified, per scene, a voiceover and sound effects — and told
- * the agent it had a sound-effects search tool. Neither exists in the registry: no
- * text-to-speech, and no SFX catalogue (`search_music` is music, `search_stock` is picture).
- * The run searched for neither, mentioned neither, and would have delivered a silent,
- * effect-less cut against a brief whose every scene asked for both.
- *
- * The precedent is `deliverableFile`, which exists for exactly this reason and covered
- * exactly one case. This is disclosure, not capability.
- */
 describe('asksForPreview', () => {
   it('recognises a request to be shown the cut before the render', () => {
     expect(asksForPreview('Show me a preview before you render.')).toBe(true);
     expect(asksForPreview('I want to see a preview first')).toBe(true);
     expect(asksForPreview('preview it, then export')).toBe(true);
     expect(asksForPreview('the preview thumbnails look soft')).toBe(false);
-    expect(unmeetableDeliverables('show me a preview before you render')).toEqual(['preview']);
   });
 });
 
@@ -361,68 +377,21 @@ describe('explicitCutawayCount', () => {
   });
 });
 
-describe('unmeetableDeliverables', () => {
-  it('records subject tracking as unmeetable without the editor’s mask, never an audio track', () => {
-    expect(
-      unmeetableDeliverables(
-        'find them, track them through that section, and keep a soft highlight on them',
-      ),
-    ).toEqual(['subjectTracking']);
-    expect(unmeetableDeliverables('follow the rider down the run')).toEqual(['subjectTracking']);
-    expect(unmeetableDeliverables('put the music on its own track')).toEqual([]);
-    expect(unmeetableDeliverables('follow the music with the cuts')).toEqual([]);
-  });
-
-  it('spots a request to generate narration', () => {
-    expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);
-    expect(unmeetableDeliverables('I need AI narration over the b-roll')).toEqual(['voiceover']);
-  });
-
-  // The narrow half of the rule. Cutting to narration the project ALREADY has is ordinary
-  // work the agent does well, and flagging it would be a false alarm on a normal request.
-  it('does not flag editing against a voiceover that already exists', () => {
-    expect(unmeetableDeliverables('cut on the beats of the voiceover')).toEqual([]);
-    expect(unmeetableDeliverables('duck the music under the narration')).toEqual([]);
-  });
-
-  it('spots sound-effect sourcing by the words editors actually use', () => {
-    expect(unmeetableDeliverables('whoosh transitions and a bass hit on the reveal')).toEqual([
-      'soundEffects',
-    ]);
-    expect(unmeetableDeliverables('add sfx for each cut')).toEqual(['soundEffects']);
-  });
-
-  it('reports both when a brief asks for both', () => {
-    expect(
-      unmeetableDeliverables('Add a voiceover, plus sound effects on every transition.'),
-    ).toEqual(['voiceover', 'soundEffects']);
-  });
-
-  // How the captured brief actually asked: a scene template with a "Voiceover:" field the
-  // writer expects filled in. No verb, no article — invisible to both rules above.
-  it('spots a scene template’s own voiceover field', () => {
-    expect(unmeetableDeliverables('## SCENE 1\n\n**Voiceover:** "One tiny mistake."')).toEqual([
-      'voiceover',
-    ]);
-    expect(unmeetableDeliverables('For every scene specify:\n* Voiceover or dialogue:')).toEqual([
-      'voiceover',
-    ]);
-  });
-
-  it('says nothing about an ordinary editing request', () => {
-    expect(unmeetableDeliverables('cut this to 60 seconds and caption it')).toEqual([]);
-  });
-
-  it('becomes a criterion the run has to answer for, naming the way forward', () => {
-    const prompt = 'a 30s reel with a voiceover and whoosh transitions';
-    const acceptance = checkableAcceptance(prompt, 30);
-    expect(acceptance.unmeetable).toEqual(['voiceover', 'soundEffects']);
-    expect(hasCheckableAcceptance(acceptance)).toBe(true);
+describe('capability claims are not read off the request', () => {
+  // Run 6cb12e30: "Follow the subject" and "Whoosh on every whip" pulled two keyword-
+  // triggered sentences into the run's acceptance criteria — "track_object only ATTACHES a
+  // tracker … tell the editor to draw the mask" and "Sound effects cannot be sourced here".
+  // Both were false on the desktop (find_mask_targets + create_mask track a subject with no
+  // drawn mask; search_music returns Freesound effects), and the run believed them: it
+  // told the editor to draw masks and skipped the whole sound-design brief. What the
+  // product cannot do is stated once, unconditionally, in the agent contract.
+  it('puts no capability sentence into the criteria, whatever the brief says', () => {
+    const acceptance = checkableAcceptance(
+      'Follow the runner, add a voiceover, whoosh on every transition, show me a preview',
+      undefined,
+    );
     const criteria = acceptanceCriteria(acceptance).join('\n');
-    // Not just "cannot": what the editor can do instead.
-    expect(criteria).toMatch(/no text-to-speech/i);
-    expect(criteria).toMatch(/Record or import a voice track/i);
-    expect(criteria).toMatch(/Import the effects you want/i);
+    expect(criteria).not.toMatch(/cannot|draw the mask|no text-to-speech/i);
   });
 });
 
@@ -447,7 +416,7 @@ describe('acceptanceCriteria', () => {
   // The request is already persisted verbatim as `objective.request`, one field away.
   it('never copies the request into a criterion, however long the brief', () => {
     const brief = `${'Make a high-retention vertical reel. '.repeat(200)}30 seconds.`;
-    const criteria = acceptanceCriteria(checkableAcceptance(brief, 30));
+    const criteria = acceptanceCriteria(checkableAcceptance(brief, { seconds: 30 }));
     expect(criteria.some((line) => line.includes('high-retention'))).toBe(false);
     expect(criteria.join('').length).toBeLessThan(400);
   });
@@ -573,7 +542,7 @@ describe('round 6 — a brief made of photos still states a shot count', () => {
       '# IMPORTANT. USE ALL PHOTOS INTELLIGENTLY',
       'Attempt to use **all approximately 61 hiking photos**.',
     ].join('\n\n');
-    expect(checkableAcceptance(brief, 27.5)).toMatchObject({
+    expect(checkableAcceptance(brief, { seconds: 27.5 })).toMatchObject({
       minShotCount: 61,
       durationSeconds: 27.5,
     });

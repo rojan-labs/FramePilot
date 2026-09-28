@@ -34,6 +34,7 @@
  * - Keep prompts token-lean and cache-stable; volatile values belong in the
  *   caller-assembled user turn, not in these constants.
  */
+import { LOADABLE_DOMAINS } from './tool-domains.js';
 
 // ---------------------------------------------------------------------------
 // Shared system contract (every mode)
@@ -194,6 +195,10 @@ const LOOK_AT_YOUR_WORK_INSTRUCTION = [
   'Be sparing and deliberate: one frame per call, each costs real context, so pick the few',
   'moments that settle the question (the busiest shot, a typical one) rather than sweeping',
   'the timeline. Two well-chosen frames beat ten.',
+  // Run `6cb12e30` could only see a clip after placing it, through its crop, and moved the
+  // passenger crop the wrong way — the passenger sat in the part of the frame it never saw.
+  'get_frame with assetId shows a source file as shot, uncropped: look there to choose a',
+  'shot and to see where its subject is BEFORE you set a crop for another aspect ratio.',
 ];
 
 /** The contract up to the point the vision paragraph belongs at. */
@@ -236,11 +241,18 @@ const AGENT_CONTRACT_HEAD = [
   // model that does not read it carefully concludes the product cannot colour-grade
   // because no grading tool is on offer. `admitCall` catches a correct guess, but a
   // capability the model never guesses at is one the editor does not get.
-  'Your tool list starts with what every edit needs. Specialized work — captions, colour,',
-  'audio, motion, effects, shapes and callouts, footage analysis, stock, tracking — has more tools than are',
-  'shown: call load_tools with those domains BEFORE the work, in the same turn as the',
-  'reads that set it up, and they stay for the rest of the run. Not seeing a tool means',
-  'you have not loaded it yet, never that FramePilot cannot do it.',
+  // The domain names come from the registry. This list was hand-written and had drifted:
+  // it never named masking, so run `6cb12e30` — a brief built around text behind the
+  // subject, masked transitions and subject-following reframes — never loaded it.
+  'Your tool list starts with what every edit needs. Specialized work has more tools than',
+  `are shown, in domains (${LOADABLE_DOMAINS.join(', ')}; load_tools says what each`,
+  'holds): call load_tools with every domain the request needs BEFORE the work, in the same',
+  'turn as the reads that set it up, and they stay for the rest of the run. Not seeing a',
+  'tool means you have not loaded it yet, never that FramePilot cannot do it.',
+  // What it genuinely cannot do, stated once and unconditionally. These used to be
+  // keyword-triggered "acceptance criteria", two of them false (run `6cb12e30`).
+  'What FramePilot cannot do: speak — there is no text-to-speech, so narration must be',
+  'recorded or imported; and render or export a file from here — the Export dialog does that.',
   'Clips on one track can never overlap in time — to stack simultaneous elements',
   '(e.g. a text overlay over b-roll), place each on a different track with a free range,',
   'and add_track to create a new one when no existing track is free.',
@@ -487,10 +499,11 @@ export function repairPassInstruction(findings: readonly string[]): string {
  */
 export function classifierSystemPrompt(): string {
   return [
-    'You are FramePilot CommandRouter. Your only job is to choose the execution route for',
+    'You are FramePilot CommandRouter. Your job is to choose the execution route for',
     'the request as written; do not plan edits, infer missing goals, or broaden scope.',
     'Return exactly ONE JSON object and nothing else:',
-    '{ "route": "chitchat" | "question" | "edit", "reply"?: string }.',
+    '{ "route": "chitchat" | "question" | "edit", "reply"?: string, "continues"?: number,',
+    '  "length"?: { "seconds"?: number, "min"?: number, "max"?: number, "quote": string } }.',
     '',
     'Decision boundary:',
     '- "chitchat": a short social reply fully resolves the message. Set "reply" to one or two',
@@ -509,6 +522,16 @@ export function classifierSystemPrompt(): string {
     'Classify the operative intent, not its grammar: a polite editing command is still a',
     'change; a greeting before a real request does not make it chitchat; an imperative that',
     'only inspects ("look", "check", "inspect", "identify") is still a question.',
+    '',
+    'For "edit" only, two readings. Omit each unless the text plainly supports it:',
+    '- "continues": the message asks to carry on with, finish, retry or complete work from the',
+    '  earlier requests listed, instead of asking for something new. Give the number of the',
+    '  earlier request that STATES that work — never one that is itself only a nudge.',
+    '- "length": how long the FINISHED video must run, as stated by the message or by the',
+    '  request it continues: {"seconds": n} for one length, {"min": a, "max": b} for a range,',
+    '  with "quote" = the words that state it, copied exactly. Not a finished length: a length',
+    "  per shot, clip or section, a source clip or the music's own length, or an alternative",
+    '  the editor only floats. If several are stated, use the one named as the deliverable.',
   ].join('\n');
 }
 

@@ -1,8 +1,9 @@
 /** Typed temporal evidence protocol and deterministic professional edit reviewer. */
 import { z } from 'zod/v4';
 import { fromEngine } from './engine-optional.js';
-import type { EditorCommand, EditorCommandFact } from '@framepilot/editor-core';
-import { effectLayersOf, masksOf } from '@framepilot/timeline-schema';
+import { framePlanAt, type EditorCommand, type EditorCommandFact } from '@framepilot/editor-core';
+import { effectLayersOf, masksOf, type Project } from '@framepilot/timeline-schema';
+import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import type { EditResult } from './assemble.js';
 import {
   AUDIO_PEAK_DBFS,
@@ -301,6 +302,12 @@ export interface TemporalReviewCheck {
   readonly kind: TemporalEvidenceRequest['kind'];
   readonly status: TemporalReviewStatus;
   readonly issues: readonly string[];
+  /**
+   * The first frame the evidence itself shows at fault, when a range found one. A range
+   * window starts two frames before the boundary it watches, so its start is not where the
+   * defect is: `edit_range_184` reported black frame 184 and the finding jumped to 182.
+   */
+  readonly atFrame?: number;
 }
 
 export interface TemporalReviewReport {
@@ -317,12 +324,14 @@ function sortedByFrame<T extends { readonly frame: number }>(samples: readonly T
 function rangeIssues(
   request: Extract<TemporalEvidenceRequest, { kind: 'range' }>,
   result: Extract<TemporalEvidenceResult, { kind: 'range' }>,
+  authoredBlack: AuthoredBlack,
 ): string[] {
   const issues: string[] = [];
   const samples = sortedByFrame(result.samples);
   if (request.checks.includes('black_frames')) {
     const black = samples.filter(
-      (sample) => sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value,
+      (sample) =>
+        sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value && !authoredBlack(sample.frame),
     );
     if (black.length > 0)
       issues.push(`Unexpected black frame(s): ${black.map((s) => s.frame).join(', ')}.`);
@@ -403,7 +412,11 @@ function motionIssues(
   return issues;
 }
 
-function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceResult): string[] {
+function issuesFor(
+  request: TemporalEvidenceRequest,
+  result: TemporalEvidenceResult,
+  authoredBlack: AuthoredBlack,
+): string[] {
   if (request.kind !== result.kind)
     return [`Expected ${request.kind} evidence, received ${result.kind}.`];
   const contractIssues: string[] = [];
@@ -422,7 +435,8 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
     // that cut rather than as twenty-six seconds of nothing.
     if (
       request.checks?.includes('black_frames') &&
-      result.sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value
+      result.sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value &&
+      !authoredBlack(request.atFrame)
     ) {
       contractIssues.push(`${request.reason} is black (frame ${request.atFrame}).`);
     }
@@ -515,7 +529,8 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
     }
   }
   if (contractIssues.length > 0) return contractIssues;
-  if (request.kind === 'range' && result.kind === 'range') return rangeIssues(request, result);
+  if (request.kind === 'range' && result.kind === 'range')
+    return rangeIssues(request, result, authoredBlack);
   if (request.kind === 'comparison' && result.kind === 'comparison') {
     return result.difference > request.maxDifference
       ? [`Frame difference ${result.difference} exceeds ${request.maxDifference}.`]
@@ -563,6 +578,11 @@ function issuesFor(request: TemporalEvidenceRequest, result: TemporalEvidenceRes
 export function reviewTemporalEvidence(
   rawRequests: readonly unknown[],
   rawResults: readonly unknown[],
+  /**
+   * Frames the edit ITSELF takes to black — see {@link authoredBlackFrames}. Absent, every
+   * black frame is judged a defect, which is what a caller without the project can know.
+   */
+  authoredBlack: AuthoredBlack = NOTHING_AUTHORED_BLACK,
 ): TemporalReviewReport {
   const requests = rawRequests.map((request) => TemporalEvidenceRequestSchema.parse(request));
   const results = rawResults.map((result) => TemporalEvidenceResultSchema.parse(result));
@@ -605,12 +625,17 @@ export function reviewTemporalEvidence(
         ],
       };
     }
-    const issues = issuesFor(request, result);
+    const issues = issuesFor(request, result, authoredBlack);
+    const atFrame =
+      issues.length > 0 && request.kind === 'range' && result.kind === 'range'
+        ? firstBlackFrame(result, authoredBlack)
+        : undefined;
     return {
       requestId: request.requestId,
       kind: request.kind,
       status: issues.length === 0 ? 'pass' : 'fail',
       issues,
+      ...(atFrame === undefined ? {} : { atFrame }),
     };
   });
   return {
@@ -619,6 +644,83 @@ export function reviewTemporalEvidence(
     checks: diagnoseWholeProgrammeBlack(requests, checks),
     evidenceRequestIds: requests.map((request) => request.requestId),
   };
+}
+
+/** The earliest black frame a range sampled that the edit did not author, if any. */
+function firstBlackFrame(
+  result: Extract<TemporalEvidenceResult, { kind: 'range' }>,
+  authoredBlack: AuthoredBlack,
+): number | undefined {
+  const frames = result.samples
+    .filter(
+      (sample) =>
+        sample.blackRatio >= BLACK_FRAME.reviewFrameRatio.value && !authoredBlack(sample.frame),
+    )
+    .map((sample) => sample.frame);
+  return frames.length === 0 ? undefined : Math.min(...frames);
+}
+
+/** Whether the edit itself puts black on screen at a sequence frame. */
+export type AuthoredBlack = (frame: number) => boolean;
+
+const NOTHING_AUTHORED_BLACK: AuthoredBlack = () => false;
+
+/** At or below this authored opacity a picture layer contributes no picture. */
+const AUTHORED_BLACK_OPACITY = 0.02;
+
+/**
+ * Frames at which the timeline, as authored, shows no picture — so a black frame there is
+ * the edit, not a defect in it.
+ *
+ * The review sampled black and called it a defect whatever put it there. Run `6cb12e30` was
+ * briefed "fade to black with the music"; the model keyframed beach-sunset's opacity 1 → 0
+ * over the last 1.5 s, the review reported "Program ending is black (frame 1799)" with the
+ * instruction "Fix only these", and the model "fixed" it by ending the fade at opacity 0.35
+ * — undoing what the editor asked for. `perceptual-thresholds.ts` already says the export
+ * gate must not reject "a fade to black"; the per-frame review had no such reading.
+ *
+ * Read off the same per-frame plan the export composites from (`editor-core` `framePlanAt`,
+ * parity-pinned to the engine's `frame_plan.py`): a frame is authored black when there IS
+ * picture on the timeline at that instant and either every picture layer is faded to nothing
+ * by its own opacity keyframes, or the top one is inside a dip-to-black transition. A frame
+ * with no picture at all is never excused — that is a gap, the defect this check exists for.
+ *
+ * @param project - The reviewed project, at the revision the evidence was rendered from.
+ * @returns A predicate over sequence frames (sampled at `frame / project.fps`, as the
+ *   evidence renderer samples them).
+ */
+export function authoredBlackFrames(project: Project): AuthoredBlack {
+  const cache = new Map<number, boolean>();
+  return (frame) => {
+    const known = cache.get(frame);
+    if (known !== undefined) return known;
+    const plan = framePlanAt(
+      project.timeline,
+      project.assets,
+      frame / project.fps,
+      project.resolution,
+    );
+    // Back to front, as the export composites them.
+    const pictures = plan.layers.filter((layer) => layer.kind === 'picture' && !layer.matteOnly);
+    const top = pictures.at(-1);
+    const authored =
+      top !== undefined &&
+      // A dip-colour pass renders opaque (`transition_passes/dissolves.py#dip_color`), so the
+      // top picture dipping through black hides everything under it, the outgoing shot's
+      // under-layer included.
+      (top.transitions.some((transition) => dipsToBlack(transition.kind)) ||
+        pictures.every((layer) => layer.opacity <= AUTHORED_BLACK_OPACITY));
+    cache.set(frame, authored);
+    return authored;
+  };
+}
+
+/** A catalogue transition that passes through solid black (Fade to Black, Dip to Black). */
+function dipsToBlack(kind: string): boolean {
+  const entry = getTransition(kind);
+  if (entry === undefined || entry.renderKind !== 'dip-color') return false;
+  const { red, green, blue } = entry.params as { red?: number; green?: number; blue?: number };
+  return red === 0 && green === 0 && blue === 0;
 }
 
 /** The sentence every black range gets when the whole programme is black. */

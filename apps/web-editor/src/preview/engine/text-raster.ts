@@ -1,13 +1,17 @@
 /**
  * Text overlays rasterised the way the export rasterises them (PX2.3).
  *
- * The export draws a text clip with `render/text_overlay.py`: Pillow's default FreeType font
- * (Aileron Regular) at a frame-relative size, words wrapped greedily at the box width, a black
- * stroke under the fill, the lines stacked into a tight RGBA image that is then placed like any
- * other layer (centre at `xPercent`/`yPercent`, the clip's transform keyframes applied). It
- * ignores the editor's font family, weight and entrance animations. The monitor used to paint the
- * editor's styling on top of every picture instead, so text looked different and sat in front of
- * layers the export draws over it.
+ * The export draws a text clip with `render/text_overlay.py`: at a frame-relative size, words
+ * wrapped greedily at the box width, a black stroke under the fill, the lines stacked into a tight
+ * RGBA image that is then placed like any other layer (centre at `xPercent`/`yPercent`, the clip's
+ * transform keyframes and In/Out envelope applied). The monitor used to paint the editor's
+ * styling on top of every picture instead, so text looked different and sat in front of layers
+ * the export draws over it.
+ *
+ * This is the FALLBACK rasteriser: on the desktop the monitor draws the engine's own rasters
+ * (`engine-text-rasters.ts`), and this runs only without an engine, where the monitor says
+ * "Preview text approximate". It draws Pillow's default face (Aileron Regular) only — since
+ * 2026-09-24 the export draws a title's `fontFamily`/`fontWeight`, which this does not.
  *
  * This module reproduces the layout arithmetic exactly (sizes, wrap, bounding boxes, padding,
  * gaps, integer glyph pens) with the same font bytes (`public/fonts/Aileron-Regular.ttf`,

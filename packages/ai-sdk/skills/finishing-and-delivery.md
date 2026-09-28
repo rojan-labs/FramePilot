@@ -1,7 +1,7 @@
 ---
 name: finishing-and-delivery
 description: Audit timeline integrity, watch a rendered preview, correct observable defects, and export only after the current revision passes review.
-tools: [get_timeline, get_project_state, render_preview, export_video, trim_clip, set_track_flags, verify_captions, verify_transitions]
+tools: [get_timeline, get_project_state, get_frame, export_video, trim_clip, set_track_flags, verify_captions, verify_transitions]
 ---
 
 # Finishing and delivery

@@ -1,7 +1,7 @@
 ---
 name: text-overlays
-description: Design text overlays — headings, lower thirds, labels, callouts, quotes and emphasis text — in the designed text overlay styles and bundled fonts, with readable timing, semantic purpose, safe placement, and consistent motion.
-tools: [get_timeline, get_mapped_transcript, discover_text_overlay_styles, add_text_layer, add_keyframes, trim_clip]
+description: Design text overlays — headings, lower thirds, labels, callouts, quotes and emphasis text — in the designed text overlay styles and bundled fonts, with readable timing, semantic purpose, safe placement, and consistent motion; restyle overlays already placed.
+tools: [get_timeline, get_mapped_transcript, discover_text_overlay_styles, add_text_layer, set_text_style, set_element_animation, add_keyframes, trim_clip]
 ---
 
 # Text overlays
@@ -46,6 +46,13 @@ One text overlay, one idea. Text must add meaning the audio or picture does not 
 - Match the style to the job: `lower-thirds` for names and roles, `headlines` for hooks and
   section cards, `callouts` for a word or number to notice, `social` for calls to action,
   `quotes` for a line someone said.
+
+- Change a placed overlay with `set_text_style` — its words, a new `style`, size, font,
+  weight, colour or position — never delete and re-add it. A new style keeps the overlay
+  where it sits. Animate it in and out with `set_element_animation`.
+- Letter-spacing comes with a style: the ones `discover_text_overlay_styles` describes as
+  "wide tracking" carry it, and there is no separate tracking argument. Never fake tracking
+  with spaces between the letters — each letter then reads, wraps and fits as its own word.
 
 ## Decision framework
 

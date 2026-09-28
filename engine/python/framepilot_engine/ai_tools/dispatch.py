@@ -164,6 +164,12 @@ _HOST_DELEGATED_TOOLS = frozenset(
         "move_effect",
         "resize_effect",
         "adjust_effect",
+        # Re-fits the title in its face with the TS overlay-fit measurer (`overlay-fit.ts`),
+        # which is the same arithmetic `add_text_layer` fits a new title with.
+        "set_text_style",
+        # Planned by editor-core's `planAutomaticReframe` from the source's probed display
+        # size — the compiler's own placement arithmetic, which the TS host runs.
+        "reframe_pan",
         "set_effect_enabled",
         "remove_effect",
         # plan/elements EL7: In/Out and Loop are planned by editor-core's element-animation and

@@ -1,7 +1,7 @@
 ---
 name: travel-montage
 description: Shape travel footage into a readable geographic and emotional journey using establishing shots, details, people, motion, music, and restrained transitions.
-tools: [map_footage, describe_footage, search_visual, detect_beats, get_timeline, add_clip, add_clips, trim_clip, set_clip_speed, add_transition, render_preview]
+tools: [map_footage, describe_footage, search_visual, detect_beats, get_timeline, add_clip, add_clips, trim_clip, set_clip_speed, add_transition, get_frame]
 ---
 
 # Travel montage
@@ -37,6 +37,8 @@ Orient first, immerse second, reveal last. Rhythm supports the journey; it does 
 - Let pans, passes, arrivals, and gestures complete.
 - Save the strongest vista or emotional face for a peak.
 - Use match cuts and gentle speed changes before showy transitions.
+- Look at every candidate before cutting. Where the footage map has not reached a clip, look at
+  its source directly with `get_frame { assetId, sourceSeconds }` rather than choosing blind.
 
 ## Decision framework
 

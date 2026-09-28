@@ -332,6 +332,11 @@ export class LayerCompositor {
   private readonly syncPixel = new Uint8Array(4);
   /** The frame being composited (a track matte's source is composited at this size, MK8.2). */
   private frameSize: PixelSize = { width: 0, height: 0 };
+  /**
+   * The frame a frame-space clip mask's geometry is authored in: the project's (MK9.1). The
+   * monitor composites at its canvas size, which is capped and shed below the project's.
+   */
+  private geometryFrame: PixelSize = { width: 0, height: 0 };
   /** This frame's shared decodes, so a matte source reuses a picture the frame already decoded. */
   private frameDecodes = new Map<string, RenderTarget>();
   /** The picture layer being rastered: its track matte sources and where it lands (MK8.2). */
@@ -388,12 +393,15 @@ export class LayerCompositor {
    *
    * @param size - The frame, in pixels (the canvas is resized to it).
    * @param layers - Back to front.
+   * @param geometryFrame - The project's frame, which frame-space mask geometry is authored in;
+   *   `null` when `size` is that frame.
    */
   render(
     size: PixelSize,
     layers: readonly CompositeLayer[],
     output: 'bitmap' | 'pixels' = 'bitmap',
     effects: readonly FrameEffectInstance[] = [],
+    geometryFrame: PixelSize | null = null,
   ): CanvasImageSource | ImageData {
     if (this.canvas.width !== size.width) this.canvas.width = size.width;
     if (this.canvas.height !== size.height) this.canvas.height = size.height;
@@ -418,6 +426,7 @@ export class LayerCompositor {
 
       const decodedMemo = new Map<string, RenderTarget>();
       this.frameSize = size;
+      this.geometryFrame = geometryFrame ?? size;
       this.frameDecodes = decodedMemo;
       // Burned captions go on after the effect stage, as the export composites them (EQ16).
       const isAbove = (layer: CompositeLayer): boolean =>
@@ -1218,6 +1227,8 @@ export class LayerCompositor {
       placement,
       frameWidth: this.frameSize.width,
       frameHeight: this.frameSize.height,
+      geometryWidth: this.geometryFrame.width,
+      geometryHeight: this.geometryFrame.height,
     };
   }
 

@@ -1,5 +1,5 @@
 /** Executable outcome evals for every animatable clip motion property. */
-import { compileMotionCommand, type ClipKeyframeProperty } from '@framepilot/editor-core';
+import { compileMotionCommand, type ClipTransformKeyframeProperty } from '@framepilot/editor-core';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { resolveMotionObjective, MotionObjectiveSchema } from './controllers/motion-controller.js';
 import { captureEditorInteractionContext } from './editor-context/interaction-context.js';
@@ -65,7 +65,7 @@ function motionFixture(): ProfessionalEvalFixture {
 interface MotionEvalSpec {
   readonly fixtureId: string;
   readonly capabilityId: string;
-  readonly property: ClipKeyframeProperty;
+  readonly property: ClipTransformKeyframeProperty;
   /** A legal in-contract endpoint for this property. */
   readonly value: number;
 }
@@ -90,6 +90,19 @@ const SPECS: readonly MotionEvalSpec[] = [
     capabilityId: 'motion.clip.opacity',
     property: 'opacity',
     value: 0.5,
+  },
+  // The stretch (scaleX/scaleY) multiplies the uniform scale along one axis; 1 is none.
+  {
+    fixtureId: 'motion.scale-x.outcome',
+    capabilityId: 'motion.clip.scale-x',
+    property: 'scaleX',
+    value: 1.3,
+  },
+  {
+    fixtureId: 'motion.scale-y.outcome',
+    capabilityId: 'motion.clip.scale-y',
+    property: 'scaleY',
+    value: 0.8,
   },
 ];
 

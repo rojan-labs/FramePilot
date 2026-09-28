@@ -61,13 +61,14 @@ import {
   type Project,
   type Track,
 } from '@framepilot/timeline-schema';
-import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
+import type { AgentOptions, AgentRun, AgentStep, RequestReading, ReviewResult } from './agent.js';
 import {
   asksForPreview,
   asksForRenderedFile,
   asksToRememberPreference,
   checkableAcceptance,
   explicitCutawayCount,
+  statedDuration,
 } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { referenceImagesBlock } from './references/images.js';
@@ -90,7 +91,6 @@ import {
   type MeasuredSubject,
   type CritiqueReport,
   critique,
-  explicitDurationTarget,
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
@@ -111,8 +111,10 @@ import {
 } from './events.js';
 import {
   type CommandClassification,
+  type EarlierRequest,
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
+  earlierRequestsFrom,
   parseClassification,
   projectHeaderOf,
 } from './kernel/command-classifier.js';
@@ -137,9 +139,6 @@ import {
   domainMembers,
   toolDomain,
   toolIsAdvertised,
-  requestedDomainsNeverLoaded,
-  DOMAIN_LABEL,
-  type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
   AGENT_MAX_OPS_PER_RUN,
@@ -188,6 +187,7 @@ import { type ModelTier } from './kernel/proposers/types.js';
 import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay/replay.js';
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
+  authoredBlackFrames,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
@@ -573,9 +573,12 @@ const DEFAULT_MAX_OPS_PER_TURN = AGENT_MAX_OPS_PER_TURN;
 const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
-/** How many recent step notes the agent context keeps verbatim before digesting (B4). */
+/** How much of one title's words and style a `get_clip` digest carries. */
+const TITLE_DIGEST_CHARS = 400;
+
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
+/** How many recent step notes the agent context keeps verbatim before digesting (B4). */
 const AGENT_LOG_RECENT = 6;
 
 /** A tool's picture as its card carries it: the bytes and what they show, nothing else. */
@@ -1338,6 +1341,24 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
 }
 
 /**
+ * A patch's reason when its turn said nothing: what its operations did.
+ *
+ * The fallback was the literal "Agent step" — which the editor then read on the patch card
+ * and the receipt, and which the project's memory of accepted edits kept (run `6cb12e30`
+ * stored it for four of its patches, where it told the next run nothing).
+ */
+function operationsReason(ops: readonly AnyOperation[], names: ProjectNames): string {
+  const lines = [...new Set(ops.map((op) => operationLine(op, names)))];
+  if (lines.length === 0) return 'Agent step';
+  const shown = lines.slice(0, OPERATIONS_REASON_LINES).join('; ');
+  const more = lines.length - OPERATIONS_REASON_LINES;
+  return more > 0 ? `${shown}; and ${String(more)} more` : shown;
+}
+
+/** How many distinct operation lines a silent turn's patch reason names. */
+const OPERATIONS_REASON_LINES = 3;
+
+/**
  * Summarize applied operations into one past-tense line for a tool-result note /
  * agent log, e.g. `Trimmed Intro.mp4 · 0s–3.2s; Added captions`. Uses `names` to
  * resolve clip/track/asset ids to friendly labels. Returns '' for no ops.
@@ -1404,9 +1425,9 @@ export function autoReframeNote(toolName: string, ops: readonly AnyOperation[]):
   if (crops === 0) return '';
   return (
     ` — ${String(crops)} clip${crops === 1 ? '' : 's'} auto-reframed with a CENTRED crop, a ` +
-    'guess made with no subject evidence. If the action sits off-centre, set_clip_crop with ' +
-    'a rect that follows it (get_frame or track_object shows where it is), and say which ' +
-    'you did.'
+    'guess made with no subject evidence. Look at each source as shot with get_frame ' +
+    '{ assetId, sourceSeconds } — the timeline only shows it through this crop — and aim it ' +
+    'with set_clip_crop, or reframe_pan for a moving window, and say which you did.'
   );
 }
 
@@ -3047,6 +3068,23 @@ export function summarizeReadResult(
       if (effects.length > 0) {
         lines.push(`effects: ${effects.map((e) => String(e.type)).join(', ')}`);
       }
+      // A title's words and style ARE what a title is read for. Listing only the effect's
+      // type ("effects: text") sent run `6cb12e30` to recall_evidence after every one of
+      // eleven get_clip calls, just to learn what each title said.
+      for (const effect of effects) {
+        if (effect.type !== 'text') continue;
+        const { text, ...style } = (effect.params ?? {}) as Record<string, unknown>;
+        const styled = Object.entries(style)
+          .filter(([, v]) => v !== undefined && v !== null)
+          .map(([k, v]) => `${k} ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+          .join(', ');
+        lines.push(
+          `text overlay "${String(text ?? '')}" (${styled || 'default style'}) [effect ${String(effect.id)}]`.slice(
+            0,
+            TITLE_DIGEST_CHARS,
+          ),
+        );
+      }
       if (clip.captionStyle) {
         lines.push(`cue style override: ${captionStyleLine(clip.captionStyle as CaptionStyle)}`);
       }
@@ -3444,17 +3482,24 @@ export function summarizeReadResult(
         typeof obj.width === 'number' && typeof obj.height === 'number' && obj.width > 0
           ? ` ${obj.width}×${obj.height}`
           : '';
+      // A source frame is a moment of a FILE, uncropped — not of the edit.
+      const source = typeof obj.assetId === 'string' ? obj.assetId : undefined;
+      const span = source === undefined ? 'timeline' : 'file';
       const duration =
         typeof obj.durationSeconds === 'number'
-          ? ` of a ${round2(obj.durationSeconds)}s timeline`
+          ? ` of a ${round2(obj.durationSeconds)}s ${span}`
           : '';
       // A clamped frame is a different moment than the one asked about. Saying so is the
       // difference between "the end looks wrong" and reasoning about the wrong frame.
       const clamped =
         obj.clamped === true && typeof obj.requestedTimeSeconds === 'number'
-          ? ` — CLAMPED from the ${round2(obj.requestedTimeSeconds)}s you asked for, which is outside the timeline`
+          ? ` — CLAMPED from the ${round2(obj.requestedTimeSeconds)}s you asked for, which is outside the ${span}`
           : '';
-      return `frame at ${round2(obj.timeSeconds)}s${duration},${size} attached to this turn as an image${clamped}`;
+      const what =
+        source === undefined
+          ? 'frame'
+          : `${source} as shot (whole uncropped source frame, not the edit)`;
+      return `${what} at ${round2(obj.timeSeconds)}s${duration},${size} attached to this turn as an image${clamped}`;
     }
     case 'index_media': {
       // A progress record, not a record list — but previewJson still cut it, and "how far
@@ -3627,13 +3672,15 @@ export function requestFrame(request: TemporalEvidenceRequest): number | undefin
  */
 export function failingReviewSecond(
   requests: readonly TemporalEvidenceRequest[],
-  failing: readonly { readonly requestId: string }[],
+  failing: readonly { readonly requestId: string; readonly atFrame?: number }[],
   fps: number,
 ): number | undefined {
   if (!(Number.isFinite(fps) && fps > 0)) return undefined;
   const frameById = new Map(requests.map((request) => [request.requestId, requestFrame(request)]));
+  // The evidence's own offending frame first; the request's window start only when the
+  // evidence named none.
   const frames = failing
-    .map((check) => frameById.get(check.requestId))
+    .map((check) => check.atFrame ?? frameById.get(check.requestId))
     .filter((frame): frame is number => frame !== undefined);
   return frames.length === 0 ? undefined : Math.min(...frames) / fps;
 }
@@ -4027,19 +4074,21 @@ export class Orchestrator {
     // nothing left to settle. `deriveObjectiveText` already owns this resolution for the
     // run's objective; the Critic reads the same answer so criterion and check cannot be
     // about two different requests.
-    const objectiveText = deriveObjectiveText(input.userPrompt, input.history);
+    // When the command reader ran, its reading settles both: which request this is, and the
+    // finished length it states (`kernel/command-classifier.ts#DeliverableLength`).
+    const objectiveText =
+      options.requestReading?.objectiveText ?? deriveObjectiveText(input.userPrompt, input.history);
     // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
     // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
-    const stated = explicitDurationTarget(objectiveText);
-    const durationTargetSeconds = options.durationTargetSeconds ?? stated?.seconds;
-    const durationToleranceSeconds =
-      options.durationTargetSeconds === undefined ? stated?.toleranceSeconds : undefined;
+    const stated = statedDuration(options);
+    const durationTargetSeconds = stated?.seconds;
+    const durationToleranceSeconds = stated?.toleranceSeconds;
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
     const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
       objectiveText,
-      durationTargetSeconds,
+      stated,
     );
     // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
     // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
@@ -5728,9 +5777,13 @@ export class Orchestrator {
             (domain) => !host.loadedToolDomains.has(domain as ToolDomain),
           );
           for (const domain of loaded) host.loadedToolDomains.add(domain as ToolDomain);
-          const names = loaded.flatMap((domain) =>
-            domainMembers(domain as Exclude<ToolDomain, 'core'>),
-          );
+          // Only what this host will actually run: `footage` lists `index_media`, which no
+          // run is ever offered, and telling the model a tool is "available from your next
+          // turn" and then never advertising it costs it a guess.
+          const unroutable = this.unroutableToolNames();
+          const names = loaded
+            .flatMap((domain) => domainMembers(domain as Exclude<ToolDomain, 'core'>))
+            .filter((name) => !unroutable.has(name));
           const note =
             fresh.length > 0
               ? `${desc} → loaded ${fresh.join(', ')} — these tools are available from your next turn: ${names.join(', ')}.`
@@ -6810,7 +6863,12 @@ export class Orchestrator {
 
     const turnOps = args.turnOps;
 
-    const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
+    const edit = assembleEdit(
+      working,
+      turnOps,
+      rationale || operationsReason(turnOps, projectNames(working)),
+      'agent',
+    );
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
      * per-call probe (`runAgentCall`'s `assembleEdit(ctx.project, ops, …)`) against the
      * exact speculative state this whole-turn recombination replays against, so
@@ -7711,6 +7769,8 @@ export class Orchestrator {
     signal?: AbortSignal,
   ): Promise<{
     classification: CommandClassification;
+    /** The earlier messages the reader was shown; `classification.continues` indexes it. */
+    readonly earlierRequests: readonly EarlierRequest[];
     /** The classifier call's real usage (C1), if the provider reported any. */
     usage?: { readonly inputTokens?: number; readonly outputTokens?: number };
     readonly contextTokens: number;
@@ -7719,11 +7779,15 @@ export class Orchestrator {
     readonly manifest: ContextManifest;
   }> {
     const header = projectHeaderOf(input.project, input.targetPlatform);
+    // One list for the prompt and for grounding the reply: `continues` is a position in it.
+    const earlierRequests = earlierRequestsFrom(input.history);
+    const shownEarlier = earlierRequests.map((request) => request.shown);
     const messages = buildClassifierMessages({
       userText: input.userPrompt,
       header,
       ...(input.selection ? { selection: input.selection } : {}),
       hasSelection: input.selection !== undefined,
+      ...(shownEarlier.length > 0 ? { earlierRequests: shownEarlier } : {}),
     });
     // Routing is the cheapest judgement the orchestrator makes, so it is the one call
     // stamped `small`: with `FRAMEPILOT_TIER_SMALL_*` configured it runs on a cheap model
@@ -7760,14 +7824,23 @@ export class Orchestrator {
     });
     try {
       const response = await provider.complete(classifyRequest, signal);
-      const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
+      const classification =
+        parseClassification(response.text, {
+          request: input.userPrompt,
+          earlierRequests: shownEarlier,
+        }) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
         provider: provider.name,
         route: classification.route,
+        ...(classification.continues === undefined ? {} : { continues: classification.continues }),
+        ...(classification.deliverableLength === undefined
+          ? {}
+          : { deliverableLength: classification.deliverableLength }),
         usage: response.usage,
       });
       return {
         classification,
+        earlierRequests,
         contextTokens: response.usage?.inputTokens ?? estimatedInput,
         contextEstimated: response.usage?.inputTokens === undefined,
         manifest: response.usage ? withProviderUsage(manifest, response.usage) : manifest,
@@ -7779,6 +7852,7 @@ export class Orchestrator {
       });
       return {
         classification: FALLBACK_CLASSIFICATION,
+        earlierRequests,
         contextTokens: estimatedInput,
         contextEstimated: true,
         manifest,
@@ -7816,6 +7890,7 @@ export class Orchestrator {
     yield emit.status('thinking');
     const {
       classification,
+      earlierRequests,
       usage: classifierUsage,
       contextTokens,
       contextEstimated,
@@ -7880,12 +7955,24 @@ export class Orchestrator {
           classifierPricing?.tier ?? 'small',
           classifierPricing?.prices,
         );
+        // What the run is being asked for, as the reader just read it. A continuation's
+        // objective is the whole earlier request it continues, not the reader's excerpt.
+        const continued =
+          classification.continues === undefined
+            ? undefined
+            : earlierRequests[classification.continues - 1];
+        const requestReading: RequestReading = {
+          objectiveText: continued === undefined ? input.userPrompt : continued.full,
+          ...(classification.deliverableLength === undefined
+            ? {}
+            : { deliverableLength: classification.deliverableLength }),
+        };
         yield* this.streamEditorRun(
           input,
           options,
           {
             route: 'agent',
-            agentOptions: autoOptions.agentOptions ?? {},
+            agentOptions: { ...(autoOptions.agentOptions ?? {}), requestReading },
             initialCost: {
               tokens: classifierCost.tokens,
               usd: classifierCost.usd,
@@ -8530,7 +8617,11 @@ export class Orchestrator {
     });
     if (requests.length === 0) return null;
     const acquisition = await acquire(workingProject, requests, signal);
-    const report = reviewTemporalEvidence(requests, acquisition.results);
+    const report = reviewTemporalEvidence(
+      requests,
+      acquisition.results,
+      authoredBlackFrames(workingProject),
+    );
     const passed = critique(workingProject, { temporal: report }).checks.some(
       (check) => check.id === 'temporal_evidence' && check.status === 'pass',
     );
@@ -10273,7 +10364,6 @@ export class Orchestrator {
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
               neverSucceeded: neverSucceededTools(toolAttempts),
-              neverLoaded: requestedDomainsNeverLoaded(input.userPrompt ?? '', loadedToolDomains),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
@@ -10958,27 +11048,6 @@ function trimFailureReason(reason: string): string {
  *
  * Empty when there is nothing to say, so an ordinary clean run is unchanged.
  */
-/**
- * What the request asked for that the run never had the tools for (run `df81d58e`).
- *
- * The brief said "stock", "b-roll" and "music"; `load_tools` was never called for
- * `sourcing`; `search_stock`/`add_stock` were never on the model's list; the report said
- * "Applied 106 edits" and the model's prose blamed a missing visual index. Naming the
- * domain is the one sentence that makes the omission visible to the editor.
- */
-function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
-  if (neverLoaded.length === 0) return '';
-  // Written to the editor: what was asked for, in their words, and that the run never had
-  // the tools for it — not "load_tools was never called, so search_stock … were never
-  // offered", which is the harness talking to itself.
-  const lines = neverLoaded.map(
-    (entry) =>
-      `- ${DOMAIN_LABEL[entry.domain]} — you asked for ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
-      'but this run never opened those tools, so none of that was done. Ask for it again.',
-  );
-  return `\n\n**Not attempted:**\n${lines.join('\n')}`;
-}
-
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
@@ -11140,12 +11209,6 @@ export function agentCompletionReport(args: {
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
-   * Tool domains the request asked for by name and the run never loaded — so the tools
-   * that would have done that part were never on the model's list. See
-   * `tool-domains.ts#requestedDomainsNeverLoaded`.
-   */
-  neverLoaded?: readonly NeverLoadedDomain[];
-  /**
    * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
@@ -11190,7 +11253,6 @@ export function agentCompletionReport(args: {
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
   const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
-  const neverLoaded = neverLoadedBlock(args.neverLoaded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -11223,7 +11285,7 @@ export function agentCompletionReport(args: {
         'to project memory this run. Tell the AI the preference again on its own, or set it ' +
         'in the AI settings.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${neverLoaded}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

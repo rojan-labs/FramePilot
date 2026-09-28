@@ -600,7 +600,11 @@ describe('agent mode', () => {
     const run = await new Orchestrator(provider).agent({ project: makeProject(), userPrompt: '' });
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.result.patch.reason).toBe('Agent edit'); // empty goal → fallback
-    expect(run.steps.find((s) => s.applied)?.patch?.reason).toBe('Agent step'); // empty rationale → fallback
+    // A silent turn's patch says what it did, never the placeholder "Agent step" (run
+    // 6cb12e30 stored that in the project's memory of accepted edits four times).
+    const reason = run.steps.find((s) => s.applied)?.patch?.reason ?? '';
+    expect(reason).not.toBe('Agent step');
+    expect(reason).toMatch(/audio/i);
   });
 
   it('recovers from an invalid-args tool call (operationsFor throws)', async () => {
@@ -2409,6 +2413,31 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
       },
     });
     expect(note).toContain('cue (0 words, from revision ?): hello');
+  });
+
+  it("get_clip: shows a title's words and style, which are what a title is read for", () => {
+    // Run 6cb12e30 read eleven titles and then recalled every one, because the digest
+    // said only "effects: text".
+    const note = summarizeReadResult('get_clip', {
+      trackId: 'titles',
+      clip: {
+        id: 'text__titles_6133',
+        assetId: '__text__',
+        trackId: 'titles',
+        start: 6.133,
+        end: 7.533,
+        effects: [
+          {
+            id: 'text__titles_6133__text',
+            type: 'text',
+            params: { text: 'Alarm at 5. No regrets.', fontSizePercent: 2.8, color: '#F5EFE6' },
+          },
+        ],
+      },
+    });
+    expect(note).toContain(
+      'text overlay "Alarm at 5. No regrets." (fontSizePercent 2.8, color #F5EFE6) [effect text__titles_6133__text]',
+    );
   });
 
   it('get_mapped_transcript: treats a payload with no word list as no speech', () => {

@@ -186,6 +186,114 @@ describe('frame-space clip masks (MK9.1, float64-exact vs the export)', () => {
   });
 });
 
+/** Where `alpha` is over one half, as `[x0, x1, y0, y1]` fractions of its frame; `null` if nowhere. */
+function coveredBox(
+  alpha: Float64Array | null,
+  width: number,
+  height: number,
+): [number, number, number, number] | null {
+  if (alpha === null) return null;
+  let [x0, x1, y0, y1] = [width, -1, height, -1];
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      if (alpha[row * width + col]! <= 0.5) continue;
+      x0 = Math.min(x0, col);
+      x1 = Math.max(x1, col);
+      y0 = Math.min(y0, row);
+      y1 = Math.max(y1, row);
+    }
+  }
+  return x1 < 0 ? null : [x0 / width, (x1 + 1) / width, y0 / height, (y1 + 1) / height];
+}
+
+describe('frame-space clip masks on a monitor frame smaller than the project', () => {
+  // The run's 1080x1920 project on the monitor's canvas, capped at a 1280 long edge.
+  const PROJECT = { width: 1080, height: 1920 };
+  const CANVAS = { width: 720, height: 1280 };
+  const stack = clipMaskStack(
+    parseClip({
+      id: 'c',
+      assetId: 'a',
+      trackId: 'v',
+      start: 0,
+      end: 2,
+      sourceStart: 0,
+      sourceEnd: 2,
+      effects: [],
+      keyframes: [],
+      // Project pixels over the upper right, turned and feathered.
+      masks: [
+        {
+          id: 'm',
+          kind: 'rectangle',
+          space: 'frame',
+          cx: 810,
+          cy: 480,
+          width: 360,
+          height: 480,
+          rotation: 10,
+          featherOuterPx: 12,
+        },
+      ],
+    }),
+    { width: 1920, height: 1080 },
+  )!;
+  /** The picture fills a `frame`-sized monitor frame; the mask is drawn on it. */
+  const drawOn = (frame: { width: number; height: number }, geometry?: typeof PROJECT) =>
+    stackAlphaAt(stack, { kind: 'alpha' }, frame.width, frame.height, 0, null, {
+      placement: {
+        localWidth: frame.width,
+        localHeight: frame.height,
+        width: frame.width,
+        height: frame.height,
+        rotation: 0,
+        x: 0,
+        y: 0,
+      },
+      frameWidth: frame.width,
+      frameHeight: frame.height,
+      ...(geometry ? { geometryWidth: geometry.width, geometryHeight: geometry.height } : {}),
+    });
+
+  it('draws the project-size mask scaled: the same relative region at the canvas size', () => {
+    expect(stack.refusal).toBeNull();
+    const full = coveredBox(drawOn(PROJECT), PROJECT.width, PROJECT.height);
+    const reduced = coveredBox(drawOn(CANVAS, PROJECT), CANVAS.width, CANVAS.height);
+    expect(full).not.toBeNull();
+    expect(reduced).not.toBeNull();
+    reduced!.forEach((edge, index) => {
+      expect(Math.abs(edge - full![index]!)).toBeLessThanOrEqual(1 / CANVAS.width + 1e-9);
+    });
+    // Drawn as canvas pixels (the old monitor), the region lands 1.5x too far right and down.
+    const unconverted = coveredBox(drawOn(CANVAS), CANVAS.width, CANVAS.height);
+    expect(unconverted?.[0]).toBeGreaterThan(full![0] + 0.2);
+  });
+
+  it('is float64-identical to before when the monitor frame is the project frame', () => {
+    expect(digest(drawOn(PROJECT, PROJECT))).toBe(digest(drawOn(PROJECT)));
+  });
+
+  it('keys the cached raster by the geometry frame', () => {
+    const cache = new MaskStackRasterCache();
+    const placed = (geometry?: typeof PROJECT) => ({
+      placement: {
+        localWidth: 72,
+        localHeight: 128,
+        width: 72,
+        height: 128,
+        rotation: 0,
+        x: 0,
+        y: 0,
+      },
+      frameWidth: 72,
+      frameHeight: 128,
+      ...(geometry ? { geometryWidth: geometry.width, geometryHeight: geometry.height } : {}),
+    });
+    const small = cache.raster(stack, { kind: 'alpha' }, 72, 128, 0, null, placed(PROJECT));
+    expect(cache.raster(stack, { kind: 'alpha' }, 72, 128, 0, null, placed())).not.toBe(small);
+  });
+});
+
 describe('legacy spec (MK2.5)', () => {
   const migrated = document.cases.find(
     (entry) => entry.id === 'migrated/keyframed-ellipse-mid-timeline',

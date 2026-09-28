@@ -207,6 +207,14 @@ export interface FramePlacement {
   readonly placement: PicturePlacement;
   readonly frameWidth: number;
   readonly frameHeight: number;
+  /**
+   * The frame the mask's geometry is authored in: the PROJECT's, which the mask tools draw it on
+   * (`MaskCanvasTools` edits in a `viewBox` of the project resolution). A monitor frame of another
+   * size (the capped canvas, a shed playback step) maps it onto its own frame through this, as a
+   * source mask maps through its media size. Absent: the frame drawn on is that frame.
+   */
+  readonly geometryWidth?: number;
+  readonly geometryHeight?: number;
 }
 
 /**
@@ -1014,8 +1022,9 @@ export function singleMaskAlpha(
 }
 
 /**
- * The stand-in owner a frame-space mask is drawn for: no crop, a "media size" equal to the frame,
- * so the mapping is the identity (`FrameOwner`).
+ * The stand-in owner a frame-space mask is drawn for: no crop, and a "media size" of the frame the
+ * geometry is authored in. Drawn on a raster of that size the mapping is the identity
+ * (`FrameOwner`); on a smaller monitor frame it scales the project-pixel geometry onto it.
  */
 export function frameOwnerStack(
   id: string,
@@ -1070,7 +1079,11 @@ function frameSpaceAlpha(
   const { frameWidth, frameHeight } = placement;
   const drawn = singleMaskAlpha(
     mask,
-    frameOwnerStack(stack.clip.id, frameWidth, frameHeight),
+    frameOwnerStack(
+      stack.clip.id,
+      placement.geometryWidth ?? frameWidth,
+      placement.geometryHeight ?? frameHeight,
+    ),
     frameWidth,
     frameHeight,
     s,
@@ -1155,7 +1168,11 @@ function placementKey(masks: readonly StackMask[], placement: FramePlacement | n
   if (!stackReadsPlacement(masks)) return '';
   if (placement === null) return 'unplaced';
   const p = placement.placement;
-  return `placed:${placement.frameWidth}x${placement.frameHeight}|${p.width}x${p.height}|${p.rotation}|${p.x},${p.y}`;
+  const geometry =
+    placement.geometryWidth === undefined && placement.geometryHeight === undefined
+      ? ''
+      : `|geometry:${String(placement.geometryWidth)}x${String(placement.geometryHeight)}`;
+  return `placed:${placement.frameWidth}x${placement.frameHeight}|${p.width}x${p.height}|${p.rotation}|${p.x},${p.y}${geometry}`;
 }
 
 /** Which matte frames and decode geometry a raster depends on. */

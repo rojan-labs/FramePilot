@@ -1733,6 +1733,8 @@ export class LayerPreviewEngine {
       composed.layers,
       exact ? 'pixels' : 'bitmap',
       this.frameEffectsAt(plan, timeSec),
+      // Frame-space masks are authored in project pixels; the plan is at the canvas size.
+      project.projectResolution,
     );
     const ctx = this.ctx2d;
     if (ctx.canvas.width !== canvas.width) ctx.canvas.width = canvas.width;
@@ -1783,7 +1785,13 @@ export class LayerPreviewEngine {
         mask:
           stack === null
             ? null
-            : this.frameMaskRasters.raster(stack, plan.width, plan.height, localTime),
+            : this.frameMaskRasters.raster(
+                stack,
+                plan.width,
+                plan.height,
+                localTime,
+                this.project?.projectResolution,
+              ),
       };
     });
   }

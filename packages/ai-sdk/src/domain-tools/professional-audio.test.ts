@@ -142,6 +142,43 @@ describe('professional_audio domain tool', () => {
     ]);
   });
 
+  it('fades a clip it names by id, with nothing selected and several clips under the playhead', () => {
+    // Run 6cb12e30: an agent run has no selection, the playhead sat over three clips, and
+    // "target: this" came back target_ambiguous — so the run asked the editor to select
+    // the music bed. Naming the clip is how an agent points at it.
+    const base = project();
+    const edited = dispatch(base, context(base, [], ''), {
+      intent: 'level',
+      clipIds: ['bed'],
+      fadeOutFrames: 60,
+      fadeCurve: 'equal-power',
+    });
+    expect(edited.tracks[0]!.clips[0]!.effects[0]!.params).toMatchObject({
+      fadeOutSeconds: 2,
+      fadeCurve: 'equal-power',
+    });
+    // Only the named clip changed.
+    expect(edited.tracks[1]!.clips[0]!.effects).toEqual([]);
+  });
+
+  it('says how to settle an ambiguous playhead: name the clip', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, context(base, [], ''), { intent: 'level', fadeOutFrames: 60 }),
+    ).toThrow(/target_ambiguous: .*name the clip\(s\) you mean with clipIds/);
+  });
+
+  it('refuses an id the project does not hold rather than guessing', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, context(base, [], ''), {
+        intent: 'level',
+        clipIds: ['music_bed'],
+        fadeOutFrames: 60,
+      }),
+    ).toThrow(/missing_explicit_target/);
+  });
+
   it('ducks the primary selected bed under the one other selected track', () => {
     const base = project();
     const edited = dispatch(base, context(base, ['voice', 'bed'], 'bed'), {
@@ -646,7 +683,8 @@ describe('professional_audio target is a referent, not an id', () => {
       const message = messageFor({ intent, target: 'music_1', gainDb: -6 });
       expect(message).toContain('never a clip or track id');
       expect(message).toContain('music_1');
-      expect(message).toContain('adjust_audio');
+      // The way to name a clip is on this very tool now (run 6cb12e30).
+      expect(message).toContain('clipIds');
     });
   }
 
@@ -657,7 +695,7 @@ describe('professional_audio target is a referent, not an id', () => {
       reductionDb: 12,
     });
     expect(message).toContain('never a clip or track id');
-    expect(message).toContain('adjust_audio');
+    expect(message).toContain('clipIds (level, eq, compress, automate_gain)');
   });
 
   it('still accepts the referents themselves', () => {

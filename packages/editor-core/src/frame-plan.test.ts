@@ -183,6 +183,45 @@ describe('framePlanAt', () => {
     expect(layer?.geometry?.baseScale).toBeCloseTo(720 / 300, 12);
   });
 
+  it('plans a smaller frame as the project frame scaled: x/y keyframes are project pixels', () => {
+    // A reframing pan: the 16:9 shot covers the 9:16 frame and x walks it edge to edge. Planned
+    // at a frame-grab size without the conversion, the full project-pixel offset slid the
+    // picture off the small frame entirely.
+    const pan = clip('c', 'v', 0, 2, {
+      sourceStart: 0,
+      keyframes: [
+        { id: 's', time: 0, property: 'scale', value: 3.1605, easing: 'linear' },
+        { id: 'x0', time: 0, property: 'x', value: 1166.67, easing: 'linear' },
+        { id: 'x1', time: 2, property: 'x', value: -1166.67, easing: 'linear' },
+        { id: 'y', time: 0, property: 'y', value: 90, easing: 'linear' },
+      ],
+    });
+    const title = { ...text('t', 'o', 'Hi'), keyframes: pan.keyframes.slice(1) };
+    const timeline: Timeline = {
+      tracks: [track('o', 'overlay', [title]), track('v', 'video', [pan])],
+    };
+    const project = { width: 1080, height: 1920 };
+    const small = { width: 288, height: 512 };
+    const ratio = 288 / 1080;
+    for (const t of [0, 1.9]) {
+      const full = framePlanAt(timeline, ASSETS, t, project).layers;
+      const scaled = framePlanAt(timeline, ASSETS, t, small, { projectResolution: project }).layers;
+      expect(scaled).toHaveLength(full.length);
+      full.forEach((layer, index) => {
+        const geometry = scaled[index]?.geometry;
+        expect(geometry?.anchorX).toBeCloseTo((layer.geometry?.anchorX ?? Number.NaN) * ratio, 9);
+        expect(geometry?.anchorY).toBeCloseTo((layer.geometry?.anchorY ?? Number.NaN) * ratio, 9);
+      });
+      const picture = scaled[0]?.geometry;
+      // Still covering the small frame at the pan's ends: no black edge.
+      expect(picture?.left).toBeLessThanOrEqual(0.5);
+      expect((picture?.left ?? 0) + (picture?.width ?? 0)).toBeGreaterThanOrEqual(small.width);
+    }
+    // Without `projectResolution` the frame is taken to be the project's (the existing callers).
+    const unconverted = framePlanAt(timeline, ASSETS, 0, small).layers[0]?.geometry;
+    expect(unconverted?.anchorX).toBeCloseTo(small.width / 2 + 1166.67, 9);
+  });
+
   it('puts a transition under-layer from the neighbour handle beneath the incoming clip', () => {
     const incoming = clip('b', 'v', 2, 4, {
       sourceStart: 8,

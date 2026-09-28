@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 13194,
+      "usedTokens": 13522,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1993,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2166,
+            "tokenEstimate": 2271,
             "included": true
           },
           {
@@ -207,7 +207,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 8564,
+            "tokenEstimate": 8763,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 13194,
+          "estimatedInputTokensBeforeSend": 13522,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 178614,
+          "estimatedRemainingCapacity": 178286,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -297,7 +297,7 @@
         "patch": {
           "patchId": "patch_bce93a18",
           "createdBy": "agent",
-          "reason": "Agent step",
+          "reason": "Deleted range Video 1 · 0s–2s",
           "operations": [
             {
               "type": "delete_range",
@@ -391,7 +391,7 @@
             "[video_1] ~ clip clip_a (0–6s → 2–6s)"
           ]
         },
-        "text": "Agent step"
+        "text": "Deleted range Video 1 · 0s–2s"
       },
       "scope": "turn",
       "turnIndex": 1,
@@ -549,7 +549,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12825,
+      "usedTokens": 13153,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -603,7 +603,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1993,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
@@ -617,7 +617,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2166,
+            "tokenEstimate": 2271,
             "included": true
           },
           {
@@ -638,7 +638,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7943,
+            "tokenEstimate": 8142,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -646,10 +646,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12825,
+          "estimatedInputTokensBeforeSend": 13153,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 178983,
-          "toolSchemaTokensRebilled": 7943,
+          "estimatedRemainingCapacity": 178655,
+          "toolSchemaTokensRebilled": 8142,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -730,7 +730,7 @@
         "patch": {
           "patchId": "patch_76c10f5b",
           "createdBy": "agent",
-          "reason": "Agent step",
+          "reason": "Deleted range Video 1 · 8s–9s",
           "operations": [
             {
               "type": "delete_range",
@@ -838,7 +838,7 @@
             "[video_1] - clip clip_b (6–10s)"
           ]
         },
-        "text": "Agent step"
+        "text": "Deleted range Video 1 · 8s–9s"
       },
       "scope": "turn",
       "turnIndex": 2,
@@ -1010,7 +1010,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12871,
+      "usedTokens": 13199,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1064,7 +1064,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1993,
+            "tokenEstimate": 2017,
             "included": true
           },
           {
@@ -1078,7 +1078,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2166,
+            "tokenEstimate": 2271,
             "included": true
           },
           {
@@ -1099,7 +1099,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7943,
+            "tokenEstimate": 8142,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1107,9 +1107,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12871,
+          "estimatedInputTokensBeforeSend": 13199,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 178937,
+          "estimatedRemainingCapacity": 178609,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },

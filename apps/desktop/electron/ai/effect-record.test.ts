@@ -224,4 +224,56 @@ describe('boundedJson', () => {
   it('maps an absent value to null rather than dropping the key', () => {
     expect(boundedJson(undefined, 'Field')).toBeNull();
   });
+
+  it('drops undefined-valued keys the way the WAL serialisation does', () => {
+    // Run 6cb12e30: `measure_color`'s luma sample carried `coverageRatio: undefined` (a
+    // skin-only field). The cast let it reach `JsonValueSchema.parse`, which threw, and the
+    // observer's throw ended the run — twice, at the same call.
+    const bounded = boundedJson(
+      { samples: [{ channel: 'luma', mean: 0.4, coverageRatio: undefined }] },
+      'Tool result data',
+    );
+    expect(bounded).toEqual({ samples: [{ channel: 'luma', mean: 0.4 }] });
+    expect(() => JsonValueSchema.parse(bounded)).not.toThrow();
+  });
+
+  it('records a value it cannot serialise as an explicit omission instead of throwing', () => {
+    const cyclic: Record<string, unknown> = { a: 1 };
+    cyclic['self'] = cyclic;
+    const bounded = boundedJson(cyclic, 'Tool result data') as { omitted: boolean; reason: string };
+    expect(bounded.omitted).toBe(true);
+    expect(bounded.reason).toContain('Tool result data');
+    expect(() => JsonValueSchema.parse(bounded)).not.toThrow();
+  });
+});
+
+describe('durable records always satisfy the run contract', () => {
+  it('a host tool result with an undefined nested field parses as JsonValue', () => {
+    const result = {
+      kind: 'host_tool',
+      cached: false,
+      outcome: {
+        status: 'completed',
+        summary: 'Measured 1 clip',
+        data: {
+          schemaVersion: 1,
+          samples: [
+            { frame: 0, channel: 'luma', min: 0, max: 1, mean: 0.3, coverageRatio: undefined },
+          ],
+        },
+      },
+    } as unknown as EffectResult;
+
+    expect(() => JsonValueSchema.parse(describeEffectResult(result))).not.toThrow();
+  });
+
+  it('a structured effect whose control carries an undefined field parses as JsonValue', () => {
+    const effect = {
+      kind: 'patch_validate',
+      control: { effectId: 'e1', taskId: 't1', idempotencyKey: 'k1', timeoutMs: undefined },
+      projectId: 'project_1',
+    } as unknown as RuntimeEffect;
+
+    expect(() => JsonValueSchema.parse(describeRuntimeEffect(effect))).not.toThrow();
+  });
 });

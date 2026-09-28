@@ -255,9 +255,19 @@ class _AdjustEffectArgs(BaseModel):
 
 class _GetFrameArgs(BaseModel):
     model_config = _STRICT
-    time_seconds: float = Field(alias="timeSeconds", ge=0.0)
+    time_seconds: float | None = Field(default=None, alias="timeSeconds", ge=0.0)
+    asset_id: str | None = Field(default=None, alias="assetId", min_length=1)
+    source_seconds: float | None = Field(default=None, alias="sourceSeconds", ge=0.0)
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
+
+    @model_validator(mode="after")
+    def _edit_or_source(self) -> _GetFrameArgs:
+        if (self.time_seconds is None) == (self.asset_id is None):
+            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        if self.source_seconds is not None and self.asset_id is None:
+            raise ValueError("sourceSeconds needs assetId.")
+        return self
 
 
 class _KeyframeArg(BaseModel):

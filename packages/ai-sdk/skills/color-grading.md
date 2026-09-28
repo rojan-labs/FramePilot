@@ -1,7 +1,7 @@
 ---
 name: color-grading
 description: Correct exposure and white balance, match shots, then shape a restrained look with the registered parametric grade and preview evidence.
-tools: [get_timeline, detect_scenes, measure_color, match_color, normalize_exposure, apply_look, apply_color_grade, render_preview]
+tools: [get_timeline, detect_scenes, measure_color, match_color, normalize_exposure, apply_look, apply_color_grade, get_frame]
 ---
 
 # Color grading

@@ -214,6 +214,26 @@ function authoredTextParams(a: {
   return Object.fromEntries(Object.entries(named).filter(([, value]) => value !== undefined));
 }
 
+/**
+ * A style's look as a restyle applies it: everything but where the overlay sits and how wide
+ * it wraps. `applyTextOverlayStylePatch` (the Text panel) keeps those too — restyling should not
+ * move an overlay the author placed — so one style id is one look whichever host applied it.
+ */
+function restyleLookOf(style: TextOverlayStyle): Record<string, unknown> {
+  const {
+    xPercent: _x,
+    yPercent: _y,
+    boxWidthPercent: _box,
+    ...look
+  } = textOverlayLookParams(style.look, style.id);
+  return Object.fromEntries(Object.entries(look).filter(([, value]) => value !== undefined));
+}
+
+/** A stored `typography` param as the fit reads it; anything else is no typography. */
+function typographyOf(value: unknown): TextOverlayTypography | undefined {
+  return typeof value === 'object' && value !== null ? (value as TextOverlayTypography) : undefined;
+}
+
 /** A style's catalog entry as the model reads it: id, name, group, and what it looks like. */
 function styleListing(style: TextOverlayStyle): Record<string, unknown> {
   return {
@@ -291,6 +311,49 @@ function findOverlayWithSameText(
     }
   }
   return undefined;
+}
+
+/**
+ * The cuts whose transition the editor named, as `add_transition` operations — the catalog
+ * entry at its own default length unless a length was named too. An id the catalog does not
+ * hold is refused with the way to find a real one, rather than planted and rendered as
+ * nothing.
+ */
+function namedTransitions(
+  ctx: ToolContext,
+  cuts: readonly {
+    readonly fromClipId: string;
+    readonly toClipId: string;
+    readonly kind?: string | undefined;
+    readonly durationSeconds?: number | undefined;
+  }[],
+): Operation[] {
+  return cuts.flatMap((cut) => {
+    if (cut.kind === undefined) return [];
+    const entry = getTransition(cut.kind);
+    if (entry === undefined) {
+      throw new ToolRefusalError(
+        `add_transitions: "${cut.kind}" is not a transition in the catalog. Call ` +
+          'discover_transitions for real ids.',
+      );
+    }
+    const track = ctx.project.timeline.tracks.find((candidate) =>
+      candidate.clips.some((clip) => clip.id === cut.fromClipId),
+    );
+    if (track === undefined) {
+      throw new Error(`Clip not found: ${cut.fromClipId}. list_edit_boundaries names every cut.`);
+    }
+    return [
+      {
+        type: 'add_transition' as const,
+        trackId: track.id,
+        fromClipId: cut.fromClipId,
+        toClipId: cut.toClipId,
+        kind: entry.id,
+        durationSeconds: cut.durationSeconds ?? entry.defaultDuration,
+      },
+    ];
+  });
 }
 
 /** Arguments `add_transition` resolves a kind and a length from. */
@@ -629,7 +692,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'middle, y 15 is near the top), fontFamily (a bundled family) and fontWeight set ' +
         'the typeface, and color/background/align/' +
         'boxWidthPercent do what they say. Everything renders exactly as the preview ' +
-        'shows it. For motion, follow this with punch_in on the clip it creates.',
+        'shows it. To restyle it later, set_text_style. For motion, follow this with ' +
+        'punch_in on the clip it creates.',
     },
     z
       .object({
@@ -692,8 +756,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         throw new ToolRefusalError(
           `"${clampTitle(a.text)}" is already on screen from ${round2(a.start)}s to ` +
             `${round2(a.end)}s, on ${duplicate.trackId}. Adding it again would composite ` +
-            'the same words on top of themselves. Change that overlay with ' +
-            'set_effect_params, move it with move_clip, or write different text.',
+            'the same words on top of themselves. Restyle that overlay with ' +
+            'set_text_style, move it with move_clip, or write different text.',
         );
       }
       // A word that cannot fit its box runs out the sides of the frame in the preview and
@@ -766,6 +830,88 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      // The restyle half of `add_text_layer`. Without it the only way to change a title the
+      // run had placed was to delete it and add it again: run `6cb12e30` tried
+      // `adjust_effect` on a title's own effect id, was refused "Effect layer not found",
+      // and told the editor it could not enlarge its titles.
+      name: 'set_text_style',
+      description:
+        'Restyle a text overlay already on the timeline — its words, a designed `style` ' +
+        '(ids and looks: discover_text_overlay_styles; applied the way the Text panel ' +
+        'applies it, keeping the overlay where it sits), size, font, weight, colour, ' +
+        'background, alignment, box width or position. Pass the clipId add_text_layer ' +
+        "created and only what changes, in add_text_layer's units; a styling arg overrides " +
+        'that field of the style, and the words are re-fitted to the box the same way. ' +
+        'Timing and track stay as they are (move_clip / trim_clip change those).',
+    },
+    z
+      .object({
+        clipId: z.string().min(1),
+        text: z.string().min(1).optional(),
+        style: z.enum(TEXT_OVERLAY_STYLE_IDS).optional(),
+        sizePercent: numeric(z.number().positive().max(100)).optional(),
+        color: z.string().optional(),
+        background: z.string().optional(),
+        align: z.enum(['left', 'center', 'right']).optional(),
+        boxWidthPercent: numeric(z.number().positive().max(100)).optional(),
+        xPercent: numeric(z.number().min(0).max(100)).optional(),
+        yPercent: numeric(z.number().min(0).max(100)).optional(),
+        fontFamily: bundledFontFamily.optional(),
+        fontWeight: cssFontWeight.optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const clip = ctx.project.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === a.clipId);
+      if (clip === undefined) {
+        throw new Error(
+          `Clip not found: ${a.clipId}. Use the clipId add_text_layer returned, or get_clips ` +
+            'on the overlay track to read it.',
+        );
+      }
+      const effect = clip.effects.find((candidate) => candidate.type === 'text');
+      if (syntheticClipKind(clip.assetId) !== 'text' || effect === undefined) {
+        throw new ToolRefusalError(
+          `${a.clipId} is not a text overlay — set_text_style restyles overlays made with ` +
+            'add_text_layer. A shape is set_shape_style; captions are set_caption_style.',
+        );
+      }
+      // Fit the overlay as it WILL be — new words in the old box, a heavier face at the old
+      // size — not as it is, so a restyle cannot push a word out of the frame.
+      const style = a.style === undefined ? undefined : getTextOverlayStyle(a.style);
+      const merged: Record<string, unknown> = {
+        ...effect.params,
+        ...(style === undefined ? {} : restyleLookOf(style)),
+        ...authoredTextParams(a),
+        ...(a.text === undefined ? {} : { text: a.text }),
+      };
+      const weight = weightTheFamilyHas(merged.fontFamily, merged.fontWeight);
+      if (weight !== undefined) merged.fontWeight = weight;
+      const fitted = fitTextOverlayParams(
+        typeof merged.text === 'string' ? merged.text : '',
+        merged,
+        typographyOf(merged.typography),
+        ctx.project.resolution,
+      );
+      const params = Object.fromEntries(
+        Object.entries(fitted).filter(
+          ([key, value]) =>
+            value !== undefined && JSON.stringify(value) !== JSON.stringify(effect.params[key]),
+        ),
+      );
+      if (Object.keys(params).length === 0) {
+        throw new ToolRefusalError(
+          `Nothing to change on ${a.clipId}: name at least one of text, style, sizePercent, ` +
+            'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily or ' +
+            'fontWeight with a value different from what it already has.',
+        );
+      }
+      return [{ type: 'set_effect_params', clipId: clip.id, effectId: effect.id, params }];
+    },
+  ),
+  mutateTool(
+    {
       name: 'add_transition',
       description:
         'Add a transition at the cut between two adjacent clips on the same track ' +
@@ -823,7 +969,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         '`reason: "auto"` (the default) reads each cut: a jump cut is softened, a change ' +
         'of setting gets a location transition, and every other cut is deliberately left ' +
         'as a hard cut. Name one reason instead to apply it to every cut in scope, or ' +
-        'list `cuts` with a reason each. Optionally limit to one trackId. includeCutaways ' +
+        'list `cuts` with a reason each — or with `kind` (a catalog id from ' +
+        'discover_transitions, e.g. whip-pan-left, light-leak) where the editor named the ' +
+        'transition for that cut. Optionally limit to one trackId. includeCutaways ' +
         'also treats where b-roll laid over the A-roll enters and leaves (auto keeps those ' +
         'hard; soften gives quick dissolves, energy punchier entrances). The result names ' +
         'every cut it left hard and why — those are decisions, not omissions, so do not go ' +
@@ -840,6 +988,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
                 fromClipId: z.string().trim().min(1),
                 toClipId: z.string().trim().min(1),
                 reason: z.enum(TRANSITION_REASONS).optional(),
+                // What the editor NAMED for this cut. Without it the batch could only pass
+                // reasons, so run `6cb12e30`'s "whip-pan into departure" and "light-leak
+                // dissolve into camp" became a policy zoom and a plain cross-dissolve.
+                kind: z.string().trim().min(1).optional(),
+                durationSeconds: numeric(z.number().positive()).optional(),
               })
               .strict(),
           )
@@ -849,10 +1002,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       })
       .strict(),
     (a, ctx) => [
+      ...namedTransitions(ctx, a.cuts ?? []),
       ...planTransitions(ctx, {
         ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
         reason: a.reason ?? 'auto',
-        ...(a.cuts === undefined ? {} : { cuts: a.cuts }),
+        ...(a.cuts === undefined ? {} : { cuts: a.cuts.filter((cut) => cut.kind === undefined) }),
       })
         .filter(
           (
@@ -1001,8 +1155,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
     {
       name: 'adjust_effect',
       description:
-        'Retune an applied effect. `params` is a PARTIAL patch — send only the ' +
-        'values to change. `intensity` (0–1) is the master strength every effect ' +
+        'Retune an effect layer placed with apply_effect (its layerId). `params` is a ' +
+        'PARTIAL patch — send only the values to change. `intensity` (0–1) is the master strength every effect ' +
         'honours; pass null to reset it to full. Call discover_effects for the ' +
         'valid parameter names and ranges of the effect’s kind.',
       capabilities: ['edit', 'effects'],
@@ -1014,14 +1168,39 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         intensity: numeric(z.number().min(0).max(1)).nullable().optional(),
       })
       .strict(),
-    (a) => [
-      {
-        type: 'set_effect_layer_params',
-        layerId: a.layerId,
-        ...(a.params !== undefined ? { params: a.params } : {}),
-        ...(a.intensity !== undefined ? { intensity: a.intensity } : {}),
-      },
-    ],
+    (a, ctx) => {
+      const isLayer = ctx.project.timeline.tracks.some((track) =>
+        (track.effectLayers ?? []).some((layer) => layer.id === a.layerId),
+      );
+      if (!isLayer) {
+        // Resolve the id before emitting an op for it. This always emitted the effect-LAYER op,
+        // so a clip's own effect id — the `<clipId>__text` a title's patch carries — was
+        // refused as "Effect layer not found" with no way forward, and run `6cb12e30` told
+        // the editor its titles could not be enlarged.
+        const owner = ctx.project.timeline.tracks
+          .flatMap((track) => track.clips)
+          .find((clip) => clip.effects.some((effect) => effect.id === a.layerId));
+        if (owner !== undefined) {
+          const kind = owner.effects.find((effect) => effect.id === a.layerId)?.type;
+          throw new ToolRefusalError(
+            `${a.layerId} is ${kind === 'text' ? 'the text of' : `a ${String(kind)} effect on`} ` +
+              `clip ${owner.id}, not an effect layer — adjust_effect retunes layers placed ` +
+              'with apply_effect. ' +
+              (kind === 'text'
+                ? `Restyle the text overlay with set_text_style (clipId "${owner.id}").`
+                : 'Change it with the tool that made it, or read it with get_clip.'),
+          );
+        }
+      }
+      return [
+        {
+          type: 'set_effect_layer_params',
+          layerId: a.layerId,
+          ...(a.params !== undefined ? { params: a.params } : {}),
+          ...(a.intensity !== undefined ? { intensity: a.intensity } : {}),
+        },
+      ];
+    },
   ),
   mutateTool(
     {

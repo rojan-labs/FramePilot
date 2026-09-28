@@ -140,16 +140,34 @@ export function effectLayerMaskStack(layer: EffectLayer): FrameMaskStack | null 
   };
 }
 
-/** `FrameMaskStack.alpha_at`: the stack's exact float64 alpha on a `width`×`height` frame. */
+/** A frame size in pixels. */
+export interface FrameGeometrySize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * `FrameMaskStack.alpha_at`: the stack's exact float64 alpha on a `width`×`height` frame.
+ *
+ * @param geometry - The frame the masks are authored in: the PROJECT's, which the lane's mask
+ *   tools draw on. A monitor frame of another size (the capped canvas, a shed playback step)
+ *   maps them onto its own frame through it. Omitted: the frame drawn on is that frame.
+ */
 export function frameStackAlphaAt(
   stack: FrameMaskStack,
   width: number,
   height: number,
   localTime: number,
+  geometry?: FrameGeometrySize,
 ): Float64Array | null {
   if (stack.refusal !== null || stack.masks.length === 0 || width <= 0 || height <= 0) return null;
   return stackAlphaAt(
-    frameOwnerStack(stack.layerId, width, height, stack.masks),
+    frameOwnerStack(
+      stack.layerId,
+      geometry?.width ?? width,
+      geometry?.height ?? height,
+      stack.masks,
+    ),
     { kind: 'alpha' },
     width,
     height,
@@ -170,12 +188,15 @@ export class FrameMaskRasterCache {
    * @param width - Output frame width the layer is applied at.
    * @param height - Output frame height.
    * @param localTime - Seconds from the layer's `start`.
+   * @param geometry - The frame the masks are authored in (the project's); see
+   *   {@link frameStackAlphaAt}.
    */
   raster(
     stack: FrameMaskStack,
     width: number,
     height: number,
     localTime: number,
+    geometry?: FrameGeometrySize,
   ): MaskStackRaster | null {
     if (stack.refusal !== null || stack.masks.length === 0 || width <= 0 || height <= 0) {
       return null;
@@ -183,6 +204,7 @@ export class FrameMaskRasterCache {
     const key = [
       stack.layerId,
       `${String(width)}x${String(height)}`,
+      geometry === undefined ? 'frame' : `${String(geometry.width)}x${String(geometry.height)}`,
       stack.animated ? String(localTime) : 'static',
       stack.masks.map((mask) => `${mask.id}:${String(mask.mode)}`).join(','),
     ].join('|');
@@ -192,7 +214,7 @@ export class FrameMaskRasterCache {
       this.entries.set(key, cached);
       return cached;
     }
-    const alpha = frameStackAlphaAt(stack, width, height, localTime);
+    const alpha = frameStackAlphaAt(stack, width, height, localTime, geometry);
     if (alpha === null) return null;
     const alpha8 = new Uint8Array(alpha.length);
     // The evaluator already quantised; `* 255` recovers those exact bytes.

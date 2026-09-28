@@ -231,6 +231,12 @@ export interface FramePlanOptions {
     ReadonlyMap<string, readonly number[]> | Readonly<Record<string, readonly number[]>>;
   /** Project transcript, for caption clips without their own cue. */
   readonly transcript?: readonly TranscriptWord[];
+  /**
+   * The project's frame, which keyframed `x`/`y` are authored in (`authored_offset_scale`).
+   * Planning at another `resolution` (a smaller canvas, a review render) converts them to that
+   * frame's pixels so the plan is the project-size plan scaled. Defaults to `resolution`.
+   */
+  readonly projectResolution?: { readonly width: number; readonly height: number };
 }
 
 /** A frame plan could not be derived. */
@@ -821,6 +827,9 @@ interface Context {
   readonly t: number;
   readonly width: number;
   readonly height: number;
+  /** Frame pixels per project pixel, per axis: what a keyframed `x`/`y` is multiplied by. */
+  readonly offsetScaleX: number;
+  readonly offsetScaleY: number;
   readonly assetSizes: ReadonlyMap<string, readonly [number, number]>;
   readonly assetDurations: ReadonlyMap<string, number>;
   readonly sourceFps: ReadonlyMap<string, number>;
@@ -889,8 +898,8 @@ function pictureGeometry(
     tr !== null && GEOMETRY_KINDS.has(tr.kind)
       ? transitionOffsetAt(tr, local, ctx.width, ctx.height)
       : [0, 0];
-  const left = ctx.width / 2 - width / 2 + transform.x + dx;
-  const top = ctx.height / 2 - height / 2 + transform.y + dy;
+  const left = ctx.width / 2 - width / 2 + transform.x * ctx.offsetScaleX + dx;
+  const top = ctx.height / 2 - height / 2 + transform.y * ctx.offsetScaleY + dy;
   return {
     baseScale: base,
     scale,
@@ -1191,8 +1200,12 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
     geometry: {
       baseScale: 1,
       scale,
-      anchorX: (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x + dx,
-      anchorY: (ctx.height * textPercent(params.yPercent, 50)) / 100 + transform.y + offsetY,
+      anchorX:
+        (ctx.width * textPercent(params.xPercent, 50)) / 100 + transform.x * ctx.offsetScaleX + dx,
+      anchorY:
+        (ctx.height * textPercent(params.yPercent, 50)) / 100 +
+        transform.y * ctx.offsetScaleY +
+        offsetY,
       rotation: transform.rotation,
       left: null,
       top: null,
@@ -1230,8 +1243,8 @@ function shapeLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nu
   // `layer_scale_at`'s operation order, so the floats agree to the bit.
   let scale = transform.scale * titleEnvelopeAt(clip, local).scale;
   if (geometric) scale *= transitionScaleAt(tr, local);
-  const anchorX = centreX + transform.x + dx;
-  const anchorY = centreY + transform.y + dy;
+  const anchorX = centreX + transform.x * ctx.offsetScaleX + dx;
+  const anchorY = centreY + transform.y * ctx.offsetScaleY + dy;
   const width = bounds.width * (scale * transform.scaleX);
   const height = bounds.height * (scale * transform.scaleY);
   return {
@@ -1583,6 +1596,15 @@ function toMap<T>(
 }
 
 /**
+ * Frame pixels per project pixel on one axis (`frame_plan.authored_offset_scale`): keyframed
+ * `x`/`y` are project pixels, and everything else a layer is placed by is already relative to
+ * the frame it is drawn on. A non-positive project dimension leaves the axis unscaled.
+ */
+function authoredOffsetScale(frame: number, project: number): number {
+  return project > 0 ? frame / project : 1;
+}
+
+/**
  * Describe the exported frame at `projectTime`, back to front.
  *
  * What does not depend on the time is indexed once per `timeline` object and `assets` array
@@ -1593,7 +1615,8 @@ function toMap<T>(
  * @param assets - Project assets; probed `media.width/height` drive picture geometry.
  * @param projectTime - Sequence seconds.
  * @param resolution - The output frame (the project resolution for the preview).
- * @param options - Caption burn-in, probed source fps, transcript.
+ * @param options - Caption burn-in, probed source fps, transcript, and the project's frame when
+ *   `resolution` is not it.
  * @returns The plan; never mutates its inputs.
  * @throws FramePlanError when `projectTime` is not finite.
  */
@@ -1609,10 +1632,13 @@ export function framePlanAt(
   }
   const assetTables = assetTablesFor(assets);
   const index = timelineIndexFor(timeline, assetTables.kinds);
+  const project = options.projectResolution ?? resolution;
   const ctx: Context = {
     t: projectTime,
     width: resolution.width,
     height: resolution.height,
+    offsetScaleX: authoredOffsetScale(resolution.width, project.width),
+    offsetScaleY: authoredOffsetScale(resolution.height, project.height),
     assetSizes: assetTables.sizes,
     assetDurations: assetTables.durations,
     sourceFps: toMap(options.sourceFps),

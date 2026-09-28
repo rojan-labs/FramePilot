@@ -10,6 +10,7 @@ import {
   projectHeaderOf,
   FALLBACK_CLASSIFICATION,
   buildClassifierMessages,
+  earlierRequestsFrom,
   parseClassification,
   type ClassifierInput,
 } from './command-classifier.js';
@@ -85,6 +86,125 @@ describe('parseClassification', () => {
     // A model that has seen an older contract (or a stale cached prompt) must not be able
     // to reach a route that no longer exists — it falls back to `edit`, never dispatches.
     expect(parseClassification('{"route":"recipe","recipe":"remove_silence"}')).toBeNull();
+  });
+});
+
+describe('the edit readings: continuation and finished length', () => {
+  // Run 6cb12e30. The brief says "58–62s" for the master and "Use only the best 2–4s of
+  // each" for shots; the follow-up says only "load the tools and complete the task".
+  const brief =
+    'MASTER: 1080×1920 (9:16), 23.976fps, 58–62s.\nUse only the best 2–4s of each clip.';
+  const grounding = {
+    request: 'load the tools and complete the task',
+    earlierRequests: [brief, 'load the tools and complete the task'],
+  };
+
+  it('keeps a continuation that names a request the reader was shown', () => {
+    expect(parseClassification('{"route":"edit","continues":1}', grounding)).toEqual({
+      route: 'edit',
+      continues: 1,
+    });
+  });
+
+  it('reads a stated range as its midpoint and half-width, quoting the request', () => {
+    const result = parseClassification(
+      '{"route":"edit","continues":1,"length":{"min":58,"max":62,"quote":"58-62s"}}',
+      grounding,
+    );
+    // A model copying the en dash as a hyphen has still quoted the brief.
+    expect(result?.deliverableLength).toEqual({
+      seconds: 60,
+      toleranceSeconds: 2,
+      statedAs: '58-62s',
+    });
+  });
+
+  it('drops a length whose quote is not in the request — an invented target never becomes a criterion', () => {
+    const result = parseClassification(
+      '{"route":"edit","continues":1,"length":{"seconds":30,"quote":"a 30 second reel"}}',
+      grounding,
+    );
+    expect(result).toEqual({ route: 'edit', continues: 1 });
+  });
+
+  it("does not ground a quote in an earlier request the message does not continue", () => {
+    const result = parseClassification(
+      '{"route":"edit","length":{"min":58,"max":62,"quote":"58–62s"}}',
+      grounding,
+    );
+    expect(result).toEqual({ route: 'edit' });
+  });
+
+  it('drops a continuation that points at nothing that was shown', () => {
+    expect(parseClassification('{"route":"edit","continues":3}', grounding)).toEqual({
+      route: 'edit',
+    });
+    expect(parseClassification('{"route":"edit","continues":"1"}', grounding)).toEqual({
+      route: 'edit',
+    });
+  });
+
+  it('keeps the route when a reading is malformed', () => {
+    expect(
+      parseClassification('{"route":"edit","length":{"seconds":-4,"quote":""}}', grounding),
+    ).toEqual({ route: 'edit' });
+    expect(parseClassification('{"route":"edit","length":"sixty"}', grounding)).toEqual({
+      route: 'edit',
+    });
+  });
+
+  it('reads a single stated length from the message itself', () => {
+    expect(
+      parseClassification('{"route":"edit","length":{"seconds":45,"quote":"45 seconds"}}', {
+        request: 'Cut this down to 45 seconds.',
+      })?.deliverableLength,
+    ).toEqual({ seconds: 45, statedAs: '45 seconds' });
+  });
+
+  it('keeps no reading without grounding, and none on a non-edit route', () => {
+    expect(
+      parseClassification('{"route":"edit","continues":1,"length":{"seconds":45,"quote":"x"}}'),
+    ).toEqual({ route: 'edit' });
+    expect(
+      parseClassification('{"route":"question","continues":1}', grounding),
+    ).toEqual({ route: 'question' });
+  });
+});
+
+describe('earlierRequestsFrom', () => {
+  it("shows the editor's earlier messages, oldest first, and never the assistant's", () => {
+    const history = [
+      { role: 'user', content: 'THE BRIEF' },
+      { role: 'assistant', content: 'Applied 83 edits' },
+      { role: 'user', content: 'load the tools and complete the task' },
+      { role: 'user', content: '   ' },
+    ];
+    expect(earlierRequestsFrom(history).map((request) => request.shown)).toEqual([
+      'THE BRIEF',
+      'load the tools and complete the task',
+    ]);
+  });
+
+  it('shows the whole 27k-character brief a real run pasted', () => {
+    const brief = 'x'.repeat(27_043);
+    const [only] = earlierRequestsFrom([{ role: 'user', content: brief }]);
+    expect(only?.shown).toHaveLength(27_043);
+  });
+
+  it('cuts only what exceeds the budget, and keeps the whole message as the objective', () => {
+    const brief = 'y'.repeat(60_000);
+    const [only] = earlierRequestsFrom([{ role: 'user', content: brief }]);
+    expect(only?.shown.length).toBeLessThan(brief.length);
+    expect(only?.full).toBe(brief);
+  });
+
+  it('renders the earlier requests numbered above the message', () => {
+    const user =
+      buildClassifierMessages({ ...input, earlierRequests: ['THE BRIEF', 'continue'] })[1]
+        ?.content ?? '';
+    expect(user).toContain('[1] THE BRIEF');
+    expect(user).toContain('[2] continue');
+    expect(user.indexOf('[2] continue')).toBeLessThan(user.indexOf('Request:'));
   });
 });
 

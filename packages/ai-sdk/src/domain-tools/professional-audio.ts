@@ -111,11 +111,14 @@ function buildProfessionalAudio(rawArgs: unknown, ctx: ToolContext) {
   return validateProfessionalOperationBatch(ctx, 'professional_audio', operations);
 }
 
-/** Resolves clip and sidechain targets from editor state; no model-authored ids are accepted. */
+/**
+ * Resolves clip targets from the ids the model names (`clipIds`, checked against the project)
+ * or from editor state, and sidechains from editor state and authored roles only.
+ */
 export const PROFESSIONAL_AUDIO_TOOL: ToolSpec = {
   name: 'professional_audio',
   description:
-    'Mix the selected audio: level (gain, frame-based fades, mute, peak normalize), eq (shelves, peaks, and high/low-pass to clean up a recording), compress (even out a performance), automate_gain (ride the level over time), or duck one source under another. Use duck_roles with bedRole/sidechainRole for "duck the music under the dialogue" — it uses the roles authored on the tracks with set_track_flags; a video track takes a role too when its clips carry the sound (camera audio, wind), so "duck the wind under the music" is bedRole music, sidechainRole sfx on the VIDEO track. Use duck_selection when tracks carry no roles: select the bed clip last so it is primary, plus a clip on the sidechain track. An automation lane is the level over time and replaces the static gain, so author one or the other, not both. Roles and ids come from live editor state and authored labels, never from track or file names.',
+    'Mix audio on the clips you name in clipIds (or, without it, the selected clip): level (gain, frame-based fades, mute, peak normalize), eq (shelves, peaks, and high/low-pass to clean up a recording), compress (even out a performance), automate_gain (ride the level over time), or duck one source under another. Use duck_roles with bedRole/sidechainRole for "duck the music under the dialogue" — it uses the roles authored on the tracks with set_track_flags; a video track takes a role too when its clips carry the sound (camera audio, wind), so "duck the wind under the music" is bedRole music, sidechainRole sfx on the VIDEO track. Use duck_selection when tracks carry no roles: select the bed clip last so it is primary, plus a clip on the sidechain track. An automation lane is the level over time and replaces the static gain, so author one or the other, not both. Clip ids come from get_clips; roles from authored labels, never from track or file names.',
   version: '1',
   capabilities: ['audio', 'professional-editing'],
   permissions: ['write'],

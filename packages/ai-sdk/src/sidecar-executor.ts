@@ -626,7 +626,8 @@ const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
     'this clip has not been indexed, so there is nothing to describe yet. Indexing runs in ' +
     'the background and may not finish during this run — do not call this again for the ' +
     'same clip. Use what the search result already told you about it (its title and the ' +
-    'query that found it), or look at a moment directly with get_frame.',
+    'query that found it), or look at the clip itself with get_frame { assetId, ' +
+    'sourceSeconds } — it shows the source as shot, placed on the timeline or not.',
   pegasus_unavailable:
     'the understanding backend is not available for this project, so no clip can be ' +
     'described in this run. Select on the search text and titles you already have, and say ' +
@@ -649,7 +650,8 @@ const TOOL_VISUAL_REASON_GUIDANCE: Readonly<Record<string, Readonly<Record<strin
     not_indexed:
       'this clip has not been indexed, so it has no chapters or highlights yet. Indexing ' +
       'runs in the background and may not finish during this run — do not call this again ' +
-      'for the same clip. Sample it with get_frame at a few times across its duration, or ' +
+      'for the same clip. Sample it with get_frame { assetId, sourceSeconds } at a few times ' +
+      'across its duration, or ' +
       'work from what you already know about it (its title, its duration, and the query ' +
       'that found it) and say plainly that no map is available yet.',
     pegasus_unavailable:
@@ -1065,8 +1067,14 @@ export function frameBody(
     // The agent's in-memory working copy, not a saved path: the frame is being asked for
     // to check an edit that has not been saved yet.
     project,
-    time_seconds: typeof args.timeSeconds === 'number' ? args.timeSeconds : 0,
   };
+  if (typeof args.assetId === 'string') {
+    // A source as shot (`frame_grab.source_view_project`), not a moment of the edit.
+    body.asset_id = args.assetId;
+    body.source_seconds = typeof args.sourceSeconds === 'number' ? args.sourceSeconds : 0;
+  } else {
+    body.time_seconds = typeof args.timeSeconds === 'number' ? args.timeSeconds : 0;
+  }
   if (typeof args.maxDimension === 'number') body.max_dimension = args.maxDimension;
   if (typeof args.burnCaptions === 'boolean') body.burn_captions = args.burnCaptions;
   return body;
@@ -1093,7 +1101,9 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
   const base64 = typeof record.base64 === 'string' ? record.base64 : '';
   const mediaType = typeof record.media_type === 'string' ? record.media_type : '';
   const at = typeof record.time_seconds === 'number' ? record.time_seconds : 0;
-  const requested = typeof args.timeSeconds === 'number' ? args.timeSeconds : at;
+  const source = typeof args.assetId === 'string' ? args.assetId : undefined;
+  const asked = source === undefined ? args.timeSeconds : (args.sourceSeconds ?? 0);
+  const requested = typeof asked === 'number' ? asked : at;
   if (base64 === '' || !FORWARDABLE_IMAGE_TYPES.has(mediaType)) {
     const reason = unreadableEngineAnswer(
       `the engine returned no usable image (media type ${mediaType || 'missing'})`,
@@ -1106,9 +1116,13 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
   // for — a clamped time is the difference between "the end looks wrong" and "you were
   // shown a different moment than you asked about".
   const clamped = Math.abs(at - requested) > 0.001;
-  const label = `the timeline at ${at.toFixed(2)}s`;
+  const label =
+    source === undefined
+      ? `the timeline at ${at.toFixed(2)}s`
+      : `${source} as shot at ${at.toFixed(2)}s (the whole uncropped source frame)`;
+  const outside = source === undefined ? 'the timeline' : 'the file';
   const summary = clamped
-    ? `Looked at ${label} (clamped from ${requested.toFixed(2)}s, which is outside the timeline)`
+    ? `Looked at ${label} (clamped from ${requested.toFixed(2)}s, which is outside ${outside})`
     : `Looked at ${label}`;
   return {
     status: 'completed',
@@ -1117,6 +1131,7 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
       timeSeconds: at,
       requestedTimeSeconds: requested,
       clamped,
+      ...(source === undefined ? {} : { assetId: source }),
       width,
       height,
       durationSeconds:

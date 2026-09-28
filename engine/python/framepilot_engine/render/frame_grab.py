@@ -15,6 +15,14 @@ composites through :func:`compile_timeline` — the same function the export use
 by default for exactly that reason: soft captions are invisible in a frame, and
 "do the captions look right?" is the single most common thing worth looking at.
 
+WHY it compiles only the clips on screen: compiling the whole timeline opened a reader for
+every clip to show the two or three playing at one instant — 26s cold for a 60s, 26-clip
+edit, 24-45s per look in a desktop run. The same compiler is asked for the clips that can be
+playing at that instant (:mod:`framepilot_engine.render.picture_window`), and a layer that is
+not playing contributes nothing to a composited frame, so the frame is the export's to the
+pixel. Projects the window cannot reproduce exactly (blend modes, track mattes) and instants
+where no picture plays still composite everything.
+
 WHY it is downscaled and JPEG by default: the frame is sent to a model as base64
 inside a prompt. A 1080x1920 PNG is megabytes of context for a question a
 512-pixel-wide JPEG answers just as well, and the token cost of an image scales
@@ -36,11 +44,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from framepilot_engine.media.assets import index_assets
-from framepilot_engine.render.compiler import compile_timeline, timeline_duration
-from framepilot_engine.render.composition_cache import COMPOSITION_CACHE, composition_key
+from framepilot_engine.media.assets import AssetIndex, index_assets
+from framepilot_engine.render.compiler import (
+    PictureWindowMiss,
+    compile_timeline,
+    timeline_duration,
+)
+from framepilot_engine.render.composition_cache import (
+    COMPOSITION_CACHE,
+    FRAME_WINDOW_CACHE,
+    composition_key,
+)
+from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
-from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.models import Clip, Project, Resolution, Timeline, Track
 
 _log = logging.getLogger(__name__)
 
@@ -111,6 +128,170 @@ def _fit_within(width: int, height: int, max_dimension: int) -> tuple[int, int]:
     scale = max_dimension / longest
     # At least 1px on each axis — a 1x8000 timeline is degenerate but must not crash.
     return max(1, round(width * scale)), max(1, round(height * scale))
+
+
+def _windowed_frame(
+    project: Project,
+    base_dir: Path,
+    asset_index: AssetIndex,
+    preset: ExportPreset,
+    window: PictureWindow,
+    *,
+    burn_captions: bool,
+    decode_budget: int | None,
+) -> Any | None:
+    """The frame at ``window.time`` composited from the clips in ``window`` alone.
+
+    ``None`` when the window cannot give the full compile's frame (it built no picture
+    layer, or its picture ends at or before this instant); the caller composites the whole
+    timeline instead. The composite is cached by the clips it holds, so every instant of the
+    same shot reuses it — and is kept apart from whole-timeline composites
+    (``FRAME_WINDOW_CACHE``), so a grab neither waits behind a background review's build nor
+    evicts it.
+    """
+
+    def build() -> Any:
+        try:
+            return compile_timeline(
+                project,
+                asset_index,
+                preset,
+                burn_captions=burn_captions,
+                max_decode_dimension=decode_budget,
+                window=window,
+            )
+        except PictureWindowMiss:
+            raise
+        except Exception as exc:
+            raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
+
+    at = window.time
+    key = composition_key(
+        project,
+        base_dir,
+        preset,
+        burn_captions=burn_captions,
+        max_decode_dimension=decode_budget,
+        window=window.clip_ids,
+    )
+    try:
+        with FRAME_WINDOW_CACHE.borrow(key, build) as composition:
+            # `duration` is where the windowed picture stops being the full one (see
+            # `compile_timeline`); a composite cached for another instant may end before this.
+            if composition.duration is not None and at >= float(composition.duration):
+                _log.info("frame grab: window ends before %.3fs; compositing everything", at)
+                return None
+            _log.debug("frame grab: %d clip(s) in the window at %.3fs", len(window.clip_ids), at)
+            return composition.get_frame(at)
+    except PictureWindowMiss as exc:
+        _log.info("frame grab: %s", exc)
+        return None
+    except FrameGrabError:
+        raise
+    except Exception as exc:
+        raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+
+
+def _whole_timeline_frame(
+    project: Project,
+    base_dir: Path,
+    asset_index: AssetIndex,
+    preset: ExportPreset,
+    at: float,
+    *,
+    burn_captions: bool,
+    decode_budget: int | None,
+) -> Any:
+    """The frame at ``at`` from the whole timeline's composite, the export's own graph."""
+
+    def build() -> Any:
+        try:
+            return compile_timeline(
+                project,
+                asset_index,
+                preset,
+                burn_captions=burn_captions,
+                max_decode_dimension=decode_budget,
+            )
+        except Exception as exc:
+            raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
+
+    # Borrowed, not built-and-destroyed: a later grab of the same revision reads the cached
+    # composite. The cache owns the teardown (readers are closed on eviction, never
+    # mid-borrow).
+    key = composition_key(
+        project,
+        base_dir,
+        preset,
+        burn_captions=burn_captions,
+        max_decode_dimension=decode_budget,
+    )
+    try:
+        with COMPOSITION_CACHE.borrow(key, build) as composition:
+            return composition.get_frame(at)
+    except FrameGrabError:
+        raise
+    except Exception as exc:
+        raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+
+
+#: A still has no length of its own; this is how long its one-clip view holds it.
+_STILL_VIEW_SECONDS = 5.0
+
+#: The frame a view falls back to for a source whose size was never probed.
+_UNPROBED_VIEW_SIZE = (1920, 1080)
+
+
+def source_view_project(project: Project, asset_id: str) -> tuple[Project, float]:
+    """A timeline that plays one asset as shot — its own frame size, uncropped, nothing over it.
+
+    WHY: ``get_frame`` renders the EDIT, so it can only show a clip after it is placed, and
+    then only through its crop. Run ``6cb12e30`` was told to look at every clip before
+    cutting, could not (the visual index had not reached them), placed 26 clips on a blind
+    centre crop, and re-cropped the passenger shot from the one cropped timeline frame it
+    could see — the wrong way, onto a dark silhouette, because the passenger sat on the
+    other side of the full 16:9 frame it never saw.
+
+    Rendered through the same compiler as everything else rather than a second decoder, so
+    rotation, anamorphic pixels, variable frame rates and stills are read the way the export
+    reads them, and the windowed grab keeps it to one reader.
+
+    :returns: The one-clip project and the asset's length in seconds.
+    :raises FrameGrabError: For an unknown asset or one with no picture.
+    """
+    asset = next((candidate for candidate in project.assets if candidate.id == asset_id), None)
+    if asset is None:
+        raise FrameGrabError(
+            f"Asset not found: {asset_id}. Use an id from list_assets or the media bin."
+        )
+    if asset.kind not in ("video", "image"):
+        raise FrameGrabError(f"{asset_id} is {asset.kind}, which has no picture to show.")
+    size = asset.media.display_size() if asset.media is not None else None
+    width, height = (round(size[0]), round(size[1])) if size else _UNPROBED_VIEW_SIZE
+    duration = (
+        _STILL_VIEW_SECONDS
+        if asset.kind == "image"
+        else float(asset.duration_seconds or 0.0) or _STILL_VIEW_SECONDS
+    )
+    clip = Clip(
+        id="source_view",
+        asset_id=asset.id,
+        track_id="source_view",
+        start=0.0,
+        end=duration,
+        source_start=0.0,
+        source_end=duration,
+    )
+    view = project.model_copy(
+        update={
+            "resolution": Resolution(width=max(2, width), height=max(2, height)),
+            "timeline": Timeline(tracks=[Track(id="source_view", type="video", clips=[clip])]),
+            "transcript": [],
+            "markers": [],
+            "history": [],
+        }
+    )
+    return view, duration
 
 
 def grab_frame(
@@ -207,38 +388,42 @@ def grab_frame(
     # A lossless frame is the export's, so it reads sources the way the export does: unbudgeted.
     decode_budget: int | None = None if lossless else max(preset.width, preset.height)
 
-    def build() -> Any:
-        try:
-            return compile_timeline(
-                project,
-                asset_index,
-                preset,
-                burn_captions=burn_captions,
-                max_decode_dimension=decode_budget,
-            )
-        except Exception as exc:
-            raise FrameGrabError(f"Could not compile the timeline for a frame: {exc}") from exc
-
-    # Borrowed, not built-and-destroyed. Compiling costs ~0.8s per clip and the
-    # frame itself ~0.4s, so grabbing several frames of one revision — which is
-    # exactly what a model inspecting its own edit does — used to recompile the
-    # entire timeline for each one. The cache owns the teardown now (readers are
-    # closed on eviction, never mid-borrow); the previous unconditional
-    # close_clip_tree here is what made every grab pay full price.
-    key = composition_key(
-        project,
-        base_dir,
-        preset,
-        burn_captions=burn_captions,
-        max_decode_dimension=decode_budget,
+    # Only the clips that can be on screen at `at` (see `render/picture_window.py`). A
+    # lossless frame is the parity oracle's reference, so it keeps compositing the whole
+    # timeline exactly as the export does rather than trusting the window it is there to check.
+    window = (
+        None
+        if lossless
+        else picture_window_at(
+            project, at, {entry.asset_id: entry.kind for entry in asset_index.entries}
+        )
     )
-    try:
-        with COMPOSITION_CACHE.borrow(key, build) as composition:
-            pixels = composition.get_frame(at)
-    except FrameGrabError:
-        raise
-    except Exception as exc:
-        raise FrameGrabError(f"Could not read the frame at {at:.3f}s: {exc}") from exc
+    pixels = (
+        None
+        if window is None
+        else _windowed_frame(
+            project,
+            base_dir,
+            asset_index,
+            preset,
+            window,
+            burn_captions=burn_captions,
+            decode_budget=decode_budget,
+        )
+    )
+    # Which composite answered, for the ACT line: a grab that silently fell back to the whole
+    # timeline is the slow case worth spotting in a run log.
+    composited = "timeline" if pixels is None or window is None else f"{len(window.clip_ids)} clips"
+    if pixels is None:
+        pixels = _whole_timeline_frame(
+            project,
+            base_dir,
+            asset_index,
+            preset,
+            at,
+            burn_captions=burn_captions,
+            decode_budget=decode_budget,
+        )
 
     # Encoding is guarded for the same reason the compile above it is: everything this
     # function raises should be a `FrameGrabError`, which the route answers as a 422 with
@@ -273,13 +458,14 @@ def grab_frame(
 
     data = buffer.getvalue()
     _log.info(
-        "ACT frame grab: t=%.3fs size=%dx%d format=%s lossless=%s bytes=%d",
+        "ACT frame grab: t=%.3fs size=%dx%d format=%s lossless=%s bytes=%d composited=%s",
         at,
         image.width,
         image.height,
         fmt,
         lossless,
         len(data),
+        composited,
     )
     return GrabbedFrame(
         data=data,

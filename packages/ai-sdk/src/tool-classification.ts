@@ -231,6 +231,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   remove_keyframes: { role: 'mutation', scope: 'timeline_dependent' },
   add_marker: { role: 'mutation', scope: 'timeline_dependent' },
   add_text_layer: { role: 'mutation', scope: 'timeline_dependent' },
+  set_text_style: { role: 'mutation', scope: 'timeline_dependent' },
   // Shapes (plan/elements EL4a): pure patches over the shared placement builder.
   add_shape: { role: 'mutation', scope: 'timeline_dependent' },
   // Reads the SHIPPED shape catalogue, like discover_effects: guidance, so it stays offered
@@ -261,6 +262,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   tighten_clips: { role: 'mutation', scope: 'timeline_dependent' },
   move_track: { role: 'mutation', scope: 'timeline_dependent' },
   punch_in: { role: 'mutation', scope: 'timeline_dependent' },
+  reframe_pan: { role: 'mutation', scope: 'timeline_dependent' },
   remove_marker: { role: 'mutation', scope: 'timeline_dependent' },
   // What it records — how this editor likes their videos — genuinely outlives every cut,
   // but `timeline_dependent` is right anyway: the scope governs when a READ's payload is

@@ -55,6 +55,27 @@ describe('distil', () => {
     });
   });
 
+  it('keeps a caveated reading to this run — it is the tool talking about itself', () => {
+    // Run 6cb12e30: describe_footage's "this clip has not been indexed" was filed as a
+    // fact about the FOOTAGE, crossed into the next session nine times over as
+    // ESTABLISHED ("do not gather again"), while indexing carried on in the background.
+    const out = distil({
+      ...settled,
+      toolName: 'describe_footage',
+      role: 'analysis',
+      descriptor: 'Describing trunk-stop.mp4',
+      summary:
+        '"describe_footage": this clip has not been indexed, so there is nothing to describe yet.',
+      status: 'warning',
+    });
+    expect(out?.scope).toBe('run_local');
+    expect(out?.evidence?.scope).toBe('run_local');
+    // A clean finding from the same tool still describes the footage for good.
+    expect(distil({ ...settled, toolName: 'describe_footage', role: 'analysis' })?.scope).toBe(
+      'revision_independent',
+    );
+  });
+
   it("records the digest's conclusion, not the rest of its records", () => {
     // A read digest is a head line plus its records. The head line is the conclusion; the
     // records belong in the evidence store, and flattening them into a 180-character fact
@@ -313,6 +334,25 @@ describe('buildStateBriefing', () => {
     const text = buildStateBriefing(state);
     expect(text).toContain('Keep 0:12–0:26, 1:48–2:03');
     expect(text).toContain('revisit only if: the transcript shows a stronger hook');
+  });
+
+  it("says who settled each decision, so the run's inference never reads as the editor's choice", () => {
+    // Run 6cb12e30 told the editor "you chose to keep the default font" — nobody had.
+    let state = recordDecision(base(), {
+      decision: 'Titles stay in the default face',
+      reconsiderIf: 'a font is asked for',
+    });
+    state = recordDecision(state, {
+      decision: 'Keep the 60s master',
+      reconsiderIf: 'the editor asks for a teaser',
+      source: 'user',
+    });
+    state = commitDecision(commitDecision(state, 'decision_1'), 'decision_2');
+    const text = buildStateBriefing(state);
+    expect(text).toContain(
+      "Titles stay in the default face [your inference, not the editor's choice]",
+    );
+    expect(text).toContain("Keep the 60s master [the editor's answer]");
   });
 
   it('hides a decision that is still tentative', () => {

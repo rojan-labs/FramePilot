@@ -71,7 +71,9 @@ The box hugs the words as the export lays them out, so its size is the size of t
 The assistant knows the styles. `add_text_layer` takes a `style` id and applies the whole look;
 any colour, size, position, font or weight you ask for overrides just that field.
 `discover_text_overlay_styles` lists the styles with one line describing each (typeface, colour,
-size, placement, separation). The `text-overlays` skill tells it when to use which. It can also
+size, placement, separation). The `text-overlays` skill tells it when to use which. It restyles
+an overlay it already placed with `set_text_style` (new words, a new style that keeps the overlay
+where it sits, or any single field) instead of deleting and re-adding it. It can also
 stretch or squash a text overlay (`add_keyframes` with `scaleX`/`scaleY`).
 
 A text overlay made before this change has no typography and keeps its original look (a fixed black

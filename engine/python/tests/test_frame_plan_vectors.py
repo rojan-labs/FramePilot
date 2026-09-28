@@ -14,7 +14,12 @@ from typing import Any
 
 import pytest
 
-from tests.frame_plan_vectors import FIXTURE_DIR, fixture_files, regenerate
+from tests.frame_plan_vectors import (
+    FIXTURE_DIR,
+    OFFSET_UNITS_FIXTURE,
+    fixture_files,
+    regenerate,
+)
 
 _AREAS = {
     "Alpha",
@@ -57,5 +62,24 @@ def test_stored_vectors_match_the_engine(name: str) -> None:
     for stored_case, fresh_case in zip(stored["cases"], fresh["cases"], strict=True):
         assert fresh_case["expected"] == stored_case["expected"], (
             f"{name}:{stored_case['id']} drifted from the engine; run `pnpm frame-plan:vectors` "
+            "and make packages/editor-core/src/frame-plan.ts agree."
+        )
+
+
+def test_offset_unit_vectors_plan_at_another_size_and_match_the_engine() -> None:
+    """The cases that pin how keyframed x/y convert to a frame other than the project's."""
+    stored: dict[str, Any] = json.loads(OFFSET_UNITS_FIXTURE.read_text(encoding="utf-8"))
+    assert len(stored["cases"]) >= 3
+    for case in stored["cases"]:
+        resolution = case["project"]["resolution"]
+        # A target equal to the project's frame would convert nothing and pin nothing.
+        assert case["target"] != resolution, case["id"]
+        assert [plan["width"] for plan in case["expected"]] == [case["target"]["width"]] * len(
+            case["samples"]
+        )
+    fresh = regenerate(OFFSET_UNITS_FIXTURE)
+    for stored_case, fresh_case in zip(stored["cases"], fresh["cases"], strict=True):
+        assert fresh_case["expected"] == stored_case["expected"], (
+            f"{stored_case['id']} drifted from the engine; run `pnpm frame-plan:vectors` "
             "and make packages/editor-core/src/frame-plan.ts agree."
         )
