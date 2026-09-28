@@ -66,6 +66,8 @@ export function textOverlayAnimationState(
 
 /** The caption renderer's default line height, when a title's typography names none. */
 const CAPTION_LINE_HEIGHT = 1.25;
+/** The caption renderer's chip padding (em) when the style names none, chip or not. */
+const CAPTION_CHIP_PADDING = 0.35;
 
 /**
  * The caption typography CSS of a title that carries `typography` (the caption CSS a caption in
@@ -81,10 +83,16 @@ export function titleTypographyCss(params: TextOverlayParams): CSSProperties | n
   const style = titleCaptionStyle(params);
   if (style === undefined) return null;
   const resolved = resolveCaptionStyle(style);
+  const chip = resolved.background;
   const css: CSSProperties = {
     ...captionLineCss(resolved),
     ...captionBoxCss(resolved),
     lineHeight: resolved.lineHeight ?? CAPTION_LINE_HEIGHT,
+    // The caption renderer keeps its chip padding round the text whether or not a chip is
+    // drawn, and wraps inside it (`captions.py`: wrap width = max width - 2 x pad). A padded
+    // border-box, with or without a chip, wraps the preview exactly where the export does.
+    padding: `${chip?.paddingY ?? CAPTION_CHIP_PADDING}em ${chip?.paddingX ?? CAPTION_CHIP_PADDING}em`,
+    boxSizing: 'border-box',
   };
   if (!isSeeThroughCaption(resolved)) return css;
   if (resolved.shadow !== undefined) {

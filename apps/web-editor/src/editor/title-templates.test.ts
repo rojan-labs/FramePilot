@@ -181,6 +181,16 @@ describe('titleTypographyCss', () => {
     });
   });
 
+  it('wraps where the export does: the chip padding is reserved with or without a chip', () => {
+    const bare = titleTypographyCss(typed({}))!;
+    expect(bare).toMatchObject({ padding: '0.35em 0.35em', boxSizing: 'border-box' });
+    expect(bare.backgroundColor).toBeUndefined();
+    const chip = titleTypographyCss(
+      typed({ background: { paddingX: 0.6, paddingY: 0.3 } }, { background: '#000000' }),
+    )!;
+    expect(chip).toMatchObject({ padding: '0.3em 0.6em', boxSizing: 'border-box' });
+  });
+
   it('keeps a hollow title visible and its ring at the export width', () => {
     const hollow = titleTypographyCss(
       typed({ textOpacity: 0, outlineColor: '#ffffff', outlineWidth: 1.5 }),
