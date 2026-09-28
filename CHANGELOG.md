@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Clips can be stretched.** A picture, sticker, text overlay or shape can now be squashed or
+  stretched freely, not only zoomed: the new `scaleX`/`scaleY` keyframes multiply the uniform
+  `scale` per axis (1 = unstretched), about the layer's centre and before its rotation. The export
+  and both monitors draw it identically, so the bounding box's Shift-drag resize is what you get in
+  the file. Projects without a stretch render exactly as before.
 - **A redesigned Text panel, with Styles and Fonts.** Add a heading, subheading or body text in
   one click, or choose from 59 ready-made overlay styles in eight categories (Basic, Headlines, Lower
   thirds, Callouts, Social, Quotes, Script, Retro & fun). Each style is drawn in its real font.

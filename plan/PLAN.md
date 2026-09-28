@@ -10503,6 +10503,7 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   raster (`text-raster.ts`); the caption preview's own chipless wrap padding (captions reserve no
   padding in CSS but the engine wraps inside 0.35 em a side); `title_metrics` and
   `subject_layout` measuring the typed layout.
+- [x] **BB1** Non-uniform stretch (scaleX/scaleY) in the transform model, export and preview
 
 **Last updated:** 2026-09-28
 
