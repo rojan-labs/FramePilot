@@ -13,7 +13,12 @@ import { JUDGEMENT_CRITERION } from '../acceptance.js';
 import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ContextInput } from '../context-builder.js';
-import { type PlanStep, SELF_CHECK_NOTICE_REASON, reduceEvents } from '../events.js';
+import {
+  type PlanStep,
+  SELF_CHECK_NOTICE_REASON,
+  createTurnEmitter,
+  reduceEvents,
+} from '../events.js';
 import { makeProject } from '../__fixtures__/project.js';
 import type { Command } from './commands.js';
 import {
@@ -33,10 +38,12 @@ import {
   onCommand,
   onEffectResult,
   MAX_VERIFY_FIX_TURNS,
+  PLAN_STEP_HEADROOM,
   failedAfterApplyMessage,
 } from './conductor.js';
+import { type ModelPlanItem, modelPlanSteps } from './model-plan.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
-import { isRequestEcho } from './working-state.js';
+import { isRequestEcho, recordOperation } from './working-state.js';
 
 /** Exactly `PLAN_APPROVAL_STEP_THRESHOLD` step labels — at the gate, not over it. */
 const labelsAtThreshold = Array.from({ length: PLAN_APPROVAL_STEP_THRESHOLD }, (_, i) => `s${i}`);
@@ -185,7 +192,9 @@ describe('onCommand', () => {
     expect(descriptions).toContain(
       'The finished sequence runs about 30s (the request says “30 second reel”).',
     );
-    expect(descriptions.some((text) => text.includes('20 distinct shots'))).toBe(true);
+    // "at least 20 different best moments" is the model's plan to carry, not a criterion read
+    // out of the words by pattern (issue #136).
+    expect(descriptions.some((text) => text.includes('distinct shots'))).toBe(false);
     // The unmeasurable half of the ask is still a criterion — as a pointer to the request,
     // not a copy of it (the run already persists it verbatim as `objective.request`).
     expect(descriptions.at(-1)).toBe(JUDGEMENT_CRITERION);
@@ -245,8 +254,12 @@ describe('onCommand', () => {
     expect(descriptions).toContain(
       'The finished sequence runs 58–62s (the request says “58–62s”).',
     );
-    // Criteria come from the brief, not from the nudge.
-    expect(descriptions).toContain('Every picture clip carries its own reframe.');
+    // "Every clip needs its own reframe" is part of the model's plan, not a criterion read out
+    // of the words (issue #136): the length is the only one, and it came from the brief.
+    expect(descriptions).toEqual([
+      'The finished sequence runs 58–62s (the request says “58–62s”).',
+      JUDGEMENT_CRITERION,
+    ]);
   });
 
   it('resolves a bare "continue" to the request underneath it, not to the nudge', () => {
@@ -3105,5 +3118,254 @@ describe('onEffectResult — picture verification facts', () => {
   it('never folds a report on a turn that applied nothing', () => {
     const step = onEffectResult(started(), turn({ applied: false, pictureVerification: report }));
     expect(step.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(false);
+  });
+});
+
+describe('the model-owned plan (update_plan)', () => {
+  const plan = (
+    ...items: [task: string, status: ModelPlanItem['status'], note?: string][]
+  ): ModelPlanItem[] =>
+    items.map(([task, status, note]) => ({ task, status, ...(note ? { note } : {}) }));
+
+  /** The d8d2e445 shape: one montage landed, the rest of the brief still open. */
+  const brief = plan(
+    ['Build the 24-shot montage from the shot list', 'done'],
+    ['Warm teal-orange grade across every shot', 'pending'],
+    ['Speed ramps on shots 7 and 19', 'pending'],
+  );
+
+  const applied = (over: Partial<AgentTurnResult> = {}): AgentTurnResult =>
+    turn({
+      applied: true,
+      turnOpCount: 1,
+      appliedOps: ops(1),
+      describedActions: [{ action: 'Graded a clip', detail: 'clip_a warmer' }],
+      ...over,
+    });
+
+  it('takes the plan a turn wrote, widens a small step cap to fit it, and briefs the next turn with it', () => {
+    const tight = started({ config: { ...started().config, maxSteps: 2 } });
+    const step = onEffectResult(tight, turn({ modelPlan: brief }));
+    expect(step.state.modelPlan).toEqual(brief);
+    // Same widening a drafted plan gets (W3.4): a compliant three-item plan must not be
+    // structurally guaranteed to leave items unreached by a cap the host set small.
+    expect(step.state.config.maxSteps).toBe(brief.length + PLAN_STEP_HEADROOM);
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', modelPlan: brief });
+  });
+
+  it('never shrinks a cap wider than the plan needs', () => {
+    const step = onEffectResult(started(), turn({ modelPlan: brief }));
+    expect(step.state.config.maxSteps).toBe(started().config.maxSteps);
+  });
+
+  it('keeps the run going when the model replies with no tool call while an item is open', () => {
+    // Run d8d2e445: "Not done yet: colour, speed, …" — and the run COMPLETED.
+    const s = started({ modelPlan: brief, cumulativeOps: ops(3), appliedTurns: 1 });
+    const step = onEffectResult(s, turn({ done: true }));
+    expect(step.state.phase).toBe('executing');
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
+    // No recovery latch: the next item may need reads, and the bound is progress instead.
+    expect(step.effects[0]).not.toHaveProperty('actionRecovery');
+    expect(step.state.modelDeclaredDone).toBe(false);
+    expect(step.state.working.nextAction?.action).toBe('Warm teal-orange grade across every shot');
+    expect(step.events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: '2 plan items still open — continuing with “Warm teal-orange grade across every shot”.',
+      }),
+    );
+  });
+
+  it('continues with the item already in progress before an earlier pending one', () => {
+    const s = started({
+      modelPlan: plan(['Captions', 'pending'], ['Colour grade', 'in_progress']),
+    });
+    const step = onEffectResult(s, turn({ done: true }));
+    expect(step.state.working.nextAction?.action).toBe('Colour grade');
+  });
+
+  it('continues again after a continuation that landed work', () => {
+    const s = started({ modelPlan: brief, cumulativeOps: ops(3), appliedTurns: 1 });
+    const first = onEffectResult(s, turn({ done: true }));
+    const worked = onEffectResult(first.state, applied({ stepIndex: 2 }));
+    const second = onEffectResult(worked.state, turn({ done: true, stepIndex: 3 }));
+    expect(second.state.phase).toBe('executing');
+    expect(second.effects[0]).toMatchObject({ kind: 'run_turn' });
+  });
+
+  it('continues again after a continuation that moved the plan, even with nothing applied', () => {
+    const s = started({ modelPlan: brief, cumulativeOps: ops(3), appliedTurns: 1 });
+    const first = onEffectResult(s, turn({ done: true }));
+    const moved = plan(
+      ['Build the 24-shot montage from the shot list', 'done'],
+      ['Warm teal-orange grade across every shot', 'in_progress'],
+      ['Speed ramps on shots 7 and 19', 'pending'],
+    );
+    const replanned = onEffectResult(first.state, turn({ stepIndex: 2, modelPlan: moved }));
+    const second = onEffectResult(replanned.state, turn({ done: true, stepIndex: 3 }));
+    expect(second.state.phase).toBe('executing');
+  });
+
+  it('settles on a second reply when nothing landed and the plan did not move', () => {
+    const s = started({ modelPlan: brief, cumulativeOps: ops(3), appliedTurns: 1 });
+    const first = onEffectResult(s, turn({ done: true }));
+    // A turn that only looked — no edit, no plan change.
+    const looked = onEffectResult(first.state, turn({ stepIndex: 2, signature: 'look' }));
+    const second = onEffectResult(looked.state, turn({ done: true, stepIndex: 3 }));
+    expect(second.state.phase).toBe('verifying');
+    expect(second.effects).toEqual([{ kind: 'run_verify' }]);
+    expect(second.state.modelDeclaredDone).toBe(true);
+    expect(second.events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('Stopping with 2 plan items still open'),
+      }),
+    );
+  });
+
+  it('reports the open items as not done when the run settles', () => {
+    const s = started({
+      modelPlan: brief,
+      cumulativeOps: ops(3),
+      appliedTurns: 1,
+      phase: 'verifying',
+      working: recordOperation(started().working, {
+        intent: 'Built the montage',
+        status: 'succeeded',
+        planId: started().working.plan.id!,
+        decisionId: started().working.plan.decisionIds[0]!,
+        idempotencyKey: 'k1',
+        projectRevisionBefore: 0,
+        projectRevisionAfter: 1,
+      }),
+    });
+    const { effects, events } = onEffectResult(s, verify());
+    const finalize = effects[0];
+    expect(finalize).toMatchObject({ kind: 'finalize', planSteps: [], modelPlan: brief });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'warning',
+        text:
+          'Not everything in the plan was done — still open: “Warm teal-orange grade across ' +
+          'every shot”, “Speed ramps on shots 7 and 19”.',
+      }),
+    );
+    // No spinner outlives the run: the open items settle as failed, with the reason.
+    const settled = events.find((event) => event.type === 'plan');
+    expect(settled).toMatchObject({
+      steps: [
+        { id: 'plan-item-1', status: 'completed' },
+        { id: 'plan-item-2', status: 'failed', detail: 'Not done — the run ended first' },
+        { id: 'plan-item-3', status: 'failed', detail: 'Not done — the run ended first' },
+      ],
+    });
+    // The drafted-ledger notification is not said for a list the editor never saw.
+    expect(events.map((event) => ('text' in event ? event.text : ''))).not.toContainEqual(
+      expect.stringContaining('never reached an edit'),
+    );
+  });
+
+  it('lets a blocked item end the run: the model has said why no tool can do it', () => {
+    const s = started({
+      modelPlan: plan(
+        ['Build the montage', 'done'],
+        ['Voice-over narration', 'blocked', 'There is no text-to-speech tool.'],
+      ),
+      cumulativeOps: ops(3),
+    });
+    const step = onEffectResult(s, turn({ done: true }));
+    expect(step.state.phase).toBe('verifying');
+    expect(step.events.filter((event) => event.type === 'notification')).toEqual([]);
+  });
+
+  it('ends on a reply when every item is done', () => {
+    const s = started({ modelPlan: plan(['Build the montage', 'done']), cumulativeOps: ops(3) });
+    expect(onEffectResult(s, turn({ done: true })).state.phase).toBe('verifying');
+  });
+
+  it('is still bounded by the step cap', () => {
+    const s = started({
+      modelPlan: brief,
+      stepIndex: 8,
+      config: { ...started().config, maxSteps: 8 },
+    });
+    const step = onEffectResult(s, turn({ done: true, stepIndex: 8 }));
+    expect(step.state.phase).toBe('verifying');
+  });
+
+  it('supersedes a drafted ledger: no positional recovery turn, no plan event over the model list', () => {
+    const drafted: PlanStep[] = [
+      { id: 'step-1', label: 'Cut the montage', status: 'running' },
+      { id: 'step-2', label: 'Add captions', status: 'pending' },
+    ];
+    const s = started({
+      ledgerLength: 2,
+      planSteps: drafted,
+      modelPlan: plan(['Cut the montage', 'done'], ['Add captions', 'done']),
+    });
+    // An applied turn would re-emit the positional ledger — it must not, once the model
+    // owns the plan: the checklist is one node per run and it would draw over the list.
+    const landed = onEffectResult(s, applied({ planSteps: drafted, planStepIndex: 0 }));
+    expect(types(landed.events)).not.toContain('plan');
+    // …but the ledger's internal statuses still track, for the verify fold that reads them.
+    expect(landed.state.planSteps[0]).toMatchObject({ status: 'completed' });
+    // And a reply ends the run: every item of the MODEL's plan is done, so the drafted
+    // step still pending is not grounds for the one-turn positional recovery.
+    const done = onEffectResult(landed.state, turn({ done: true, stepIndex: 2 }));
+    expect(done.state.phase).toBe('verifying');
+  });
+
+  it('leaves a planFirst run exactly as it was when the model never writes a plan', () => {
+    const planned = started({
+      ledgerLength: 2,
+      planSteps: [
+        { id: 'step-1', label: 'Cut the montage', status: 'completed' },
+        { id: 'step-2', label: 'Add captions', status: 'pending' },
+      ],
+    });
+    const step = onEffectResult(planned, turn({ done: true }));
+    expect(step.state.modelPlan).toBeUndefined();
+    expect(step.state.actionRecoveryPending).toBe(true);
+    expect(step.events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: 'The plan still has unfinished work — continuing with “Add captions”.',
+      }),
+    );
+  });
+
+  it('keeps the plan a cancelled turn wrote, and settles it as stopped', () => {
+    const step = onEffectResult(
+      started(),
+      turn({ anyToolCancelled: true, modelPlan: brief, planSteps: [runningStep()] }),
+    );
+    expect(step.state.phase).toBe('cancelled');
+    expect(step.effects[0]).toMatchObject({ kind: 'finalize', cancelled: true, modelPlan: brief });
+    const settled = step.events.find((event) => event.type === 'plan');
+    expect(settled).toMatchObject({
+      steps: [
+        { status: 'completed' },
+        { status: 'failed', detail: 'Stopped before this was done' },
+        { status: 'failed', detail: 'Stopped before this was done' },
+      ],
+    });
+  });
+
+  it('is one checklist: the live list the tool draws and the settled one the run ends on', () => {
+    // The tool call draws the list mid-turn through the handler's emitter; the reducer
+    // settles it at the end. Both must land on the SAME node, or the editor would see the
+    // live list frozen beside a second, settled copy.
+    const live = createTurnEmitter(stream, 0).plan(modelPlanSteps(brief));
+    const s = started({ modelPlan: brief, cumulativeOps: ops(3), appliedTurns: 1 });
+    const first = onEffectResult(s, turn({ done: true }));
+    const looked = onEffectResult(first.state, turn({ stepIndex: 2, signature: 'look' }));
+    const second = onEffectResult(looked.state, turn({ done: true, stepIndex: 3 }));
+    const settle = onEffectResult(second.state, verify());
+    const view = reduceEvents([live, ...first.events, ...second.events, ...settle.events]);
+    const plans = view.nodes.filter((node) => node.kind === 'plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      steps: [{ status: 'completed' }, { status: 'failed' }, { status: 'failed' }],
+    });
   });
 });

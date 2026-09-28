@@ -143,6 +143,10 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # does not assemble the request, so mirroring it would give the engine a tool that
         # reports having loaded something and changes nothing.
         "load_tools",
+        # The model's plan (packages/ai-sdk/src/kernel/model-plan.ts). The conductor of a TS
+        # orchestrator run holds it and keeps the run going while an item is open; the
+        # sidecar runs no loop, so a mirror would record a plan nothing honours.
+        "update_plan",
         # The masking domain's in-process tools (plan 11). They compile through editor-core's
         # mask commands, which exist in TypeScript only, so there is nothing here to mirror
         # them with. The domain's four pack-measured tools are named by constant on the TS

@@ -212,6 +212,11 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // is: it changes what the run can reach, not what the timeline says, so its answer is
   // the same at every revision and it must never read as reconnaissance.
   load_tools: { role: 'guidance', scope: 'revision_independent' },
+  // The model's own plan (`kernel/model-plan.ts`). `other`, not `guidance`: it teaches the
+  // run nothing — the model wrote it — so it must never file a fact under ESTABLISHED, and
+  // it is stage-neutral, so no execution stage withholds it. The briefing shows the plan
+  // itself, from the conductor's state.
+  update_plan: { role: 'other', scope: 'revision_independent' },
   recall_evidence: { role: 'recall', scope: 'revision_independent' },
   // Candidate edits are proposed against the current arrangement.
   read_edit_signals: { role: 'analysis', scope: 'timeline_dependent' },

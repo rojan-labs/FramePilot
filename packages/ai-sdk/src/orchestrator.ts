@@ -167,6 +167,12 @@ import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
+import {
+  type ModelPlanItem,
+  modelPlanEcho,
+  modelPlanSteps,
+  planItemLabel,
+} from './kernel/model-plan.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { withResolvedAssetId } from './catalogue-asset-id.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
@@ -1769,6 +1775,12 @@ export function callNoveltyKey(call: ToolCall): string {
   // and its `start`/`end` say where, not how closely to look. Dropped as tuning arguments, the
   // same emoji at two moments keyed as one call and the second placement "learned nothing".
   if (call.name === 'add_sticker') return `${call.name}:${identifyingArgs(call, NO_ARG_KEYS)}`;
+  // The model's plan tells the run nothing about the footage or the timeline — the model
+  // wrote it. Keyed on the name alone, so rewriting the plan never reads as LEARNING (only
+  // the run's first call is ever first-seen) and a run that does nothing but re-plan still
+  // reaches the stall guard. What a plan change DOES buy is decided by the conductor's
+  // done rule, which reads the plan itself (`kernel/model-plan.ts#modelPlanDigest`).
+  if (call.name === 'update_plan') return call.name;
   if (tool?.kind === 'analysis') {
     const assetId = (call.arguments as { assetId?: unknown }).assetId;
     // An asseted analysis keys on the asset alone — see the doc above: re-running
@@ -2089,6 +2101,13 @@ interface AgentCallOutcome {
    * as real image content. Never enters `note` — see `HostToolOutcome.images`.
    */
   images?: readonly AiImage[];
+  /**
+   * The plan this `update_plan` call recorded (`kernel/model-plan.ts`). Carried out of the
+   * call rather than written to a ledger here: the plan belongs to the conductor, which
+   * decides from it whether a reply ends the run, so `executeToolCalls` shows it to the
+   * editor and hands the turn's last one to the reducer.
+   */
+  modelPlan?: readonly ModelPlanItem[];
 }
 
 /**
@@ -4377,6 +4396,9 @@ export class Orchestrator {
           effect === 'mutation' ||
           tool.kind === 'ask' ||
           tool.name === 'load_tools' ||
+          // Marking an item done, or blocked with the reason, is how a run that has done
+          // what it can says so — and the loop keeps going while an item is open.
+          tool.name === 'update_plan' ||
           tool.name === 'recall_evidence' ||
           EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
           toolRole(tool.name, tool.mutates) === 'sourcing'
@@ -4399,6 +4421,10 @@ export class Orchestrator {
       // project can always search) and released by the first successful placement.
       if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
+      // A plan is what an agent RUN is held to: its conductor continues while an item is
+      // open. A question turn has no conductor, so the call would draw a checklist nothing
+      // honours — and bill its schema on every question.
+      if (questionScope !== undefined && tool.name === 'update_plan') return false;
       // Progressive disclosure. The core set plus whatever this run has asked for; see
       // `tool-domains.ts` for the measurement that made this necessary. Applied last so
       // every narrowing above still holds — a domain being loaded never re-admits a tool
@@ -4604,6 +4630,12 @@ export class Orchestrator {
      * an empty block rather than a wrong one.
      */
     agentOptions: AgentOptions = {},
+    /**
+     * The plan the model wrote with `update_plan`, which the conductor holds the run to.
+     * Shown in the briefing so the model sees the list it must keep current — it replaces
+     * the whole list on every call. Absent before the model writes one.
+     */
+    modelPlan?: readonly ModelPlanItem[],
   ): {
     readonly messages: AiMessage[];
     /**
@@ -4714,6 +4746,7 @@ export class Orchestrator {
             this.critiqueOptions(input, agentOptions, true),
             input.project,
           ),
+          modelPlan,
         )
       : '';
     const turnMessage: AiMessage = {
@@ -5751,7 +5784,7 @@ export class Orchestrator {
             ops: [],
             note: `${desc} → ${
               alreadyLoaded
-                ? 'already loaded earlier this run — its playbook is already in the Skills section of your context; follow it now rather than loading it again.'
+                ? 'already loaded earlier this run — it is already in the Skills section of your context; use it rather than loading it again.'
                 : 'loaded — its full playbook is now in the Skills section of your context.'
             }`,
             summary: desc,
@@ -5795,6 +5828,22 @@ export class Orchestrator {
             finding: `tools loaded: ${loaded.join(', ')}`,
             status: 'completed',
             data: value,
+          };
+        }
+        // The model's plan (`kernel/model-plan.ts`). Answered here, never through the read
+        // memo, for the same reason as `load_tools` above: the call's whole purpose is to
+        // change run state, and "unchanged since you last read it" is not an answer to it.
+        // The validated list rides out on the outcome; the conductor owns it from there.
+        if (call.name === 'update_plan') {
+          const items = (value as { items: readonly ModelPlanItem[] }).items;
+          const echo = modelPlanEcho(items);
+          return {
+            ops: [],
+            note: `${desc} → ${echo}`,
+            summary: desc,
+            status: 'completed',
+            data: echo,
+            modelPlan: items,
           };
         }
         // Read memoization (see HostCallContext.evidence): a read is a pure function of
@@ -7385,9 +7434,15 @@ export class Orchestrator {
        * past tense, for clips that never reached the timeline, six times over.
        */
       proposalCards: { id: string; name: string }[];
+      /**
+       * The last plan an `update_plan` call recorded this turn (the list is replaced
+       * whole, so the last one wins). Absent when the turn did not touch the plan.
+       */
+      modelPlan?: readonly ModelPlanItem[];
     }
   > {
     const turnOps: AnyOperation[] = [];
+    let modelPlan: readonly ModelPlanItem[] | undefined;
     const notes: string[] = [];
     const turnStatuses: ToolStatus[] = [];
     /** Did any call report the timeline already matched it? See `AgentCallOutcome.satisfied`. */
@@ -7639,6 +7694,13 @@ export class Orchestrator {
             ? { images: outcome.images.map(toolResultImage) }
             : {}),
         });
+        // The model's plan becomes the editor's checklist the moment it is written, through
+        // the same `plan` event a drafted plan uses — one checklist per run, updated in
+        // place, so no host needs to know which of the two wrote it.
+        if (outcome.modelPlan !== undefined) {
+          modelPlan = outcome.modelPlan;
+          yield emit.plan(modelPlanSteps(outcome.modelPlan));
+        }
         // NOTE: `timeline_action` cards are emitted only AFTER the turn's ops pass
         // the validator and are applied (by the caller) — not here. Emitting them
         // per-op at call time claimed "Trimmed clip …" for edits the validator later
@@ -7755,6 +7817,7 @@ export class Orchestrator {
       toolAttempts,
       frames,
       proposalCards,
+      ...(modelPlan === undefined ? {} : { modelPlan }),
     };
   }
 
@@ -9608,6 +9671,7 @@ export class Orchestrator {
             taskMemory,
             pendingFrames,
             agentOptions,
+            effect.modelPlan,
           );
         const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(
@@ -9821,7 +9885,12 @@ export class Orchestrator {
         // agent runs keep `planSteps` in reducer state (below, for status/threshold logic)
         // but emit NO plan node — otherwise the ledger grows one pinned row per step for
         // the whole run. The step's own reasoning + tool cards are the visible activity.
-        if (effect.ledgerLength > 0) yield emit.plan([...planSteps]);
+        //
+        // Nor once the MODEL owns the plan (`update_plan`): the checklist is one node per
+        // run, so a positional ledger row would overwrite the model's list on screen.
+        if (effect.ledgerLength > 0 && effect.modelPlan === undefined) {
+          yield emit.plan([...planSteps]);
+        }
 
         // C2: the turn's calls are now known — announce the specific, honest status for
         // what they're about to do before running them (never per-call, just once here).
@@ -9885,6 +9954,7 @@ export class Orchestrator {
           toolAttempts: turnToolAttempts,
           frames,
           proposalCards,
+          modelPlan: turnModelPlan,
         } = yield* self.executeToolCalls(
           emit,
           turn.calls,
@@ -9968,6 +10038,8 @@ export class Orchestrator {
           // E4.1: the turn's real reported usage, so the reducer can measure the
           // output-token delta this turn actually produced (diminishing-returns stop).
           ...(turn.usage ? { usage: turn.usage } : {}),
+          // The plan the model wrote this turn, for the reducer to hold the run to.
+          ...(turnModelPlan === undefined ? {} : { modelPlan: turnModelPlan }),
         };
 
         // Stop mid-turn: the interrupted turn is not applied; its step says why.
@@ -10363,6 +10435,7 @@ export class Orchestrator {
               // What the run announced and never delivered, and what it never got working.
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
+              ...(effect.modelPlan ? { modelPlan: effect.modelPlan } : {}),
               neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
@@ -11051,8 +11124,21 @@ function trimFailureReason(reason: string): string {
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
+  modelPlan: readonly ModelPlanItem[] = [],
 ): string {
   const lines: string[] = [];
+  // The model's own plan first, in its own words: it is the account of the request the
+  // editor watched being worked through. An item left open is unfinished work, stated as
+  // such; a blocked one carries the reason the model gave for why no tool could do it.
+  for (const item of modelPlan) {
+    if (item.status === 'done') continue;
+    const label = planItemLabel(item);
+    lines.push(
+      item.status === 'blocked'
+        ? `- ${label} — blocked${item.note ? `: ${item.note}` : ''}`
+        : `- ${label} — not done`,
+    );
+  }
   for (const step of planSteps) {
     if (step.status === 'completed') continue;
     lines.push(`- ${step.label} — ${step.status}`);
@@ -11206,6 +11292,13 @@ export function agentCompletionReport(args: {
    * steps are NOT this.
    */
   planSteps?: readonly PlanStep[];
+  /**
+   * The plan the MODEL wrote with `update_plan`, as the run ended. Every item that is not
+   * `done` is listed under "Not done" in the model's own words — an open item as unfinished,
+   * a blocked one with the reason it gave. When present it replaces {@link planSteps}: the
+   * model owns the plan, so a drafted ledger it superseded is not a second account.
+   */
+  modelPlan?: readonly ModelPlanItem[];
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
@@ -11252,7 +11345,11 @@ export function agentCompletionReport(args: {
       : '';
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
-  const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
+  const notDone = notDoneBlock(
+    args.modelPlan ? [] : (args.planSteps ?? []),
+    args.neverSucceeded ?? [],
+    args.modelPlan ?? [],
+  );
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have

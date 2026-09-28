@@ -173,6 +173,9 @@ const CORE: readonly string[] = [
   'remember_preference',
   'load_skill',
   'load_tools',
+  // The run's own plan: the conductor keeps a run going while an item is open, so the tool
+  // that states what is open must never need asking for.
+  'update_plan',
   // Seeing the result.
   'render_preview',
   'export_video',

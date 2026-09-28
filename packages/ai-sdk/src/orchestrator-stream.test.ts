@@ -5886,6 +5886,138 @@ describe('load_tools changes what the next turn is offered', () => {
 });
 
 /**
+ * The model owns the plan; the loop honours it (run `d8d2e445`).
+ *
+ * That run made one montage in four steps, replied "Not done yet: colour, speed,
+ * transitions, fade, masking & graphics, SFX & levels, deliverables" — and COMPLETED,
+ * because a reply without a tool call ended the run whatever it said. `update_plan` is how
+ * the model states what is left as data; these drive it through the real loop.
+ */
+describe('update_plan keeps a run going while its plan has open items (run d8d2e445)', () => {
+  const planCall = (
+    id: string,
+    items: readonly { task: string; status: string; note?: string }[],
+  ) => ({ id, name: 'update_plan', arguments: { items } });
+  const opening = planCall('p1', [
+    { task: 'Tighten the intro', status: 'in_progress' },
+    { task: 'Warm grade across every shot', status: 'pending' },
+  ]);
+
+  it('draws the checklist, continues past an early reply, and briefs the next turn with the open item', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'Tightening the intro.', toolCalls: [opening, deleteRange('d1', 0, 1)] },
+      // The d8d2e445 reply: an honest list of what is left, and no tool call.
+      { text: 'Intro tightened. Not done yet: the grade.', toolCalls: [] },
+      {
+        text: 'The grade cannot be done here.',
+        toolCalls: [
+          planCall('p2', [
+            { task: 'Tighten the intro', status: 'done' },
+            {
+              task: 'Warm grade across every shot',
+              status: 'blocked',
+              note: 'The colour tools are not available on this surface.',
+            },
+          ]),
+        ],
+      },
+      { text: 'The intro is tighter; the grade needs the colour tools.', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // Four model calls: the early reply did not end the run, the final one did.
+    expect(provider.requests).toHaveLength(4);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: '2 plan items still open — continuing with “Tighten the intro”.',
+      }),
+    );
+    // The continuation turn is briefed with the plan and pointed at the open item.
+    const briefed = provider.requests[2]!.messages.at(-1)!.content;
+    expect(briefed).toContain('YOUR PLAN');
+    expect(briefed).toContain('[>] Tighten the intro');
+    expect(briefed).toContain('DO THIS NOW\nTighten the intro');
+    // The tool's answer is the counts and the next item, never the list back.
+    expect(provider.requests[1]!.messages.at(-1)!.content).toContain(
+      'Plan saved (1 pending, 1 in progress). Next: “Tighten the intro”.',
+    );
+    // One checklist, drawn by the tool and updated in place: its last state is the plan's.
+    const view = reduceEvents(events);
+    const plans = view.nodes.filter((node) => node.kind === 'plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      steps: [
+        { label: 'Tighten the intro', status: 'completed' },
+        {
+          label: 'Warm grade across every shot',
+          status: 'failed',
+          detail: 'The colour tools are not available on this surface.',
+        },
+      ],
+    });
+    // A blocked item is an answer: the run may end on it, and it is reported with its why.
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain(
+      '- Warm grade across every shot — blocked: The colour tools are not available on this surface.',
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
+  it('settles and reports the open items when a continuation changes nothing', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'Tightening the intro.', toolCalls: [opening, deleteRange('d1', 0, 1)] },
+      { text: 'Not done yet: the grade.', toolCalls: [] },
+      { text: 'Still not done: the grade.', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // One continuation, then the second identical reply settles it — progress, not a latch.
+    expect(provider.requests).toHaveLength(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('Stopping with 2 plan items still open'),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'warning',
+        text:
+          'Not everything in the plan was done — still open: “Tighten the intro”, ' +
+          '“Warm grade across every shot”.',
+      }),
+    );
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain('**Not done:**');
+    expect(report).toContain('- Warm grade across every shot — not done');
+  });
+
+  it('is not offered on the read-only question route', () => {
+    const orchestrator = new Orchestrator(new ScriptedProvider([{ text: '' }]));
+    expect(orchestrator.agentTools('question').map((tool) => tool.name)).not.toContain(
+      'update_plan',
+    );
+    expect(orchestrator.agentTools('agent').map((tool) => tool.name)).toContain('update_plan');
+    expect(orchestrator.agentTools('action-recovery').map((tool) => tool.name)).toContain(
+      'update_plan',
+    );
+  });
+});
+
+/**
  * The picture-over-picture refusal, given once instead of four times — and, since
  * ADR 0169, given only where it is still true.
  *

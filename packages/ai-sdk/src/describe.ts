@@ -155,6 +155,7 @@ const TOOL_VERBS: Record<string, string> = {
   verify_transitions: 'Checking transitions',
   session_context: 'Recalling this project',
   auto_emphasize_captions: 'Emphasising key words in the captions',
+  update_plan: 'Updating the plan',
 };
 
 /** The dangling tails `stripTrailingDangle` peels off, longest-first within a length. */

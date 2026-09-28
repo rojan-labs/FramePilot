@@ -105,6 +105,10 @@ describe('tool-parity fixture', () => {
         // honour it, so unlike `caption_the_edit` this one is NOT in
         // `UI_INDEPENDENT_HOST_TOOLS` either.
         'load_tools',
+        // The model's plan (`kernel/model-plan.ts`), for the same reason as `load_tools`: the
+        // conductor of a TS orchestrator run holds it and continues the run while an item is
+        // open. The sidecar runs no loop, and an MCP client brings its own agent.
+        'update_plan',
       ].sort(),
     );
   });

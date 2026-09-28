@@ -57,7 +57,19 @@ import { PROJECT_TOOLS } from './domain-tools/project.js';
 import { VERIFICATION_TOOLS } from './domain-tools/verification.js';
 import { TRACKING_MASK_TOOLS } from './domain-tools/tracking-mask.js';
 import { MASKING_TOOLS } from './domain-tools/masking.js';
-import { boolean, filterString, numeric, seconds } from './domain-tools/tool-args.js';
+import {
+  blankToUndefined,
+  boolean,
+  filterString,
+  numeric,
+  seconds,
+} from './domain-tools/tool-args.js';
+import {
+  MODEL_PLAN_MAX_ITEMS,
+  MODEL_PLAN_NOTE_CHARS,
+  MODEL_PLAN_STATUSES,
+  MODEL_PLAN_TASK_CHARS,
+} from './kernel/model-plan.js';
 import { analysisTool, askTool, noArgs, readTool } from './domain-tools/tool-factories.js';
 // `tool-input-contract.ts` only imports the `ToolSpec`/`ToolParameterSchema` *types* from
 // this module (also erased at runtime), so importing its runtime export here is safe.
@@ -211,6 +223,32 @@ const recallEvidenceSchema = z
   })
   .strict();
 
+/** A model-written string with its surrounding whitespace dropped before it is measured. */
+const trimmed = (value: unknown): unknown => (typeof value === 'string' ? value.trim() : value);
+
+/**
+ * One deliverable of the model's plan (`kernel/model-plan.ts`). `blocked` without a note is
+ * refused: an item the run gives up on must say why no tool can do it, or "blocked" is just
+ * a way to end the run early with the work unexplained.
+ */
+const planItemSchema = z
+  .object({
+    task: z.preprocess(trimmed, z.string().min(1).max(MODEL_PLAN_TASK_CHARS)),
+    status: z.enum(MODEL_PLAN_STATUSES),
+    note: z.preprocess(blankToUndefined, z.string().max(MODEL_PLAN_NOTE_CHARS).optional()),
+  })
+  .strict()
+  .refine((item) => item.status !== 'blocked' || item.note !== undefined, {
+    message: 'A blocked item needs a note saying why no available tool can do it.',
+    path: ['note'],
+  });
+
+const updatePlanSchema = z
+  .object({
+    items: z.array(planItemSchema).min(1).max(MODEL_PLAN_MAX_ITEMS),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // Tool specs
 //
@@ -355,10 +393,11 @@ const readTools: ToolSpec[] = [
     {
       name: 'load_skill',
       description:
-        'Load the full instructions of a skill from the skills manifest in your ' +
-        'context. Call it BEFORE starting work the skill covers, then follow the ' +
-        'returned playbook. Returns { name, description, tools, body } or the list ' +
-        'of valid names when the skill is unknown.',
+        'Load a skill from the skills manifest in your context: reference guidance on how ' +
+        'an experienced editor approaches a kind of work. Call it BEFORE the work it ' +
+        'covers and use it to do that part well — the request, not the skill, decides ' +
+        'what you build. Returns { name, description, tools, body } or the list of valid ' +
+        'names when the skill is unknown.',
       capabilities: ['skills'],
       // E1: pins into the run's ordered, bounded skill ledger — see ToolSpec.serialOnly.
       serialOnly: true,
@@ -419,6 +458,32 @@ const readTools: ToolSpec[] = [
         ...domainMembers(domain as Exclude<ToolDomain, 'core'>),
       ]),
     }),
+  ),
+  readTool(
+    {
+      name: 'update_plan',
+      description:
+        'Write your plan for this request and keep it current: the FULL list every call ' +
+        '(it replaces the last one), one item per deliverable the request asks for, in the ' +
+        "request's own terms and order. Status: pending, in_progress, done, or blocked — " +
+        'blocked only when no available tool can do it, with a note saying why. The run ' +
+        'continues while any item is pending or in progress. Returns the counts and the ' +
+        'next open item. Does not edit the timeline.',
+      capabilities: ['planning'],
+      // The plan is run-scoped state whose order matters (the last list wins), so two
+      // calls in one turn must land in the order the model wrote them.
+      serialOnly: true,
+      // Same reason as `load_tools`: the plan lives in a TS orchestrator RUN — the
+      // conductor holds it and decides from it whether a reply ends the run. The Python
+      // sidecar runs no loop and an external MCP client brings its own agent, so for both
+      // this call would record a plan nothing honours. Deliberately NOT in
+      // `UI_INDEPENDENT_HOST_TOOLS` either.
+      hostUiOnly: true,
+    },
+    updatePlanSchema,
+    // Recording the plan happens in the orchestrator (it owns the run, as it does for
+    // `load_tools`); this returns the validated list it records.
+    (a) => ({ items: a.items }),
   ),
 ];
 

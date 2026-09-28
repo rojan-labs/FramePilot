@@ -286,6 +286,70 @@ describe('read tools', () => {
     });
   });
 
+  describe('update_plan', () => {
+    const plan = getTool('update_plan')!;
+    const read = (args: unknown): unknown => plan.read!(args, ctx);
+
+    it('returns the validated list, trimmed, with a blank note read as no note', () => {
+      expect(
+        read({
+          items: [
+            { task: '  Build the shot-list montage ', status: 'done', note: '  ' },
+            { task: 'Grade warm', status: 'in_progress' },
+            { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+          ],
+        }),
+      ).toEqual({
+        items: [
+          { task: 'Build the shot-list montage', status: 'done' },
+          { task: 'Grade warm', status: 'in_progress' },
+          { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+        ],
+      });
+    });
+
+    it('refuses a blocked item with no reason', () => {
+      // "blocked" without a why is a way to end the run early with the work unexplained.
+      expect(() => read({ items: [{ task: 'Masking', status: 'blocked' }] })).toThrow(
+        /blocked item needs a note/,
+      );
+      expect(() =>
+        read({ items: [{ task: 'Masking', status: 'blocked', note: '   ' }] }),
+      ).toThrow(ZodError);
+    });
+
+    it('refuses an empty plan, a blank task, an unknown status, and extra keys', () => {
+      expect(() => read({ items: [] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: '   ', status: 'pending' }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'skipped' }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'done', id: 1 }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'done' }], mode: 'merge' })).toThrow(
+        ZodError,
+      );
+    });
+
+    it('bounds the list and every line in it', () => {
+      const many = Array.from({ length: 41 }, (_, i) => ({ task: `t${i}`, status: 'pending' }));
+      expect(() => read({ items: many })).toThrow(ZodError);
+      expect(() => read({ items: many.slice(0, 40) })).not.toThrow();
+      expect(() => read({ items: [{ task: 'x'.repeat(161), status: 'pending' }] })).toThrow(
+        ZodError,
+      );
+      expect(() =>
+        read({ items: [{ task: 'Grade', status: 'blocked', note: 'x'.repeat(241) }] }),
+      ).toThrow(ZodError);
+    });
+
+    it('is a serial, host-only session read that changes no timeline', () => {
+      // Serial: the last list wins, so two calls in one turn must land in the order written.
+      expect(plan.kind).toBe('read');
+      expect(plan.mutates).toBe(false);
+      expect(plan.serialOnly).toBe(true);
+      expect(plan.hostUiOnly).toBe(true);
+      expect(concurrencySafe(plan, { items: [{ task: 'a', status: 'pending' }] })).toBe(false);
+    });
+  });
+
   it('list_assets returns the bin and filters by kind/folderId', () => {
     const project = makeProject({
       folders: [{ id: 'folder_broll', name: 'B-roll', parentId: null }],

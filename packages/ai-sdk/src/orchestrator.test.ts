@@ -3159,8 +3159,16 @@ describe('route-scoped tool surface (E5)', () => {
     // the run never loaded is as absent here as anywhere), so the one way to reach a
     // withheld mutation has to stay open. It gathers nothing about the footage.
     expect(names).toContain('load_tools');
+    // …and so does `update_plan`: marking an item done, or blocked with the reason, is how a
+    // run that has done what it can says so. It gathers nothing either.
+    expect(names).toContain('update_plan');
     for (const name of names) {
-      if (name === 'recall_evidence' || name === 'load_tools' || EDIT_LOOK_TOOL_NAMES.has(name))
+      if (
+        name === 'recall_evidence' ||
+        name === 'load_tools' ||
+        name === 'update_plan' ||
+        EDIT_LOOK_TOOL_NAMES.has(name)
+      )
         continue;
       const tool = getTool(name)!;
       // The contract and the sourcing role, not the registry kind — that is the whole
