@@ -70,7 +70,7 @@ const NO_ROUTE_REASON: Partial<Record<ReferenceRole, string>> = {
     'a reference is not a project asset — import the clip into the media bin to cut with it',
   thumbnail: 'nothing composes an opening frame from a still',
   character: 'no shot selector reads a face from a reference',
-  design: 'no title layout is derived from a reference',
+  design: 'no text-overlay layout is derived from a reference',
   'caption-style': 'the analysis does not measure captions inside a reference',
 };
 

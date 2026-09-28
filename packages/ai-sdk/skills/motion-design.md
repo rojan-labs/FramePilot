@@ -12,7 +12,7 @@ Coordinate multiple animated elements into one intentional visual system rather 
 
 ## When to use
 
-Graphic packages, repeated title behavior, UI/product demos, branded social edits, or “make the motion consistent.”
+Graphic packages, repeated text-overlay behavior, UI/product demos, branded social edits, or “make the motion consistent.”
 
 ## When not to use
 

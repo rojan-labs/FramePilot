@@ -459,7 +459,7 @@ const analysisTools: ToolSpec[] = [
       description:
         'LOOK at the edit: render one frame of the timeline at a given time and see it as ' +
         'an image. Use it to CHECK your own work visually — caption placement and ' +
-        'legibility, framing after a punch-in or reframe, whether a title collides with ' +
+        'legibility, framing after a punch-in or reframe, whether a text overlay collides with ' +
         'the footage, whether a grade reads as intended. Prefer it over guessing from ' +
         'numbers whenever the question is about how something LOOKS. It renders through ' +
         'the same engine as the final export, so what you see is what will be delivered. ' +

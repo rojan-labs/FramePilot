@@ -8255,7 +8255,7 @@ Three-task unit of work on `feat/agent-ux-and-skills` (shipped as separate commi
       against `render/color.py`), `audio-polish` (split-based ducking — gain is
       per-clip constant), `cut-and-transition-grammar`, `vertical-reframe` (crop-rect
       math), `broll-and-layering`, `beat-synced-editing`, `speed-ramping` (split-based
-      ramps — speed is per-clip constant), `titles-and-text`, `story-structure`,
+      ramps — speed is per-clip constant), `text-overlays`, `story-structure`,
       `finishing-and-delivery`. Fixed factual errors in `keyframe-animation`
       (`ease_out` → `ease-out`, `punch_in` has `startTime`/`endTime` not `time`,
       properties are `scale`/`x`/`y`/`rotation`/`opacity`); `short-form-pacing` now
@@ -10492,7 +10492,7 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   catalog id enum; its whole look via the shared `textOverlayLookParams`, explicit args override
   field by field) and `fontFamily`/`fontWeight` (bundled fonts enum); the fit measures the style's
   face and case and keeps a widened box in frame. `discover_text_overlay_styles` lists the styles
-  with a look line derived from the data; `titles-and-text` skill updated. Python twin mirrors it
+  with a look line derived from the data; `text-overlays` skill updated. Python twin mirrors it
   from a packaged catalog copy (`schema:generate`, drift-tested). Goldens: +36/37 tokens per
   request (skills manifest +27, tool definitions +9/10); with the `effects` domain loaded
   `add_text_layer` grows 372 → 945 tokens (font enum ~300, style enum ~180) plus ~150 for the

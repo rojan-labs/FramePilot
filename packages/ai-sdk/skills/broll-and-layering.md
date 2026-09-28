@@ -21,7 +21,7 @@ else.
 
 Do not add unrelated movement, cover an emotional performance, or use blend modes as a substitute for shot selection.
 
-An emoji, sticker, arrow or highlight over the footage is not b-roll: load `stickers-and-callouts`. A cutaway placed over a sticker or title goes in under it, so graphics stay on top.
+An emoji, sticker, arrow or highlight over the footage is not b-roll: load `stickers-and-callouts`. A cutaway placed over a sticker or text overlay goes in under it, so graphics stay on top.
 
 ## Sourcing a shot the user never filmed
 

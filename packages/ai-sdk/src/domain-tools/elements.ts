@@ -446,7 +446,7 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
     {
       name: 'set_element_animation',
       description:
-        'Animate one sticker, shape, title or picture on a graphics layer: how it comes in (in), ' +
+        'Animate one sticker, shape, text overlay or picture on a graphics layer: how it comes in (in), ' +
         'how it leaves (out), and a loop while it is on screen (loop). In/out kinds: fade, pop, ' +
         'slide-left, slide-right, slide-up, slide-down (named by the way it travels), wipe, blur; ' +
         'seconds defaults to the kind’s own length, at most half the clip. Loop presets: pulse, ' +

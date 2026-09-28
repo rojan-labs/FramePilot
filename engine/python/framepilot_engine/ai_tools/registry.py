@@ -1628,7 +1628,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "add_track",
         'Create a new empty track (a "layer") to get a free lane for clips that '
         "would otherwise overlap. Clips on one track can never overlap, so this is "
-        "how you stack simultaneous elements — a title over b-roll, picture-in-"
+        "how you stack simultaneous elements — a text overlay over b-roll, picture-in-"
         "picture, an extra overlay, or a second audio bed — when no existing track "
         "has a free range. type is the track's advisory role "
         "(video/audio/caption/overlay): it sets the default label/icon only, not a "
@@ -1654,7 +1654,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "move_track",
         "Reorder a track to a new z-order slot. toIndex 0 is the visual front "
         "(nearer the viewer); clips are untouched. Use to put an overlay above the "
-        "footage it should cover, or push b-roll behind a title.",
+        "footage it should cover, or push b-roll behind a text overlay.",
         kind="mutate",
         input_model=MoveTrackArgs,
         mutating=True,
@@ -1722,7 +1722,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "set_element_animation": _spec(
         "set_element_animation",
-        "Animate one sticker, shape or title in, out and on a loop (plan/elements EL7).",
+        "Animate one sticker, shape or text overlay in, out and on a loop (plan/elements EL7).",
         kind="mutate",
         input_model=SetElementAnimationArgs,
         mutating=True,
@@ -2099,7 +2099,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "get_frame",
         "LOOK at the edit: render one frame of the timeline at a given time and see it as "
         "an image. Use it to CHECK your own work visually — caption placement and "
-        "legibility, framing after a punch-in or reframe, whether a title collides with "
+        "legibility, framing after a punch-in or reframe, whether a text overlay collides with "
         "the footage, whether a grade reads as intended. Prefer it over guessing from "
         "numbers whenever the question is about how something LOOKS. It renders through "
         "the same engine as the final export, so what you see is what will be delivered. "

@@ -375,7 +375,7 @@ export const DOMAIN_LABEL: Readonly<Record<Exclude<ToolDomain, 'core'>, string>>
   captions: 'Captions',
   audio: 'Audio clean-up',
   motion: 'Motion and reframing',
-  effects: 'Transitions, titles and effects',
+  effects: 'Transitions, text overlays and effects',
   elements: 'Stickers and shapes',
   footage: 'Footage search',
   tracking: 'Tracking',

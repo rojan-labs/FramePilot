@@ -683,7 +683,7 @@ const graphicsCapabilities = [
       'remove_keyframes',
     ] satisfies OperationType[],
     description:
-      "Give a sticker, shape or title an entrance, an exit and a loop, the Animation section's own presets; the loop is keyframes, so it plays the same in the preview and the export.",
+      "Give a sticker, shape or text overlay an entrance, an exit and a loop, the Animation section's own presets; the loop is keyframes, so it plays the same in the preview and the export.",
     availability: { state: 'available' as const, reason: AVAILABLE_REASON },
   },
 ];
