@@ -80,6 +80,7 @@ import {
   dragCarriesElementKind,
 } from './elements/element-dnd.js';
 import { TransformBox } from './transform-box/TransformBox.js';
+import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import {
   pictureTransformAfter,
   type PictureBaseTransform,
@@ -300,6 +301,8 @@ export function WebCodecsPreviewPlayer({
   }, [maskToolsOn, clipMaskEditing, maskTools.panelClipId, editor.state.timeline]);
   const maskEditing = clipMaskEditing || laneOwner !== null;
   const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
+  // The bounding box's chrome layer over the frame (see TransformChrome).
+  const [chromeHost, setChromeHost] = useState<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   // The frame's layout width, for the mask tools' zoom. Measured when mask editing starts and on
   // resize, never while rendering: this component re-renders on every pointer move of a mask
@@ -1128,136 +1131,146 @@ export function WebCodecsPreviewPlayer({
             }
           : {})}
       >
-        <div
-          className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
-          ref={frameRef}
-          style={{
-            ['--aspect' as string]: String(aspect),
-            transform:
-              maskEditing && maskTools.zoom !== 'fit'
-                ? `translate(${maskTools.pan.x}px, ${maskTools.pan.y}px) scale(${maskTools.frameScale})`
-                : previewZoom === 'fit'
-                  ? undefined
-                  : `scale(${Number(previewZoom) / 100})`,
-          }}
-        >
-          <div className="webcodecs-preview">
-            <canvas
-              ref={canvasRef}
-              // The layer compositor sizes its canvas when it presents. Assigning `width` or
-              // `height` clears a canvas even to the same value, and a React commit landing
-              // after a presented frame blanked it (CI oracle: first read of a case).
-              {...(layered ? {} : { width: canvasWidth, height: canvasHeight })}
-              className="webcodecs-preview-canvas"
-              aria-label="preview"
-              role="img"
-            />
-            <WebCodecsCaptionLayer
-              editor={editor}
-              fps={fps}
-              captionClips={captionClips}
-              transcript={transcript ?? []}
-            />
-            {(previewReduced || textApproximate || maskRefusal !== null || matteProcessing) &&
-              !error && (
-                <div
-                  className="webcodecs-preview-reduced"
-                  role="status"
-                  title={maskRefusal?.message}
-                >
-                  {[
-                    previewReduced ? 'Preview reduced' : null,
-                    textApproximate ? 'Preview text approximate' : null,
-                    matteProcessing ? 'Processing background removal' : null,
-                    maskRefusal === null
-                      ? null
-                      : maskRefusal.task !== null
-                        ? 'Mask not previewed yet'
-                        : 'Mask not drawn: fix the mask to preview or export it',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+        <TransformChromeContext.Provider value={chromeHost}>
+          <div
+            className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
+            ref={frameRef}
+            style={{
+              ['--aspect' as string]: String(aspect),
+              transform:
+                maskEditing && maskTools.zoom !== 'fit'
+                  ? `translate(${maskTools.pan.x}px, ${maskTools.pan.y}px) scale(${maskTools.frameScale})`
+                  : previewZoom === 'fit'
+                    ? undefined
+                    : `scale(${Number(previewZoom) / 100})`,
+            }}
+          >
+            <div className="webcodecs-preview">
+              <canvas
+                ref={canvasRef}
+                // The layer compositor sizes its canvas when it presents. Assigning `width` or
+                // `height` clears a canvas even to the same value, and a React commit landing
+                // after a presented frame blanked it (CI oracle: first read of a case).
+                {...(layered ? {} : { width: canvasWidth, height: canvasHeight })}
+                className="webcodecs-preview-canvas"
+                aria-label="preview"
+                role="img"
+              />
+              <WebCodecsCaptionLayer
+                editor={editor}
+                fps={fps}
+                captionClips={captionClips}
+                transcript={transcript ?? []}
+              />
+              {(previewReduced || textApproximate || maskRefusal !== null || matteProcessing) &&
+                !error && (
+                  <div
+                    className="webcodecs-preview-reduced"
+                    role="status"
+                    title={maskRefusal?.message}
+                  >
+                    {[
+                      previewReduced ? 'Preview reduced' : null,
+                      textApproximate ? 'Preview text approximate' : null,
+                      matteProcessing ? 'Processing background removal' : null,
+                      maskRefusal === null
+                        ? null
+                        : maskRefusal.task !== null
+                          ? 'Mask not previewed yet'
+                          : 'Mask not drawn: fix the mask to preview or export it',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </div>
+                )}
+              {error && (
+                <div className="webcodecs-preview-error" role="alert">
+                  {error}
                 </div>
               )}
-            {error && (
-              <div className="webcodecs-preview-error" role="alert">
-                {error}
-              </div>
-            )}
-          </div>
-          {/* On-canvas transform (revamp Phase 3). This monitor had NO canvas
+            </div>
+            {/* On-canvas transform (revamp Phase 3). This monitor had NO canvas
               manipulation at all — select-hit and transform box lived on the
               retired `PreviewPlayer`, so when WebCodecs became the sole engine the
               affordance silently left the product. The coordinate math is
               unchanged from there: the canvas buffer carries the project aspect and
               fills `.preview-frame`, so the frame rect IS the project canvas area
               and a percent-based box needs no measuring. */}
-          {/* Click the picture to select the clip that made it — the route into the
+            {/* Click the picture to select the clip that made it — the route into the
               handles for a user who has not touched the timeline. Keyed off the
               SHOWN clip, not the selected one: once selected, the transform box
               takes over this area and a hit-target behind it would fight it. */}
-          {shownPicture && !transformSelected && (
-            <button
-              type="button"
-              className="preview-select-hit"
-              aria-label={`select clip ${shownPicture.id} in preview`}
-              onClick={() => editor.select(shownPicture.id)}
-            />
-          )}
-          {laneOwner !== null && (
-            <MaskCanvasTools
-              key={`mask-tools-lane-${laneOwner.id}`}
-              editor={editor}
-              clip={laneOwner}
-              assets={assets}
-              resolution={resolution}
-              chromeHost={stageHost}
-              owner="effect_layer"
-              {...(frameWidth !== null ? { frameWidth } : {})}
-            />
-          )}
-          {clipMaskEditing && selectedPicture && (
-            <MaskCanvasTools
-              key={`mask-tools-${selectedPicture.id}`}
-              editor={editor}
-              clip={selectedPicture}
-              assets={assets}
-              resolution={resolution}
-              chromeHost={stageHost}
-              {...(frameWidth !== null ? { frameWidth } : {})}
-            />
-          )}
-          {transformSelected && selectedPicture && pictureBox && !maskEditing && (
-            <TransformBox
-              // Keyed by clip: switching selection starts a fresh gesture rather than carrying
-              // the previous clip's live box across.
-              key={selectedPicture.id}
-              box={pictureBox}
-              resolution={resolution}
-              label="Transform selected clip"
-              sizeValue={{
-                now: Math.round(pictureBase.scale * 100),
-                text: `${Math.round(pictureBase.scale * 100)}%`,
-              }}
-              rotateLabel="Rotate clip"
-              resetLabel="reset clip transform"
-              snapping={settings.snapping}
-              onPreview={(box, gesture) =>
-                setTransformOverride(
-                  box === null
-                    ? null
-                    : pictureTransformAfter(pictureBase, pictureBox, box, gesture),
-                )
-              }
-              onCommit={(box, gesture) =>
-                commitPictureTransform(pictureTransformAfter(pictureBase, pictureBox, box, gesture))
-              }
-              onReset={() =>
-                commitPictureTransform({ scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, rotation: 0 })
-              }
-            />
-          )}
-          {/* Selection is a UI layer, never baked into preview pixels. The canvas
+            {shownPicture && !transformSelected && (
+              <button
+                type="button"
+                className="preview-select-hit"
+                aria-label={`select clip ${shownPicture.id} in preview`}
+                onClick={() => editor.select(shownPicture.id)}
+              />
+            )}
+            {laneOwner !== null && (
+              <MaskCanvasTools
+                key={`mask-tools-lane-${laneOwner.id}`}
+                editor={editor}
+                clip={laneOwner}
+                assets={assets}
+                resolution={resolution}
+                chromeHost={stageHost}
+                owner="effect_layer"
+                {...(frameWidth !== null ? { frameWidth } : {})}
+              />
+            )}
+            {clipMaskEditing && selectedPicture && (
+              <MaskCanvasTools
+                key={`mask-tools-${selectedPicture.id}`}
+                editor={editor}
+                clip={selectedPicture}
+                assets={assets}
+                resolution={resolution}
+                chromeHost={stageHost}
+                {...(frameWidth !== null ? { frameWidth } : {})}
+              />
+            )}
+            {transformSelected && selectedPicture && pictureBox && !maskEditing && (
+              <TransformBox
+                // Keyed by clip: switching selection starts a fresh gesture rather than carrying
+                // the previous clip's live box across.
+                key={selectedPicture.id}
+                box={pictureBox}
+                resolution={resolution}
+                label="Transform selected clip"
+                sizeValue={{
+                  now: Math.round(pictureBase.scale * 100),
+                  text: `${Math.round(pictureBase.scale * 100)}%`,
+                }}
+                rotateLabel="Rotate clip"
+                resetLabel="reset clip transform"
+                snapping={settings.snapping}
+                onPreview={(box, gesture) =>
+                  setTransformOverride(
+                    box === null
+                      ? null
+                      : pictureTransformAfter(pictureBase, pictureBox, box, gesture),
+                  )
+                }
+                onCommit={(box, gesture) =>
+                  commitPictureTransform(
+                    pictureTransformAfter(pictureBase, pictureBox, box, gesture),
+                  )
+                }
+                onReset={() =>
+                  commitPictureTransform({
+                    scale: 1,
+                    scaleX: 1,
+                    scaleY: 1,
+                    x: 0,
+                    y: 0,
+                    rotation: 0,
+                  })
+                }
+              />
+            )}
+            {/* Selection is a UI layer, never baked into preview pixels. The canvas
               compositor owns ordinary text; the selected object is temporarily
               represented by the shared DOM editor so timeline selection has the
               same visible, reversible manipulation path as direct selection.
@@ -1266,138 +1279,145 @@ export function WebCodecsPreviewPlayer({
               to the background picture, while a double-click selects the topmost
               object under the pointer. Keyboard activation selects the object
               directly because there is no keyboard equivalent of double-click. */}
-          {/* Shapes: a transparent target per shape at the playhead (double-click or Enter
+            {/* Shapes: a transparent target per shape at the playhead (double-click or Enter
               selects it, like a text object), and the selected one's handles. */}
-          <div className="preview-shapes" aria-label="preview shapes">
-            {activeShapes.map((clip) => {
-              const params = shapeClipParams(clip)!;
-              const local = editor.state.playhead - clip.start;
-              const now = transformAt(clip.keyframes, local);
-              // By what it is, as the catalogue names it: a clip id means nothing to a listener.
-              const shapeName =
-                (typeof params.shape === 'string'
-                  ? shapeDescriptor(params.shape)?.name
-                  : undefined) ?? 'shape';
-              if (selectedShape?.id === clip.id) {
+            <div className="preview-shapes" aria-label="preview shapes">
+              {activeShapes.map((clip) => {
+                const params = shapeClipParams(clip)!;
+                const local = editor.state.playhead - clip.start;
+                const now = transformAt(clip.keyframes, local);
+                // By what it is, as the catalogue names it: a clip id means nothing to a listener.
+                const shapeName =
+                  (typeof params.shape === 'string'
+                    ? shapeDescriptor(params.shape)?.name
+                    : undefined) ?? 'shape';
+                if (selectedShape?.id === clip.id) {
+                  return (
+                    <PreviewShapeEditor
+                      key={clip.id}
+                      clipId={clip.id}
+                      name={shapeName}
+                      params={params}
+                      resolution={resolution}
+                      transform={now}
+                      baseTransform={pictureBaseOf(clip.keyframes)}
+                      onCommit={(edit) => commitShapeEdit(clip.id, edit)}
+                      onLive={(edit) =>
+                        setLiveShape(edit === null ? null : { clipId: clip.id, edit })
+                      }
+                    />
+                  );
+                }
+                const pivot = shapePivot(params);
+                const hit = shapeHitRect(params, resolution.width / resolution.height);
                 return (
-                  <PreviewShapeEditor
+                  <div
                     key={clip.id}
-                    clipId={clip.id}
-                    name={shapeName}
-                    params={params}
-                    resolution={resolution}
-                    transform={now}
-                    baseTransform={pictureBaseOf(clip.keyframes)}
-                    onCommit={(edit) => commitShapeEdit(clip.id, edit)}
-                    onLive={(edit) =>
-                      setLiveShape(edit === null ? null : { clipId: clip.id, edit })
-                    }
-                  />
-                );
-              }
-              const pivot = shapePivot(params);
-              const hit = shapeHitRect(params, resolution.width / resolution.height);
-              return (
-                <div
-                  key={clip.id}
-                  className="preview-shape-editor"
-                  style={{
-                    transformOrigin: `${pivot.x}% ${pivot.y}%`,
-                    transform:
-                      `translate(${(now.x / resolution.width) * 100}%, ` +
-                      `${(now.y / resolution.height) * 100}%) rotate(${-now.rotation}deg) ` +
-                      `scale(${now.scale * now.scaleX}, ${now.scale * now.scaleY})`,
-                  }}
-                >
-                  <span
-                    className="preview-shape-hit"
+                    className="preview-shape-editor"
                     style={{
-                      left: `${hit.left}%`,
-                      top: `${hit.top}%`,
-                      width: `${hit.width}%`,
-                      height: `${hit.height}%`,
+                      transformOrigin: `${pivot.x}% ${pivot.y}%`,
+                      transform:
+                        `translate(${(now.x / resolution.width) * 100}%, ` +
+                        `${(now.y / resolution.height) * 100}%) rotate(${-now.rotation}deg) ` +
+                        `scale(${now.scale * now.scaleX}, ${now.scale * now.scaleY})`,
+                    }}
+                  >
+                    <span
+                      className="preview-shape-hit"
+                      style={{
+                        left: `${hit.left}%`,
+                        top: `${hit.top}%`,
+                        width: `${hit.width}%`,
+                        height: `${hit.height}%`,
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Select ${shapeName}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        editor.select(shownPicture?.id ?? null);
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        editor.select(clip.id);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        editor.select(clip.id);
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="preview-overlays" aria-label="preview objects">
+              {activeOverlays.map((overlay) =>
+                selectedOverlay?.id === overlay.id ? (
+                  <PreviewTextEditor
+                    key={overlay.id}
+                    params={overlay.params}
+                    timeInClip={editor.state.playhead - overlay.start}
+                    duration={overlay.end - overlay.start}
+                    resolution={resolution}
+                    keyframes={keyframesById.get(overlay.id) ?? []}
+                    onCommit={(edit) => commitTextEdit(overlay.id, edit)}
+                  />
+                ) : (
+                  <p
+                    key={overlay.id}
+                    className="preview-overlay-object-hit"
+                    style={{
+                      ...textOverlayStyle(
+                        overlay.params,
+                        editor.state.playhead - overlay.start,
+                        overlay.end - overlay.start,
+                        // Placed with the clip's own transform, so the target covers the letters
+                        // the compositor drew there.
+                        textOverlayClipTransform(
+                          transformAt(
+                            keyframesById.get(overlay.id) ?? [],
+                            editor.state.playhead - overlay.start,
+                          ),
+                          resolution,
+                        ),
+                      ),
+                      ...TEXT_HIT_TARGET_STYLE,
                     }}
                     role="button"
                     tabIndex={0}
-                    aria-label={`Select ${shapeName}`}
+                    aria-label={`select text overlay ${overlay.id} in preview`}
                     onClick={(event) => {
                       event.stopPropagation();
                       editor.select(shownPicture?.id ?? null);
                     }}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
-                      editor.select(clip.id);
+                      editor.select(overlay.id);
                     }}
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return;
                       event.preventDefault();
-                      editor.select(clip.id);
+                      editor.select(overlay.id);
                     }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div className="preview-overlays" aria-label="preview objects">
-            {activeOverlays.map((overlay) =>
-              selectedOverlay?.id === overlay.id ? (
-                <PreviewTextEditor
-                  key={overlay.id}
-                  params={overlay.params}
-                  timeInClip={editor.state.playhead - overlay.start}
-                  duration={overlay.end - overlay.start}
-                  resolution={resolution}
-                  keyframes={keyframesById.get(overlay.id) ?? []}
-                  onCommit={(edit) => commitTextEdit(overlay.id, edit)}
-                />
-              ) : (
-                <p
-                  key={overlay.id}
-                  className="preview-overlay-object-hit"
-                  style={{
-                    ...textOverlayStyle(
-                      overlay.params,
-                      editor.state.playhead - overlay.start,
-                      overlay.end - overlay.start,
-                      // Placed with the clip's own transform, so the target covers the letters
-                      // the compositor drew there.
-                      textOverlayClipTransform(
-                        transformAt(
-                          keyframesById.get(overlay.id) ?? [],
-                          editor.state.playhead - overlay.start,
-                        ),
-                        resolution,
-                      ),
-                    ),
-                    ...TEXT_HIT_TARGET_STYLE,
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`select text overlay ${overlay.id} in preview`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    editor.select(shownPicture?.id ?? null);
-                  }}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    editor.select(overlay.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    editor.select(overlay.id);
-                  }}
-                >
-                  {overlay.params.text}
-                </p>
-              ),
+                  >
+                    {overlay.params.text}
+                  </p>
+                ),
+              )}
+            </div>
+            {settings.gridByDefault && <div className="preview-grid" aria-hidden="true" />}
+            {settings.safeAreaGuidesByDefault && (
+              <div className="preview-safe-area" aria-hidden="true" />
             )}
           </div>
-          {settings.gridByDefault && <div className="preview-grid" aria-hidden="true" />}
-          {settings.safeAreaGuidesByDefault && (
-            <div className="preview-safe-area" aria-hidden="true" />
-          )}
-        </div>
+          {/* The bounding box draws here: over the frame, unclipped and unscaled by the zoom. */}
+          <TransformChromeLayer
+            frameRef={frameRef}
+            onHost={setChromeHost}
+            watch={`${previewZoom}|${maskTools.zoom}|${maskTools.pan.x}|${maskTools.pan.y}|${maskTools.frameScale}`}
+          />
+        </TransformChromeContext.Provider>
       </div>
       <PreviewTransport editor={editor} durationSec={durationSec} fps={fps} />
       <MonitorHeaderPortal host={headerControlsHost}>

@@ -971,6 +971,15 @@ input[type='checkbox']:focus-visible {
   cursor: pointer;
   z-index: 2;
 }
+/* The bounding box's layer: the frame's on-screen rectangle, unclipped and unscaled
+   (components/transform-box/TransformChrome.tsx), so handles reach past the frame's edge and stay
+   crisp at every zoom. Click-through except the box itself. */
+.transform-chrome {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+}
+
 /* ---- On-canvas bounding box (components/transform-box) --------------------------------------
    Figma/Premiere-grade chrome at a fixed SCREEN size: the box is placed in frame percentages and
    turned with a CSS rotate (never a CSS scale), so its 1.5 px rule and 8 px handles stay crisp

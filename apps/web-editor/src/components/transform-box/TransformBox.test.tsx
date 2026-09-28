@@ -129,7 +129,10 @@ describe('TransformBox', () => {
     const { onCommit } = renderBox();
     fireEvent.keyDown(screen.getByRole('group', { name: 'Transform clip' }), { key: 'ArrowRight' });
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ cx: 961 });
-    fireEvent.keyDown(screen.getByLabelText('Resize handle ne'), { key: 'ArrowUp', shiftKey: true });
+    fireEvent.keyDown(screen.getByLabelText('Resize handle ne'), {
+      key: 'ArrowUp',
+      shiftKey: true,
+    });
     expect(onCommit.mock.calls[1]![0].width).toBeCloseTo(440);
     fireEvent.keyDown(screen.getByLabelText('Rotate'), { key: 'ArrowUp' });
     expect(onCommit.mock.calls[2]![0]).toMatchObject({ rotation: 1 });

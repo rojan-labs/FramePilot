@@ -20,7 +20,8 @@
  * Pointer moves are coalesced to one update per animation frame, so a fast drag on a slow
  * machine renders the latest position rather than queueing every intermediate one.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { rotationToCssDegrees } from '../../preview/picture-transform.js';
 import {
   type Box,
@@ -39,6 +40,7 @@ import {
 } from '../../preview/transform-box/geometry.js';
 import { normalizeRotation } from '../../preview/snapping.js';
 import { ICON_SIZE, RotateCcw } from '../icons.js';
+import { TransformChromeContext } from './TransformChrome.js';
 
 export type { TransformGesture };
 
@@ -162,6 +164,8 @@ export function TransformBox({
   onReset,
   resetLabel = 'Reset transform',
 }: TransformBoxProps): JSX.Element {
+  // The monitor's unclipped, unscaled chrome layer over the frame, when there is one.
+  const chromeHost = useContext(TransformChromeContext);
   const active = useRef<ActiveGesture | null>(null);
   const frame = useRef<number | null>(null);
   const pending = useRef<{ client: Point; shift: boolean; alt: boolean } | null>(null);
@@ -360,7 +364,7 @@ export function TransformBox({
         ? `${Math.round(shown.width)} × ${Math.round(shown.height)}`
         : null;
 
-  return (
+  const chrome = (
     <>
       {guides.x !== null && (
         <span
@@ -475,4 +479,5 @@ export function TransformBox({
       </div>
     </>
   );
+  return chromeHost === null ? chrome : createPortal(chrome, chromeHost);
 }

@@ -193,7 +193,8 @@ describe('program monitor — on-canvas transform', () => {
     const { container } = render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
     const group = box() as HTMLElement;
-    const frame = container.querySelector('.preview-frame') as HTMLElement;
+    // The box maps the pointer through the chrome layer laid over the frame (TransformChrome).
+    const frame = container.querySelector('.transform-chrome') as HTMLElement;
     const rect = { left: 0, top: 0, width: 500, height: 1000, right: 500, bottom: 1000 } as DOMRect;
     frame.getBoundingClientRect = () => rect;
     group.getBoundingClientRect = () => rect;

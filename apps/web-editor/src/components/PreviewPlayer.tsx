@@ -77,6 +77,7 @@ import { clipMix } from '../preview/audio/mix-envelope.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { TransformBox } from './transform-box/TransformBox.js';
+import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import { rotationToCssDegrees } from '../preview/picture-transform.js';
 import {
   pictureTransformAfter,
@@ -784,6 +785,9 @@ export function PreviewPlayer({
   // The active picture clip's transform, honoring keyframed animation at the
   // playhead; the drag override wins while a handle gesture is in flight.
   const [transformOverride, setTransformOverride] = useState<PictureBaseTransform | null>(null);
+  // The monitor frame and the bounding box's chrome layer over it (see TransformChrome).
+  const monitorFrameRef = useRef<HTMLDivElement>(null);
+  const [chromeHost, setChromeHost] = useState<HTMLElement | null>(null);
   const clipTime = videoClip ? Math.max(0, playhead - videoClip.start) : 0;
   const at = (property: string, identity: number): number =>
     (videoClip ? evaluateKeyframes(videoClip.keyframes, property, clipTime) : undefined) ??
@@ -1035,335 +1039,348 @@ export function PreviewPlayer({
         monitorVolume={monitorGain}
       />
       <div className="preview-stage">
-        {/* UX-14: how the picture on screen meets the frame. The render CONTAINS a
+        <TransformChromeContext.Provider value={chromeHost}>
+          {/* UX-14: how the picture on screen meets the frame. The render CONTAINS a
             clip, so a mismatched source ships with bars, and until now the monitor
             said nothing — the fit was only discoverable by exporting. Indication,
             not correction: filling the frame is a crop the user or the agent
             chooses. */}
-        {frameFit && (
-          <Tooltip label={frameFit.detail}>
-            <span className="preview-fit-chip" data-fit={frameFit.kind} role="status">
-              {frameFit.label}
-            </span>
-          </Tooltip>
-        )}
-        {/* Shapes are drawn by the engine into the layer preview (ADR 0190); this legacy
+          {frameFit && (
+            <Tooltip label={frameFit.detail}>
+              <span className="preview-fit-chip" data-fit={frameFit.kind} role="status">
+                {frameFit.label}
+              </span>
+            </Tooltip>
+          )}
+          {/* Shapes are drawn by the engine into the layer preview (ADR 0190); this legacy
             monitor has no path for them, so it says so instead of showing a picture
             without them (plan/elements EL4a). */}
-        {hasShapes && (
-          <p className="preview-elements-note" role="note">
-            Elements need the layer preview, which this build has turned off. Shapes are not shown
-            here; the export includes them.
-          </p>
-        )}
-        {/* --aspect drives the pure-CSS contain sizing (see .preview-frame); the
+          {hasShapes && (
+            <p className="preview-elements-note" role="note">
+              Elements need the layer preview, which this build has turned off. Shapes are not shown
+              here; the export includes them.
+            </p>
+          )}
+          {/* --aspect drives the pure-CSS contain sizing (see .preview-frame); the
             frame reflows correctly on any resize and bounds the video exactly.
             previewZoom (Fit dropdown) scales the frame beyond its natural
             contain size; the stage scrolls when zoomed past its bounds. */}
-        <div
-          className="preview-frame"
-          style={{
-            ['--aspect' as string]: String(aspect),
-            transform: previewZoom === 'fit' ? undefined : `scale(${Number(previewZoom) / 100})`,
-          }}
-        >
-          {showBuffers && (
-            <div className="preview-buffers">
-              {POOL_SLOTS.map((slot) => {
-                const { clip, asset } = slotContent(slot);
-                const isFront = slot === pool.front;
-                // Visibility follows the VISIBLE slot, not the front: at a cut
-                // the departed clip's last frame stays up until the new front
-                // has a decoded frame (a held frame reads as seamless; a
-                // not-yet-painted element reads as a black flicker).
-                const isVisible = slot === visibleSlot;
-                // Painted beneath the ramping front slot (a lower stacking order), at full
-                // opacity and with its OWN crop — it is a different shot, framed its own way.
-                const isUnderlay = slot === underlaySlot;
-                // Prefer the engine-generated low-res proxy (H3): decodes/seeks far
-                // cheaper than the original, so scrubbing and cuts stay smooth on
-                // heavy footage. Export still renders from the original.
-                const src = asset ? previewMediaSrc(asset) : undefined;
-                return (
-                  <video
-                    // Stable key per slot: the element is NEVER remounted — only
-                    // its src changes (off-screen, on a warm slot), so the cut
-                    // is a swap of already-decoded media, not a fresh mount.
-                    key={`buffer-${slot}`}
-                    ref={(el) => {
-                      slotEls.current[slot] = el;
-                    }}
-                    className="preview-video preview-slot"
-                    style={{
-                      filter: isVisible ? visibleFilter : 'none',
-                      // Visible slot paints unless: the playhead sits in a GAP
-                      // (empty state must show, not a stale frame) or a still
-                      // image has finished decoding and takes over (H3). A
-                      // ramping fade/dissolve envelope scales that opacity.
-                      opacity:
-                        isVisible && videoClip !== null && !(isImageClip && imageReady)
-                          ? // The ramp belongs to the clip that CARRIES the transition, so it
-                            // only modulates the slot actually holding that clip. When the
-                            // incoming slot has no decoded frame yet the monitor keeps showing
-                            // the outgoing shot (the anti-flicker hold) — fading THAT down was
-                            // the same dissolve-to-black defect from the other side.
-                            transition && pool.loaded[slot] === activePictureId
-                            ? transitionOpacityAt(transition, clipTime)
-                            : 1
-                          : isUnderlay
-                            ? 1
-                            : 0,
-                      ...(isUnderlay ? { zIndex: 0 } : isVisible ? { zIndex: 1 } : {}),
-                      ...(isUnderlay && clip && !isFullFrameCrop(clipCropRect(clip))
-                        ? (() => {
-                            const [ux, uy] = cropObjectPosition(clipCropRect(clip));
-                            return {
+          <div
+            className="preview-frame"
+            ref={monitorFrameRef}
+            style={{
+              ['--aspect' as string]: String(aspect),
+              transform: previewZoom === 'fit' ? undefined : `scale(${Number(previewZoom) / 100})`,
+            }}
+          >
+            {showBuffers && (
+              <div className="preview-buffers">
+                {POOL_SLOTS.map((slot) => {
+                  const { clip, asset } = slotContent(slot);
+                  const isFront = slot === pool.front;
+                  // Visibility follows the VISIBLE slot, not the front: at a cut
+                  // the departed clip's last frame stays up until the new front
+                  // has a decoded frame (a held frame reads as seamless; a
+                  // not-yet-painted element reads as a black flicker).
+                  const isVisible = slot === visibleSlot;
+                  // Painted beneath the ramping front slot (a lower stacking order), at full
+                  // opacity and with its OWN crop — it is a different shot, framed its own way.
+                  const isUnderlay = slot === underlaySlot;
+                  // Prefer the engine-generated low-res proxy (H3): decodes/seeks far
+                  // cheaper than the original, so scrubbing and cuts stay smooth on
+                  // heavy footage. Export still renders from the original.
+                  const src = asset ? previewMediaSrc(asset) : undefined;
+                  return (
+                    <video
+                      // Stable key per slot: the element is NEVER remounted — only
+                      // its src changes (off-screen, on a warm slot), so the cut
+                      // is a swap of already-decoded media, not a fresh mount.
+                      key={`buffer-${slot}`}
+                      ref={(el) => {
+                        slotEls.current[slot] = el;
+                      }}
+                      className="preview-video preview-slot"
+                      style={{
+                        filter: isVisible ? visibleFilter : 'none',
+                        // Visible slot paints unless: the playhead sits in a GAP
+                        // (empty state must show, not a stale frame) or a still
+                        // image has finished decoding and takes over (H3). A
+                        // ramping fade/dissolve envelope scales that opacity.
+                        opacity:
+                          isVisible && videoClip !== null && !(isImageClip && imageReady)
+                            ? // The ramp belongs to the clip that CARRIES the transition, so it
+                              // only modulates the slot actually holding that clip. When the
+                              // incoming slot has no decoded frame yet the monitor keeps showing
+                              // the outgoing shot (the anti-flicker hold) — fading THAT down was
+                              // the same dissolve-to-black defect from the other side.
+                              transition && pool.loaded[slot] === activePictureId
+                              ? transitionOpacityAt(transition, clipTime)
+                              : 1
+                            : isUnderlay
+                              ? 1
+                              : 0,
+                        ...(isUnderlay ? { zIndex: 0 } : isVisible ? { zIndex: 1 } : {}),
+                        ...(isUnderlay && clip && !isFullFrameCrop(clipCropRect(clip))
+                          ? (() => {
+                              const [ux, uy] = cropObjectPosition(clipCropRect(clip));
+                              return {
+                                objectFit: 'cover' as const,
+                                objectPosition: `${String(ux)}% ${String(uy)}%`,
+                              };
+                            })()
+                          : {}),
+                        // Live clip transform (H4) composed with the transition
+                        // envelope's translate/scale ramp at the playhead.
+                        ...(isVisible && visibleTransform ? { transform: visibleTransform } : {}),
+                        ...(isVisible ? visibleMaskStyle : {}),
+                        // Crop fills the frame (see the note where `crop` is derived).
+                        ...(isVisible && cropped
+                          ? {
                               objectFit: 'cover' as const,
-                              objectPosition: `${String(ux)}% ${String(uy)}%`,
-                            };
-                          })()
-                        : {}),
-                      // Live clip transform (H4) composed with the transition
-                      // envelope's translate/scale ramp at the playhead.
-                      ...(isVisible && visibleTransform ? { transform: visibleTransform } : {}),
-                      ...(isVisible ? visibleMaskStyle : {}),
-                      // Crop fills the frame (see the note where `crop` is derived).
-                      ...(isVisible && cropped
-                        ? {
-                            objectFit: 'cover' as const,
-                            objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                              objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                            }
+                          : {}),
+                        ...(isVisible && blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
+                      }}
+                      {...(asset
+                        ? { 'aria-label': `preview ${asset.id}` }
+                        : { 'aria-hidden': true })}
+                      src={src}
+                      preload="auto"
+                      playsInline
+                      muted={isFront ? muted || videoMuted || settings.previewMuted : true}
+                      controls={false}
+                      /* v8 ignore start -- media callbacks need a real media load (e2e). */
+                      onLoadedMetadata={() => {
+                        const el = slotEls.current[slot];
+                        if (el) {
+                          try {
+                            el.currentTime = slotSeekTarget(slot, clip);
+                          } catch {
+                            /* jsdom / unsupported media. */
                           }
-                        : {}),
-                      ...(isVisible && blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
-                    }}
-                    {...(asset ? { 'aria-label': `preview ${asset.id}` } : { 'aria-hidden': true })}
-                    src={src}
-                    preload="auto"
-                    playsInline
-                    muted={isFront ? muted || videoMuted || settings.previewMuted : true}
-                    controls={false}
-                    /* v8 ignore start -- media callbacks need a real media load (e2e). */
-                    onLoadedMetadata={() => {
-                      const el = slotEls.current[slot];
-                      if (el) {
-                        try {
-                          el.currentTime = slotSeekTarget(slot, clip);
-                        } catch {
-                          /* jsdom / unsupported media. */
                         }
+                      }}
+                      // Readiness: a decoded frame exists at the element's current
+                      // position (fresh load → loadeddata; in-point / warm re-seek
+                      // → seeked). Everything visual gates on these marks.
+                      onLoadedData={() => confirmSlotFrame(slot)}
+                      onSeeked={() => confirmSlotFrame(slot)}
+                      /* v8 ignore stop */
+                    />
+                  );
+                })}
+              </div>
+            )}
+            {videoAsset && isImageClip ? (
+              // A still image: shown as a plain <img>, not a media element. The
+              // playhead is advanced by the wall clock so it never freezes here.
+              <img
+                key={videoAsset.id}
+                ref={imageElRef}
+                className="preview-video preview-slot preview-image"
+                alt={`preview ${videoAsset.id}`}
+                aria-label={`preview ${videoAsset.id}`}
+                src={previewMediaSrc(videoAsset)}
+                style={{
+                  filter: gradeFilter,
+                  opacity: imageReady ? 1 : 0,
+                  ...(cssTransform ? { transform: cssTransform } : {}),
+                  ...(clipMaskImage
+                    ? {
+                        maskImage: clipMaskImage,
+                        WebkitMaskImage: clipMaskImage,
+                        maskSize: '100% 100%',
+                        WebkitMaskSize: '100% 100%',
+                        maskRepeat: 'no-repeat',
+                        WebkitMaskRepeat: 'no-repeat',
                       }
-                    }}
-                    // Readiness: a decoded frame exists at the element's current
-                    // position (fresh load → loadeddata; in-point / warm re-seek
-                    // → seeked). Everything visual gates on these marks.
-                    onLoadedData={() => confirmSlotFrame(slot)}
-                    onSeeked={() => confirmSlotFrame(slot)}
-                    /* v8 ignore stop */
-                  />
-                );
-              })}
-            </div>
-          )}
-          {videoAsset && isImageClip ? (
-            // A still image: shown as a plain <img>, not a media element. The
-            // playhead is advanced by the wall clock so it never freezes here.
-            <img
-              key={videoAsset.id}
-              ref={imageElRef}
-              className="preview-video preview-slot preview-image"
-              alt={`preview ${videoAsset.id}`}
-              aria-label={`preview ${videoAsset.id}`}
-              src={previewMediaSrc(videoAsset)}
-              style={{
-                filter: gradeFilter,
-                opacity: imageReady ? 1 : 0,
-                ...(cssTransform ? { transform: cssTransform } : {}),
-                ...(clipMaskImage
-                  ? {
-                      maskImage: clipMaskImage,
-                      WebkitMaskImage: clipMaskImage,
-                      maskSize: '100% 100%',
-                      WebkitMaskSize: '100% 100%',
-                      maskRepeat: 'no-repeat',
-                      WebkitMaskRepeat: 'no-repeat',
-                    }
-                  : {}),
-                ...(cropped
-                  ? {
-                      objectFit: 'cover' as const,
-                      objectPosition: `${String(cropX)}% ${String(cropY)}%`,
-                    }
-                  : {}),
-                ...(blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
-              }}
-              onLoad={() => setImageReady(true)}
-            />
-          ) : !videoClip ? (
-            // Two different situations with two different ways out: an empty
-            // project needs media, whereas a gap in a real edit just needs the
-            // playhead moved. One shared "No clip at playhead." told the user
-            // nothing actionable in either case.
-            <div className="preview-empty">
-              <Film size={28} aria-hidden="true" />
-              {duration === 0 ? (
-                <>
-                  <p className="preview-empty-text">Nothing on the timeline yet</p>
-                  <p className="preview-empty-hint">
-                    Add a clip from the Assets rail to see it here.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="preview-empty-text">No clip at the playhead</p>
-                  <p className="preview-empty-hint">Move the playhead over a clip to preview it.</p>
-                </>
-              )}
-            </div>
-          ) : null}
-          {playing && !prepared && (
-            // The prepare gate is holding the transport: tell the user playback
-            // is being made smooth instead of leaving a frozen first frame.
-            <div className="preview-preparing" role="status">
-              <span className="preview-preparing-dot" aria-hidden="true" />
-              Preparing preview…
-            </div>
-          )}
-          {/* Click the stage to select the clip under the playhead (H4); the
+                    : {}),
+                  ...(cropped
+                    ? {
+                        objectFit: 'cover' as const,
+                        objectPosition: `${String(cropX)}% ${String(cropY)}%`,
+                      }
+                    : {}),
+                  ...(blendMode !== 'normal' ? { mixBlendMode: blendMode } : {}),
+                }}
+                onLoad={() => setImageReady(true)}
+              />
+            ) : !videoClip ? (
+              // Two different situations with two different ways out: an empty
+              // project needs media, whereas a gap in a real edit just needs the
+              // playhead moved. One shared "No clip at playhead." told the user
+              // nothing actionable in either case.
+              <div className="preview-empty">
+                <Film size={28} aria-hidden="true" />
+                {duration === 0 ? (
+                  <>
+                    <p className="preview-empty-text">Nothing on the timeline yet</p>
+                    <p className="preview-empty-hint">
+                      Add a clip from the Assets rail to see it here.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="preview-empty-text">No clip at the playhead</p>
+                    <p className="preview-empty-hint">
+                      Move the playhead over a clip to preview it.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : null}
+            {playing && !prepared && (
+              // The prepare gate is holding the transport: tell the user playback
+              // is being made smooth instead of leaving a frozen first frame.
+              <div className="preview-preparing" role="status">
+                <span className="preview-preparing-dot" aria-hidden="true" />
+                Preparing preview…
+              </div>
+            )}
+            {/* Click the stage to select the clip under the playhead (H4); the
               selected clip shows draggable transform controls. */}
-          {videoClip && !transformSelected && (
-            <button
-              type="button"
-              className="preview-select-hit"
-              aria-label={`select clip ${videoClip.id} in preview`}
-              onClick={() => editor.select(videoClip.id)}
-            />
-          )}
-          {transformSelected && videoClip && resolution && pictureBox && (
-            <TransformBox
-              key={videoClip.id}
-              box={pictureBox}
-              resolution={resolution}
-              label="Transform selected clip"
-              rotateLabel="Rotate clip"
-              resetLabel="reset clip transform"
-              sizeValue={{
-                now: Math.round(baseTransform.scale * 100),
-                text: `${Math.round(baseTransform.scale * 100)}%`,
-              }}
-              onPreview={(box, gesture) =>
-                setTransformOverride(
-                  box === null
-                    ? null
-                    : pictureTransformAfter(baseTransform, pictureBox, box, gesture),
-                )
-              }
-              onCommit={(box, gesture) =>
-                commitTransform(pictureTransformAfter(baseTransform, pictureBox, box, gesture))
-              }
-              onReset={() =>
-                commitTransform({ scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, rotation: 0 })
-              }
-            />
-          )}
-          {/* Effect layers (schema v13, ADR 0088). Sits above the picture and
+            {videoClip && !transformSelected && (
+              <button
+                type="button"
+                className="preview-select-hit"
+                aria-label={`select clip ${videoClip.id} in preview`}
+                onClick={() => editor.select(videoClip.id)}
+              />
+            )}
+            {transformSelected && videoClip && resolution && pictureBox && (
+              <TransformBox
+                key={videoClip.id}
+                box={pictureBox}
+                resolution={resolution}
+                label="Transform selected clip"
+                rotateLabel="Rotate clip"
+                resetLabel="reset clip transform"
+                sizeValue={{
+                  now: Math.round(baseTransform.scale * 100),
+                  text: `${Math.round(baseTransform.scale * 100)}%`,
+                }}
+                onPreview={(box, gesture) =>
+                  setTransformOverride(
+                    box === null
+                      ? null
+                      : pictureTransformAfter(baseTransform, pictureBox, box, gesture),
+                  )
+                }
+                onCommit={(box, gesture) =>
+                  commitTransform(pictureTransformAfter(baseTransform, pictureBox, box, gesture))
+                }
+                onReset={() =>
+                  commitTransform({ scale: 1, scaleX: 1, scaleY: 1, x: 0, y: 0, rotation: 0 })
+                }
+              />
+            )}
+            {/* Effect layers (schema v13, ADR 0088). Sits above the picture and
               BELOW the DOM overlays — see PreviewEffectOverlay for why captions
               are not covered in this preview path. */}
-          <PreviewEffectOverlay
-            layers={effectLayers}
-            getSource={getEffectSource}
-            getTime={getEffectTime}
-            playing={playing}
-          />
+            <PreviewEffectOverlay
+              layers={effectLayers}
+              getSource={getEffectSource}
+              getTime={getEffectTime}
+              playing={playing}
+            />
 
-          <div className="preview-overlays" aria-label="overlays">
-            {captions.map((c) => (
-              <div key={c.clipId} className="preview-caption-object">
-                <CaptionOverlay
-                  style={c.style}
-                  trackStyle={c.trackStyle}
-                  lines={c.lines}
-                  time={playhead}
-                />
-                <PreviewCaptionEditor
-                  clipId={c.clipId}
-                  style={c.style}
-                  trackStyle={c.trackStyle}
-                  text={c.text}
-                  selected={editor.state.selectedIds.includes(c.clipId)}
-                  onSelect={() => editor.select(c.clipId)}
-                  onStyleCommit={(stylePatch: Partial<CaptionStyle>) => {
-                    const patch = setCaptionStylePatch(editor.state.timeline, c.clipId, {
-                      ...(c.style ?? {}),
-                      ...stylePatch,
-                    });
-                    if (patch) editor.applyPatch(patch);
-                  }}
-                  onTextCommit={(text) => {
-                    const patch = setCaptionCuePatch(
-                      editor.state.timeline,
-                      c.clipId,
-                      text,
-                      transcript ?? [],
-                    );
-                    if (patch) editor.applyPatch(patch);
-                  }}
-                />
-              </div>
-            ))}
-            {overlays.map((o) =>
-              editor.state.selectedIds.includes(o.clipId) ? (
-                // The selected text overlay is editable on the canvas: move, resize
-                // its wrap box, and double-click to edit — committed as reversible
-                // set_effect_params edits (#5).
-                <PreviewTextEditor
-                  key={o.clipId}
-                  params={o.params}
-                  timeInClip={o.timeInClip}
-                  duration={o.duration}
-                  resolution={resolution ?? { width: 1920, height: 1080 }}
-                  keyframes={o.keyframes}
-                  onCommit={(edit) => commitTextEdit(o.clipId, o.keyframes, edit)}
-                />
-              ) : (
-                // Click the text to select THAT overlay (not the background clip) so it
-                // becomes editable/resizable on the canvas. `stopPropagation` keeps the
-                // click off the full-frame select-hit behind it.
-                <p
-                  key={o.clipId}
-                  className="preview-overlay-text"
-                  // Placed, turned and stretched with the clip's own transform, as the export does.
-                  style={textOverlayStyle(
-                    o.params,
-                    o.timeInClip,
-                    o.duration,
-                    textOverlayClipTransform(
-                      transformAt(o.keyframes, o.timeInClip),
-                      resolution ?? { width: 1920, height: 1080 },
-                    ),
-                  )}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`select text overlay ${o.clipId} in preview`}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    editor.select(o.clipId);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
+            <div className="preview-overlays" aria-label="overlays">
+              {captions.map((c) => (
+                <div key={c.clipId} className="preview-caption-object">
+                  <CaptionOverlay
+                    style={c.style}
+                    trackStyle={c.trackStyle}
+                    lines={c.lines}
+                    time={playhead}
+                  />
+                  <PreviewCaptionEditor
+                    clipId={c.clipId}
+                    style={c.style}
+                    trackStyle={c.trackStyle}
+                    text={c.text}
+                    selected={editor.state.selectedIds.includes(c.clipId)}
+                    onSelect={() => editor.select(c.clipId)}
+                    onStyleCommit={(stylePatch: Partial<CaptionStyle>) => {
+                      const patch = setCaptionStylePatch(editor.state.timeline, c.clipId, {
+                        ...(c.style ?? {}),
+                        ...stylePatch,
+                      });
+                      if (patch) editor.applyPatch(patch);
+                    }}
+                    onTextCommit={(text) => {
+                      const patch = setCaptionCuePatch(
+                        editor.state.timeline,
+                        c.clipId,
+                        text,
+                        transcript ?? [],
+                      );
+                      if (patch) editor.applyPatch(patch);
+                    }}
+                  />
+                </div>
+              ))}
+              {overlays.map((o) =>
+                editor.state.selectedIds.includes(o.clipId) ? (
+                  // The selected text overlay is editable on the canvas: move, resize
+                  // its wrap box, and double-click to edit — committed as reversible
+                  // set_effect_params edits (#5).
+                  <PreviewTextEditor
+                    key={o.clipId}
+                    params={o.params}
+                    timeInClip={o.timeInClip}
+                    duration={o.duration}
+                    resolution={resolution ?? { width: 1920, height: 1080 }}
+                    keyframes={o.keyframes}
+                    onCommit={(edit) => commitTextEdit(o.clipId, o.keyframes, edit)}
+                  />
+                ) : (
+                  // Click the text to select THAT overlay (not the background clip) so it
+                  // becomes editable/resizable on the canvas. `stopPropagation` keeps the
+                  // click off the full-frame select-hit behind it.
+                  <p
+                    key={o.clipId}
+                    className="preview-overlay-text"
+                    // Placed, turned and stretched with the clip's own transform, as the export does.
+                    style={textOverlayStyle(
+                      o.params,
+                      o.timeInClip,
+                      o.duration,
+                      textOverlayClipTransform(
+                        transformAt(o.keyframes, o.timeInClip),
+                        resolution ?? { width: 1920, height: 1080 },
+                      ),
+                    )}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`select text overlay ${o.clipId} in preview`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
                       editor.select(o.clipId);
-                    }
-                  }}
-                >
-                  {o.text}
-                </p>
-              ),
-            )}
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        editor.select(o.clipId);
+                      }
+                    }}
+                  >
+                    {o.text}
+                  </p>
+                ),
+              )}
+            </div>
+            {showGrid && <div className="preview-grid" aria-hidden="true" />}
+            {showSafeArea && <div className="preview-safe-area" aria-hidden="true" />}
           </div>
-          {showGrid && <div className="preview-grid" aria-hidden="true" />}
-          {showSafeArea && <div className="preview-safe-area" aria-hidden="true" />}
-        </div>
+          {/* The bounding box draws here: over the frame, unclipped and unscaled by the zoom. */}
+          <TransformChromeLayer
+            frameRef={monitorFrameRef}
+            onHost={setChromeHost}
+            watch={previewZoom}
+          />
+        </TransformChromeContext.Provider>
       </div>
 
       <div className="transport" role="group" aria-label="transport">
