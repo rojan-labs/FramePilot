@@ -70,6 +70,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A fast-to-slow speed ramp keeps its clip's length.** A ramp that starts fast and slows down
+  after the clip's current end ("builds fast, drops to 50%") was refused as not fitting its slot,
+  because the fit assumed the speed stopped changing where the old footage ended. It now follows
+  the whole curve, so the clip plays exactly its slot and the cut around it stays put.
 - **The assistant's mixing and grading tools keep working after its own edits in the same step.**
   When one step placed or retimed clips and then used a tool that acts on your selection
   (professional audio, colour, tracking), that tool was refused as "stale" even though your

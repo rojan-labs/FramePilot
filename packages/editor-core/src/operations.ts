@@ -521,7 +521,8 @@ export interface SetClipSpeedRampOp {
    *
    * With this set: the source IN point and `end` stay put; `sourceEnd` becomes the point the
    * curve reaches after the clip's current length (shorter when the ramp is mostly slow,
-   * longer when it is mostly fast — the rate past the last point is held, as `rateAt` does).
+   * longer when it is mostly fast). The solve follows every written point, even ones past
+   * the current source span; only past the last point is the rate held, as `rateAt` does.
    * The inverse is a track snapshot, since the prior source range is not re-derivable from
    * the prior ramp. Default off, so every existing caller is unchanged.
    */
@@ -3043,6 +3044,31 @@ function invertSpeedChange(
   ];
 }
 
+/**
+ * The source seconds a fitted (keepDuration) ramp consumes over `slot` timeline seconds:
+ * the `s` where `integrateRate(points, 0, s) === slot`.
+ *
+ * The solve runs along the curve the model wrote, to its LAST point or the clip's current
+ * span, whichever is later; only past both is the rate held, since only there is
+ * `rateAt` constant. Holding it from the current span instead (as this used to) is wrong
+ * whenever the curve keeps changing past that span: harness run 11 (2026-09-29) ramped a
+ * 1.9 s slot from 2.5x down to 0.5x at source 2.5 s, the fit held the 0.98x it read at
+ * 1.9 s, overshot to 2.61 s of source, and the op was refused because that source now
+ * plays for 2.24 s at the curve's real, slower rates.
+ *
+ * @param points - The new ramp (validated positive rates, any order).
+ * @param slot - Timeline seconds the clip keeps.
+ * @param span - The clip's current source span, the minimum horizon to bisect over.
+ * @returns Clip-relative source seconds the curve plays in exactly `slot`.
+ */
+function fittedSourceSpan(points: readonly SpeedPoint[], slot: Seconds, span: Seconds): Seconds {
+  const lastPoint = normalizeRamp(points).at(-1)?.sourceTime ?? 0;
+  const horizon = Math.max(span, lastPoint);
+  const whole = integrateRate(points, 0, horizon);
+  if (whole >= slot) return sourceTimeAt(points, 0, slot, horizon);
+  return horizon + (slot - whole) * rateAt(points, horizon);
+}
+
 function applySetClipSpeedRamp(
   timeline: Timeline,
   op: SetClipSpeedRampOp,
@@ -3076,17 +3102,14 @@ function applySetClipSpeedRamp(
   }
   if (op.keepDuration === true && points.length > 0) {
     // Fit the curve into the slot the clip already occupies (see the op's doc). The
-    // source span becomes whatever the curve consumes over the current length: inverted
-    // through `sourceTimeAt` while the existing footage suffices, and extended at the
-    // held tail rate past it. `end` and `keyframes` are untouched — nothing about the
-    // clip's timeline extent changed.
-    const slot = clip.end - clip.start;
-    const span = clip.sourceEnd - clip.sourceStart;
-    const whole = integrateRate(points, 0, span);
-    const consumed =
-      whole >= slot
-        ? sourceTimeAt(points, 0, slot, span)
-        : span + (slot - whole) * rateAt(points, span);
+    // source span becomes whatever the curve consumes over the current length, solved
+    // along the whole written curve (`fittedSourceSpan`). `end` and `keyframes` are
+    // untouched — nothing about the clip's timeline extent changed.
+    const consumed = fittedSourceSpan(
+      points,
+      clip.end - clip.start,
+      clip.sourceEnd - clip.sourceStart,
+    );
     next.sourceEnd = clip.sourceStart + consumed;
     // The fit decides the span, so the model cannot know it when it writes the points: a
     // slow-motion curve consumes less source than the slot is long, and a point written at

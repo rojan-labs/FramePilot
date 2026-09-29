@@ -249,6 +249,13 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   from `text_overlay._basic_features`) now reaches every caption/title measure and draw. The 184
   text-rendering tests pass under both layouts (`DYLD_LIBRARY_PATH=/opt/homebrew/lib` enables
   raqm locally; before the fix it reproduced CI's two failures).
+- [x] **AL30** Harness run 11: a fitted (`keepDuration`) `set_clip_speed_ramp` was refused
+  "timeline duration 1.8999999999999986s but its source range (2.6147955361309623s) at its speed
+  ramp implies 2.241388502385408s". The fit held the rate at the clip's OLD span (0.98x at 1.9 s)
+  while the written curve kept slowing to 0.5x at 2.5 s. `fittedSourceSpan` /
+  `_fitted_source_span` now solve along the curve to its last point, holding only past it. Pinned
+  with the run's clip and call in `operations.test.ts` and `test_operations.py` (both reproduced
+  the exact numbers before the fix) plus a cross-runtime parity case.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

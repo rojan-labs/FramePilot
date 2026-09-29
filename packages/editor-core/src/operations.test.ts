@@ -2937,6 +2937,87 @@ describe('set_clip_speed_ramp', () => {
     },
   );
 
+  it('a fitted ramp whose curve keeps slowing past the old span still fills the slot exactly', () => {
+    // Harness run 11 (2026-09-29), the clip and call verbatim: summit-view on V1 at
+    // 42.5–44.4 s (a 1.8999999999999986 s slot, source 0.5–2.3999999999999986 s, no
+    // speed, no ramp), ramped 2.5x → 0.5x at source 2.5 s. The curve is only 0.98x at the
+    // old 1.9 s span, so it covers that span in 1.17 s and needs more footage. The fit held
+    // 0.98x from 1.9 s on, landed at 2.6148 s of source, and the validator refused the op:
+    // "timeline duration 1.8999999999999986s but its source range (2.6147955361309623s) at
+    // its speed ramp implies 2.241388502385408s" — past 1.9 s the curve keeps slowing.
+    const summit: Timeline = {
+      tracks: [
+        {
+          id: 'V1',
+          type: 'video',
+          clips: [
+            clip({
+              id: 'clip__V1_asset_summit_view_42492',
+              trackId: 'V1',
+              start: 42.5,
+              end: 44.4,
+              sourceStart: 0.5,
+              sourceEnd: 2.3999999999999986,
+            }),
+          ],
+        },
+      ],
+    };
+    const op = {
+      type: 'set_clip_speed_ramp' as const,
+      clipId: 'clip__V1_asset_summit_view_42492',
+      keepDuration: true,
+      ramp: [
+        { id: 'p0', sourceTime: 0, rate: 2.5, easing: 'linear' as const },
+        { id: 'p1', sourceTime: 2.5, rate: 0.5, easing: 'linear' as const },
+      ],
+    };
+    expect(validatePatch(summit, { operations: [op] }).issues.map((i) => i.message)).toEqual([]);
+    const fitted = findClipById(applyOperation(summit, op), op.clipId)!;
+    expect([fitted.start, fitted.end]).toEqual([42.5, 44.4]);
+    expect(clipTimelineDuration(fitted)!).toBeCloseTo(44.4 - 42.5, 9);
+    // ∫₀ˢ ds / (2.5 − 0.8 s) = 1.9 ⇒ s = 3.125 · (1 − e^(−1.52)): the solve is closed-form
+    // on a linear segment, so the fitted span is pinned, not merely "valid".
+    const span = fitted.sourceEnd - fitted.sourceStart;
+    expect(span).toBeCloseTo(3.125 * (1 - Math.exp(-0.8 * (44.4 - 42.5))), 6);
+    expect(fitted.speedRamp!.every((point) => point.sourceTime <= span + 1e-9)).toBe(true);
+    expectRoundTrip(summit, op);
+  });
+
+  it.each([
+    ['fast to slow, eased, last point far past the span', 3, 0.4, 4, 'ease-in-out'],
+    ['fast to slow, linear, last point just past the span', 2, 0.5, 2.2, 'linear'],
+    ['slow to fast, last point past the span', 0.5, 3, 4, 'ease-in'],
+  ] as const)(
+    'a fitted ramp lands on its slot whatever lies past the old span — %s',
+    (_label, fromRate, toRate, lastPoint, easing) => {
+      const slot: Timeline = {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', trackId: 'video_1', start: 0, end: 2, sourceStart: 1, sourceEnd: 3 }),
+            ],
+          },
+        ],
+      };
+      const op = {
+        type: 'set_clip_speed_ramp' as const,
+        clipId: 'a',
+        keepDuration: true,
+        ramp: [
+          { id: 'p0', sourceTime: 0, rate: fromRate, easing },
+          { id: 'p1', sourceTime: lastPoint, rate: toRate, easing: 'linear' as const },
+        ],
+      };
+      expect(validatePatch(slot, { operations: [op] }).issues.map((i) => i.message)).toEqual([]);
+      const fitted = findClipById(applyOperation(slot, op), 'a')!;
+      expect([fitted.start, fitted.end]).toEqual([0, 2]);
+      expect(clipTimelineDuration(fitted)!).toBeCloseTo(2, 6);
+    },
+  );
+
   it('splitting a ramped clip keeps every point inside the piece it belongs to', () => {
     // The LEFT half used to carry the whole curve, and the validator refused it: "has a
     // speed-ramp point at source time 2.5s, outside its 1.07s source range" (run

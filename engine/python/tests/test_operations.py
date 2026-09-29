@@ -1192,6 +1192,55 @@ def test_speed_ramp_keep_duration_cuts_points_past_the_fitted_span() -> None:
     assert all(point.source_time <= span + 1e-9 for point in a.speed_ramp)
 
 
+def test_speed_ramp_keep_duration_follows_the_curve_past_the_old_span() -> None:
+    """Harness run 11 verbatim: the fit must follow the curve, not hold the rate at the span.
+
+    summit-view held a 1.8999999999999986 s slot (source 0.5-2.3999999999999986 s) and was
+    ramped 2.5x to 0.5x at source 2.5 s. The curve is 0.98x at the old span, so the fit held
+    0.98x from there, landed on 2.6148 s of source that really plays for 2.2414 s, and the
+    validator refused the op. Mirrors ``operations.test.ts``.
+    """
+    import math
+
+    from framepilot_engine.effects.speed_curve import clip_timeline_duration
+    from framepilot_engine.timeline.operations import SetClipSpeedRamp
+
+    clip_id = "clip__V1_asset_summit_view_42492"
+    timeline = Timeline(
+        tracks=[
+            Track(
+                id="V1",
+                type=TrackType.VIDEO,
+                clips=[
+                    _clip(clip_id, "V1", 42.5, 44.4, sourceStart=0.5, sourceEnd=2.3999999999999986)
+                ],
+            )
+        ]
+    )
+    op = SetClipSpeedRamp.model_validate(
+        {
+            "type": "set_clip_speed_ramp",
+            "clipId": clip_id,
+            "keepDuration": True,
+            "ramp": [
+                {"id": "p0", "sourceTime": 0.0, "rate": 2.5, "easing": "linear"},
+                {"id": "p1", "sourceTime": 2.5, "rate": 0.5, "easing": "linear"},
+            ],
+        }
+    )
+    fitted = next(c for c in _clips(apply_operation(timeline, op), "V1") if c.id == clip_id)
+    assert (fitted.start, fitted.end) == (42.5, 44.4)
+    duration = clip_timeline_duration(fitted)
+    assert duration is not None
+    assert duration == pytest.approx(44.4 - 42.5, abs=1e-9)
+    assert fitted.source_end is not None and fitted.speed_ramp is not None
+    span = fitted.source_end - fitted.source_start
+    # Closed form on one linear segment: ∫₀ˢ ds / (2.5 - 0.8 s) = 1.9.
+    assert span == pytest.approx(3.125 * (1 - math.exp(-0.8 * (44.4 - 42.5))), abs=1e-6)
+    assert all(point.source_time <= span + 1e-9 for point in fitted.speed_ramp)
+    _roundtrip(op, timeline)
+
+
 def test_speed_ramp_keep_duration_fits_the_curve_into_the_slot() -> None:
     """``keepDuration`` keeps ``end`` and moves the source out point (run cc907070).
 
