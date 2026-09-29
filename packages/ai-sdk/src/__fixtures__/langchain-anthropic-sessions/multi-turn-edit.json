@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 14854,
+      "usedTokens": 14896,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14854,
+          "estimatedInputTokensBeforeSend": 14896,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 857146,
+          "estimatedRemainingCapacity": 857104,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -321,7 +321,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -350,7 +350,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14854,
+          "estimatedInputTokensBeforeSend": 14896,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -679,7 +679,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 14485,
+      "usedTokens": 14527,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -747,7 +747,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -776,9 +776,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14485,
+          "estimatedInputTokensBeforeSend": 14527,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 857515,
+          "estimatedRemainingCapacity": 857473,
           "toolSchemaTokensRebilled": 8818,
           "calculationSource": "local_estimate"
         },
@@ -884,7 +884,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -913,7 +913,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14485,
+          "estimatedInputTokensBeforeSend": 14527,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 8818,
@@ -1272,7 +1272,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 14531,
+      "usedTokens": 14573,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1340,7 +1340,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -1369,9 +1369,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14531,
+          "estimatedInputTokensBeforeSend": 14573,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 857469,
+          "estimatedRemainingCapacity": 857427,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1486,7 +1486,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -1515,7 +1515,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14531,
+          "estimatedInputTokensBeforeSend": 14573,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1858,7 +1858,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 14715,
+      "usedTokens": 14757,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1926,7 +1926,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -1962,9 +1962,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14715,
+          "estimatedInputTokensBeforeSend": 14757,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 857285,
+          "estimatedRemainingCapacity": 857243,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -2079,7 +2079,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2570,
+            "tokenEstimate": 2612,
             "included": true
           },
           {
@@ -2115,7 +2115,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 14715,
+          "estimatedInputTokensBeforeSend": 14757,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,

@@ -384,6 +384,11 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   decision (covers entries already on disk). The same run said the library had no door/keys/
   footsteps sounds without searching them: `audio-polish` now says a sound has no match only once
   its own search came back empty.
+- [x] **AL35a** Harness run 15 (same 27k paste as runs 12–14 and desktop 88c8b27d) planned 11 items
+  from the SHORT draft at the top of the paste ("Text (minimal)") and dropped the full brief's masking,
+  stickers, captions, typography system and sound design. The paste holds a draft, the editor's "it
+  should cover every single detail", then the full brief. Contract: a message holding more than one
+  version of a brief asks for the latest, fullest one; what only the earlier states still applies.
 - [x] **AL36** Desktop run 88c8b27d: "I can't measure loudness here, so −14 LUFS and ≤ −1 dBTP
   are not confirmed", while the engine had an unused EBU R128 `loudness` request behind
   `/review/temporal-evidence`. New read-only `measure_loudness` (audio domain, `inspection` role
