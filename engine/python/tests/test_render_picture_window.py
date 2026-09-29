@@ -12,7 +12,9 @@ from __future__ import annotations
 import io
 import math
 import subprocess
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +25,14 @@ import pytest
 from pydantic import TypeAdapter
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
+from framepilot_engine.render import frame_grab as frame_grab_module
 from framepilot_engine.render.compiler import compile_timeline
 from framepilot_engine.render.compiler import compile_timeline as compile_timeline_for_real
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
+    HEAVY_BUILD_GATE,
+    MAX_CONCURRENT_HEAVY_BUILDS,
     REVIEW_WINDOW_CACHE,
     BuildGate,
     composition_key,
@@ -853,3 +858,85 @@ class TestPictureWindowPlanning:
         )
         assert window != full
         assert window == reordered
+
+
+class TestHeavyWorkIsBoundedAcrossTheSidecar:
+    """AL33: no composite decodes a frame without a slot of the process-wide gate.
+
+    The gate used to bound builds only, so every concurrent grab and review decoded at once;
+    run 15 had six colour measurements, a background review and the model's grabs in flight
+    together. Counted here, not timed: at each top-level decode, how many slots are held.
+    """
+
+    def test_concurrent_grabs_and_a_review_decode_only_while_holding_a_slot(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        held = 0
+        peak = 0
+        mine: dict[int, int] = {}  # slots each thread holds
+        decodes: list[int] = []  # at each decode, the slots its own thread holds
+        guard = threading.Lock()
+        real_acquire, real_release = HEAVY_BUILD_GATE.acquire, HEAVY_BUILD_GATE.release
+
+        def acquire(cancelled: Any = None) -> bool:
+            nonlocal held, peak
+            took = real_acquire(cancelled)
+            if took:
+                with guard:
+                    held += 1
+                    peak = max(peak, held)
+                    me = threading.get_ident()
+                    mine[me] = mine.get(me, 0) + 1
+            return took
+
+        def release() -> None:
+            nonlocal held
+            with guard:
+                held -= 1
+                me = threading.get_ident()
+                mine[me] = mine.get(me, 0) - 1
+            real_release()
+
+        def counted_compile(*args: Any, **kwargs: Any) -> Any:
+            composition = compile_timeline_for_real(*args, **kwargs)
+            decode = composition.get_frame
+
+            def get_frame(t: float) -> Any:
+                with guard:
+                    decodes.append(mine.get(threading.get_ident(), 0))
+                return decode(t)
+
+            composition.get_frame = get_frame
+            return composition
+
+        # Instance attributes: the caches hold this very gate object and call its methods.
+        monkeypatch.setattr(HEAVY_BUILD_GATE, "acquire", acquire)
+        monkeypatch.setattr(HEAVY_BUILD_GATE, "release", release)
+        monkeypatch.setattr(frame_grab_module, "compile_timeline", counted_compile)
+        monkeypatch.setattr(evidence_module, "compile_timeline", counted_compile)
+        # A revision of its own, so every composite below is compiled (and counted) here.
+        project = _edit(A={"opacity": 0.99})
+        errors: list[BaseException] = []
+
+        def run(work: Any) -> None:
+            try:
+                work()
+            except BaseException as exc:  # pragma: no cover - surfaced by the assert below
+                errors.append(exc)
+
+        jobs: list[Callable[[], object]] = [
+            partial(grab_frame, project, media_dir, t) for t in (0.2, 0.5, 1.2, 2.3, 3.3, 3.8)
+        ]
+        jobs.append(partial(acquire_temporal_evidence, project, media_dir, _review_requests()))
+        threads = [threading.Thread(target=run, args=(job,)) for job in jobs]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert errors == []
+        # Every grab and every review frame decoded, each under a slot its own thread held ...
+        assert len(decodes) >= len(jobs)
+        assert min(decodes) >= 1
+        # ... and never more at once than the gate allows, however many calls arrived.
+        assert peak <= MAX_CONCURRENT_HEAVY_BUILDS

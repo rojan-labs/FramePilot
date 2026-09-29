@@ -50,6 +50,7 @@ from framepilot_engine.render.composition_cache import (
     HEAVY_BUILD_GATE,
     CompositionBuildCancelled,
     composition_key,
+    read_frame,
 )
 from framepilot_engine.render.composition_cache import (
     REVIEW_WINDOW_CACHE as REVIEW_WINDOW_CACHE,
@@ -961,13 +962,20 @@ class _ReviewFrames:
         self.windowed_frames = 0
 
     def frame(self, frame_index: int) -> npt.NDArray[np.uint8]:
-        """The composited picture of ``frame_index``, as the export draws it."""
+        """The composited picture of ``frame_index``, as the export draws it.
+
+        Decoded under a slot of the process-wide gate, like the build (AL33,
+        ``composition_cache.read_frame``): a batch's reads must not stack on every grab's.
+        """
         at = frame_index / self._project.fps
         composition = self._window_at(frame_index, at)
         if composition is None:
-            return _as_pixels(self._whole().get_frame(at))
-        self.windowed_frames += 1
-        return _as_pixels(composition.get_frame(at))
+            composition = self._whole()
+        else:
+            self.windowed_frames += 1
+        return _as_pixels(
+            read_frame(composition, at, gate=HEAVY_BUILD_GATE, cancelled=self._cancelled)
+        )
 
     def close(self) -> None:
         self._held.close()

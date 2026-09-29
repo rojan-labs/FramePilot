@@ -56,6 +56,7 @@ from framepilot_engine.render.composition_cache import (
     FRAME_WINDOW_CACHE,
     HEAVY_BUILD_GATE,
     composition_key,
+    read_frame,
 )
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
@@ -187,7 +188,9 @@ def _windowed_frame(
                 _log.info("frame grab: window ends before %.3fs; compositing everything", at)
                 return None
             _log.debug("frame grab: %d clip(s) in the window at %.3fs", len(window.clip_ids), at)
-            return composition.get_frame(at)
+            # The decode takes a slot like the build did: concurrent grabs must not all decode
+            # at once (AL33, `composition_cache.read_frame`).
+            return read_frame(composition, at, gate=HEAVY_BUILD_GATE)
     except PictureWindowMiss as exc:
         _log.info("frame grab: %s", exc)
         return None
@@ -234,7 +237,7 @@ def _whole_timeline_frame(
     )
     try:
         with COMPOSITION_CACHE.borrow(key, build) as composition:
-            return composition.get_frame(at)
+            return read_frame(composition, at, gate=HEAVY_BUILD_GATE)
     except FrameGrabError:
         raise
     except Exception as exc:

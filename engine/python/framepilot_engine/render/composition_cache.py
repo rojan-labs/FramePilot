@@ -8,6 +8,12 @@ The build bound is PROCESS-wide for compositions that open media readers
 (:data:`HEAVY_BUILD_GATE`): the whole-timeline cache, the grab's and the review's windowed
 caches, and the source sheet's uncached tiles all take a slot from the same gate. A bound per
 cache stopped bounding anything once there were several such caches.
+
+Reading a frame from such a composition takes a slot too (:func:`read_frame`): a read seeks
+and decodes in the ffmpeg readers the build opened, which is the same CPU a build spends, so
+bounding builds alone left every concurrent grab decoding at once (AL33). With both, at most
+:data:`MAX_CONCURRENT_HEAVY_BUILDS` compositions are compiling or decoding in the whole
+sidecar, whatever number of agent calls arrive together.
 """
 
 from __future__ import annotations
@@ -34,14 +40,14 @@ MAX_CACHED_COMPOSITIONS = 2
 #: Builds one cache with a PRIVATE gate runs at once (only the caption layers use one: they
 #: hold Pillow rasters, not media readers, so they stay out of the heavy gate).
 MAX_CONCURRENT_BUILDS = 1
-#: Compositions that open ffmpeg readers compiled at once across the whole process. A reader
-#: of a 1080p source was measured at 130-450 MB resident (run-3 project), so each concurrent
-#: compile is paid in hundreds of MB. Two, not one: temporal-evidence batches are already
-#: serialised by their route, so a review holds at most one slot and a grab or sheet tile
-#: always has the other. Measured on run-3's final project (a 40-frame review + 4 scopes,
-#: alongside a 12-tile sheet and 4 grabs; three runs each): peak tree RSS 2.5-3.7 GB before,
-#: 1.6-2.7 GB at one slot, 2.6-3.0 GB at two; wall 58-65 s before, 63-74 s at one (the sheet
-#: 8 s -> 24-26 s, grabs doubled), 56-64 s at two (sheet 13-14 s).
+#: Compositions that open ffmpeg readers compiled (or read from, :func:`read_frame`) at once
+#: across the whole process. A reader of a 1080p source was measured at 130-450 MB resident
+#: (run-3 project), so each concurrent compile is paid in hundreds of MB. Two, not one:
+#: temporal-evidence batches are already serialised by their route, so a review holds at most
+#: one slot and a grab or sheet tile always has the other. Measured on run-3's final project
+#: (a 40-frame review + 4 scopes, alongside a 12-tile sheet and 4 grabs; three runs each): peak
+#: tree RSS 2.5-3.7 GB before, 1.6-2.7 GB at one slot, 2.6-3.0 GB at two; wall 58-65 s before,
+#: 63-74 s at one (the sheet 8 s -> 24-26 s, grabs doubled), 56-64 s at two (sheet 13-14 s).
 MAX_CONCURRENT_HEAVY_BUILDS = 2
 #: How often a caller waiting for a build slot re-checks whether it is still wanted.
 _CANCEL_POLL_SECONDS = 0.05
@@ -90,6 +96,27 @@ class BuildGate:
 
 #: The one gate for every composition that opens media readers (module docstring).
 HEAVY_BUILD_GATE = BuildGate(MAX_CONCURRENT_HEAVY_BUILDS)
+
+
+def read_frame(
+    composition: Any,
+    at: float,
+    *,
+    gate: BuildGate | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> Any:
+    """``composition.get_frame(at)`` under a slot of the heavy gate (module docstring).
+
+    Never call this while already holding a slot of the same gate: the gate is not reentrant,
+    and a caller that compiles and reads under one slot (the source sheet's tiles) is already
+    bounded.
+
+    :param gate: The gate to take a slot of; ``None`` is :data:`HEAVY_BUILD_GATE`, looked up at
+        call time so a test can swap it.
+    :raises CompositionBuildCancelled: ``cancelled`` turned true before a slot was free.
+    """
+    with (gate or HEAVY_BUILD_GATE).slot(cancelled):
+        return composition.get_frame(at)
 
 
 @dataclass
