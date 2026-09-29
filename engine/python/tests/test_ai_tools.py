@@ -1083,7 +1083,7 @@ def test_add_text_layer_refuses_italic_in_a_family_without_one(ctx: ToolContext)
 @pytest.mark.parametrize(
     "extra",
     [
-        {"letterSpacing": -0.1},
+        {"letterSpacing": -0.3},
         {"letterSpacing": 0.7},
         {"lineHeight": 3.5},
         {"textOpacity": 1.2},

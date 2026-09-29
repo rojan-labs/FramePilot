@@ -276,6 +276,7 @@ BundledFontFamily = Annotated[
 _MAX_TEXT_OUTLINE_WIDTH = 8.0
 #: The caption tools' em ranges (TS ``caption-style-facts.ts``).
 _MAX_CAPTION_LETTER_SPACING = 0.6
+_MIN_CAPTION_LETTER_SPACING = -0.2
 _MAX_CAPTION_EM_VALUE = 3.0
 _MAX_CAPTION_SHADOW_OFFSET = 0.5
 
@@ -307,7 +308,10 @@ class _TextTypographyArgs(BaseModel):
 
     model_config = _STRICT
     letter_spacing: float | None = Field(
-        default=None, alias="letterSpacing", ge=0.0, le=_MAX_CAPTION_LETTER_SPACING
+        default=None,
+        alias="letterSpacing",
+        ge=_MIN_CAPTION_LETTER_SPACING,
+        le=_MAX_CAPTION_LETTER_SPACING,
     )
     font_style: Literal["normal", "italic"] | None = Field(default=None, alias="fontStyle")
     line_height: float | None = Field(default=None, alias="lineHeight", ge=0.7, le=3.0)

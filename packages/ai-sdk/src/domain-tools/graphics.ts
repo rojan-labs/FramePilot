@@ -58,6 +58,7 @@ import { describeTextOverlayLook } from '../text-overlay-style-facts.js';
 import {
   MAX_CAPTION_EM_VALUE,
   MAX_CAPTION_LETTER_SPACING,
+  MIN_CAPTION_LETTER_SPACING,
   MAX_CAPTION_SHADOW_OFFSET,
 } from '../caption-style-facts.js';
 import {
@@ -268,7 +269,9 @@ const MAX_TEXT_OUTLINE_WIDTH = 8;
  * em ranges are the caption tools'. The chip's shape is not here: it comes with a style.
  */
 const TYPOGRAPHY_ARGS = {
-  letterSpacing: numeric(z.number().min(0).max(MAX_CAPTION_LETTER_SPACING)).optional(),
+  letterSpacing: numeric(
+    z.number().min(MIN_CAPTION_LETTER_SPACING).max(MAX_CAPTION_LETTER_SPACING),
+  ).optional(),
   fontStyle: z.enum(['normal', 'italic']).optional(),
   lineHeight: numeric(z.number().min(0.7).max(3)).optional(),
   textTransform: z.enum(['none', 'uppercase', 'lowercase']).optional(),
@@ -845,7 +848,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'middle, y 15 is near the top), fontFamily (a bundled family) and fontWeight set ' +
         'the typeface, and color/background/align/' +
         'boxWidthPercent do what they say. Typography, each overriding one field of the ' +
-        "style's: letterSpacing (tracking in em, 0–0.6; a brief's +250 tracking is 0.25), " +
+        "style's: letterSpacing (tracking in em, -0.2–0.6; a brief's +250 tracking is 0.25, tight headline tracking is negative), " +
         'lineHeight (0.7–3), fontStyle italic (families that ship one), textTransform, ' +
         'textOpacity (0–1, the letters only), outlineColor/outlineWidth (sixteenths of the ' +
         'size; 0 = no outline) and shadow {color, blur, offsetX, offsetY} in em, or "none". ' +
