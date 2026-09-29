@@ -27,6 +27,12 @@ table also carries each italic file's rows (``TITLE_ITALIC_FACES``), and the ref
 carries widths the caption rasterizer drew (``TITLE_TYPED_REFERENCE_WIDTHS``) for the TS
 arithmetic of a typed title to be checked against.
 
+LINES (2026-09-29, AL41). Two text overlays on screen together can draw over each other, and the
+critic says so (``critic.ts`` ``text_collision``). That needs each overlay's HEIGHT as drawn, so
+every face also carries ``[ascent, descent, xHeight]`` (``TITLE_FACE_LINES``): the line metrics the
+caption rasterizer stacks a typed title's lines with, and the ink height of "x", the least a
+line of letters draws.
+
 ``python -m framepilot_engine.render.title_metrics`` writes the table to
 ``packages/ai-sdk/src/title-metrics.generated.ts``; ``tests/test_title_metrics.py`` fails when
 the committed table no longer matches the fonts, and checks the formula against the rasterizer.
@@ -148,6 +154,23 @@ def _glyph_row(font: Any) -> list[list[int]]:
     return row
 
 
+def _line_metrics(font: Any) -> list[int]:
+    """``[ascent, descent, xHeight]`` of a face, in 1/1000 em.
+
+    Ascent and descent are the font's own line metrics (``getmetrics``), which the caption
+    rasterizer stacks a typed title's lines with (``captions._layout_styled_caption``). The
+    x-height is how far the ink of "x" rises above the baseline: the least a line of letters
+    draws, which is what a check that must not cry wolf can say every line covers.
+    """
+    ascent, descent = font.getmetrics()
+    _left, x_top, _right, _bottom = font.getbbox("x")
+    return [
+        round(ascent * 1000 / REFERENCE_SIZE),
+        round(descent * 1000 / REFERENCE_SIZE),
+        round((ascent - x_top) * 1000 / REFERENCE_SIZE),
+    ]
+
+
 def italic_families() -> list[str]:
     """The bundled families that ship an italic file: the only ones an italic title changes."""
     manifest = _font_manifest()
@@ -182,11 +205,20 @@ def build_title_metrics() -> dict[str, Any]:
         family: rows_for(family, False) for family in [DEFAULT_FACE, *sorted(_font_manifest())]
     }
     italic_faces = {family: rows_for(family, True) for family in italic_families()}
+    # A face's ascent and descent do not change with its weight axis, so one entry per file: the
+    # lightest bucket's, whose x-height is also the least any weight of it draws (a heavier cut's
+    # ink rises a little higher) — the right side of a floor.
+    lines = {family: _line_metrics(_face(family, WEIGHT_BUCKETS[0])) for family in faces}
+    italic_lines = {
+        family: _line_metrics(_face(family, WEIGHT_BUCKETS[0], True)) for family in italic_faces
+    }
     return {
         "glyphs": GLYPHS,
         "weights": list(WEIGHT_BUCKETS),
         "faces": faces,
         "italicFaces": italic_faces,
+        "lines": lines,
+        "italicLines": italic_lines,
         "tables": tables,
     }
 
@@ -280,6 +312,14 @@ def render_title_metrics_ts(
         f"  {json.dumps(family)}: [{', '.join(str(i) for i in rows)}]"
         for family, rows in metrics["italicFaces"].items()
     )
+    line_metrics = ",\n".join(
+        f"  {json.dumps(family)}: [{', '.join(str(v) for v in values)}]"
+        for family, values in metrics["lines"].items()
+    )
+    italic_line_metrics = ",\n".join(
+        f"  {json.dumps(family)}: [{', '.join(str(v) for v in values)}]"
+        for family, values in metrics["italicLines"].items()
+    )
     typed_lines = ",\n".join(
         f"  {{ family: {json.dumps(c['family'])}, weight: {c['weight']}, "
         f"word: {json.dumps(c['word'])}, size: {c['size']}, "
@@ -323,6 +363,19 @@ def render_title_metrics_ts(
         "export const TITLE_ITALIC_FACES: Readonly<Record<string, readonly [number, number, "
         "number]>> = {\n"
         f"{italic_faces}\n"
+        "};\n"
+        "\n"
+        "/** Family → `[ascent, descent, xHeight]` in 1/1000 em: the line metrics a typed title's "
+        'lines are stacked with, and how far the ink of "x" rises above the baseline. */\n'
+        "export const TITLE_FACE_LINES: Readonly<Record<string, readonly [number, number, "
+        "number]>> = {\n"
+        f"{line_metrics}\n"
+        "};\n"
+        "\n"
+        "/** {@link TITLE_FACE_LINES} for each family's ITALIC file. */\n"
+        "export const TITLE_ITALIC_FACE_LINES: Readonly<Record<string, readonly [number, number, "
+        "number]>> = {\n"
+        f"{italic_line_metrics}\n"
         "};\n"
         "\n"
         f"{REFERENCE_MARKER}\n"

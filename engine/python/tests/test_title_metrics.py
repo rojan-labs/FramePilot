@@ -9,6 +9,7 @@ bundled family, weights inside each bucket, and words chosen for their overhangs
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -277,3 +278,131 @@ def test_the_typed_formula_predicts_the_caption_rasterizer(
         untracked = {**params, "typography": {**typography, "letterSpacing": 0}}
         plain = _typed_predict(metrics, untracked, word)[0]
         assert plain < wrap if spacing > 0 else plain > wrap, (case, plain, wrap)
+
+
+def _committed_lines(text: str, name: str) -> dict[str, list[int]]:
+    """``family -> [ascent, descent, xHeight]`` parsed from one committed line-metrics block."""
+    block = text.split(f"export const {name}:")[1].split("\n};")[0]
+    return {
+        json.loads(family): [int(a), int(d), int(x)]
+        for family, a, d, x in re.findall(r'^\s*("[^"]*"): \[(\d+), (\d+), (\d+)\]', block, re.M)
+    }
+
+
+def test_the_committed_line_metrics_are_what_the_fonts_measure(
+    metrics: dict[str, object],
+) -> None:
+    text = (REPO_ROOT / tm.OUTPUT).read_text()
+    for name, key, faces_key in (
+        ("TITLE_FACE_LINES", "lines", "faces"),
+        ("TITLE_ITALIC_FACE_LINES", "italicLines", "italicFaces"),
+    ):
+        fresh = metrics[key]
+        faces = metrics[faces_key]
+        assert isinstance(fresh, dict) and isinstance(faces, dict)
+        committed = _committed_lines(text, name)
+        assert set(committed) == set(faces), name
+        for family, values in committed.items():
+            worst = max(abs(a - b) for a, b in zip(values, fresh[family], strict=True))
+            assert worst <= TABLE_TOLERANCE, (name, family, worst)
+
+
+def test_one_line_entry_per_file_holds_at_every_weight() -> None:
+    # One entry per file is only honest if a variable font's weight axis leaves the line
+    # metrics alone, and if the lightest cut's x-height is the least any weight draws: a
+    # heavier cut's ink rises a little higher, and the x-height is used as a floor.
+    for family in ["Playfair Display", "Manrope", "Inter", "Montserrat", "Fraunces"]:
+        measured = [tm._line_metrics(tm._face(family, w)) for w in tm.WEIGHT_BUCKETS]
+        assert len({(a, d) for a, d, _x in measured}) == 1, (family, measured)
+        assert measured[0][2] == min(x for _a, _d, x in measured), (family, measured)
+
+
+#: Typed titles whose drawn height the line metrics must predict: ``(params, text)``. The first
+#: two are harness run 16's "Until next weekend." and "SEPT 2026", which drew over each other.
+_HEIGHT_CASES: tuple[tuple[dict[str, object], str], ...] = (
+    (
+        {
+            "fontFamily": "Playfair Display",
+            "fontSizePercent": 5.5,
+            "typography": {
+                "outlineColor": "#000000",
+                "outlineWidth": 1.3333333333333333,
+                "fontStyle": "italic",
+            },
+        },
+        "Until next weekend.",
+    ),
+    (
+        {
+            "fontFamily": "Manrope",
+            "fontWeight": 600,
+            "fontSizePercent": 1.6,
+            "typography": {
+                "outlineColor": "#000000",
+                "outlineWidth": 1.3333333333333333,
+                "letterSpacing": 0.25,
+            },
+        },
+        "SEPT 2026",
+    ),
+    (
+        {
+            "fontFamily": "Inter",
+            "fontWeight": 600,
+            "fontSizePercent": 2.7,
+            "boxWidthPercent": 40,
+            "background": "#14141473",
+            "typography": {"background": {"paddingX": 0.7, "paddingY": 0.3}, "lineHeight": 1.2},
+        },
+        "Somewhere between here and home.",
+    ),
+)
+
+
+@pytest.mark.parametrize("case", _HEIGHT_CASES, ids=[c[1] for c in _HEIGHT_CASES])
+def test_the_line_metrics_predict_the_typed_title_height(
+    metrics: dict[str, object], case: tuple[dict[str, object], str]
+) -> None:
+    """The arithmetic ``overlay-fit.ts`` ``drawnTextRects`` does, against the caption rasterizer.
+
+    The chip is ``lines x (ascent + descent + 2 x stroke) + gaps + 2 x paddingY``, the ascent and
+    descent rounded up to whole pixels as FreeType reports them; each line's ink covers at least
+    its x-height above its baseline.
+    """
+    from framepilot_engine.render.captions import (
+        _layout_styled_caption,
+        render_caption_raster,
+    )
+    from framepilot_engine.render.text_overlay import text_overlay_caption_style
+
+    params, text = case
+    width, height = tm.REFERENCE_FRAME
+    styled = text_overlay_caption_style(params, height)
+    assert styled is not None
+    layout = _layout_styled_caption(text, width, height, styled, [], 0.0)
+    typography = params["typography"]
+    assert isinstance(typography, dict)
+    italic = typography.get("fontStyle") == "italic"
+    lines_key = "italicLines" if italic else "lines"
+    table = metrics[lines_key]
+    assert isinstance(table, dict)
+    ascent_em, descent_em, x_em = table[str(params["fontFamily"])]
+    size = layout.font_size
+    ascent = math.ceil(ascent_em * size / 1000 - 1e-9)
+    descent = math.ceil(descent_em * size / 1000 - 1e-9)
+    line = ascent + descent + 2 * layout.stroke
+    rows = len(layout.lines)
+    predicted = rows * line + layout.line_gap * (rows - 1) + 2 * layout.pad_y
+    assert abs(predicted - (layout.block_h + 2 * layout.pad_y)) <= rows, (predicted, layout.block_h)
+    # Every line's x-height band is inked (the chip, where there is one, is inked everywhere).
+    raster = render_caption_raster(
+        text, width, height, style=styled.model_copy(update={"shadow": None})
+    )
+    alpha = raster.image[..., 3]
+    inked_rows = alpha.max(axis=1) > 0
+    top = raster.margin + layout.pad_y
+    for index in range(rows):
+        baseline = top + index * (line + layout.line_gap) + ascent + layout.stroke
+        band_top = baseline - math.floor(x_em * size / 1000) - layout.stroke
+        band = inked_rows[band_top + PIXEL_SLACK : baseline - PIXEL_SLACK]
+        assert band.size > 0 and bool(band.all()), (text, index, band_top, baseline)
