@@ -160,6 +160,19 @@ needs, the slowest period of that loop that fits, the other loops that fit and t
 the longest In/Out. It never substitutes a different loop. A spin moves on a clip of any length,
 because it is two keyframes across the clip.
 
+Lane choice keeps neighbours valid (AL43). A lane has room for a new clip only when nothing
+occupies the span AND the validator's own transition rule (`laneTransitionProblems`) reports no
+new problem with a bare clip in place (`placementBreaksTransitions` in `lane-placement.ts`). So no
+picker lands a clip against a neighbour's In or Out that names no clip (an element animation or a
+cutaway entrance/exit), which would turn that edge into a cut the patch is refused for, or between
+two clips joined by a cross. It moves to another lane of the same role where the clip is valid, or
+opens one. Every picker that reads `trackHasRoomFor` gets this: `add_shape`, `add_text_layer`,
+stickers, `add_clip`, caption cues, the web editor's drops, stock and picture-layer placement.
+`add_shape` honours a named `trackId` or refuses it. An id that names no track, a picture or audio
+lane, or a locked lane is refused with the remedy (leave `trackId` out, or name a graphics lane
+from `get_timeline`). A named graphics lane that is busy over the span is still resolved by the
+allocator.
+
 `get_project_state` returns the media bin as a **tally**, not a listing:
 
 ```jsonc

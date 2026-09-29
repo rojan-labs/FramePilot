@@ -571,6 +571,40 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   style and template); animated overlays are skipped; a plain overlay's height is a floor, so a
   plain-title collision can go unreported; weight is bucketed up (Inter 600 read at 700, ~1.4 %
   wide); not re-run live on run 16's brief.
+- [x] **AL43** Harness run 17: three `add_shape` calls (arrow 15.6–17.5, pin 16.3–17.5, pin
+  `trackId: "STK"` 16.1–17.5) were refused with "Transition on clip 'text__CAP_17500' must
+  reference the adjacent earlier clip on track 'CAP' as fromClipId." Cause: `trackHasRoomFor`
+  (`lane-placement.ts`) asked only whether the span was free, and a butt-join counts as free. The
+  first two had no `trackId`, so `buildAddShapeOps` preferred CAP (it held `shape__CAP_15100`,
+  the only shape lane), and the allocator took it. The third named STK, which existed (made by
+  `add_track` that turn) but already held the arrow over 15.6–17.5. The allocator's rescue then
+  searched overlay lanes in order and took CAP. Either way the shape ended at 17.5, where
+  `text__CAP_17500` began with a zoom-out In naming no clip. The validator reads an In on a clip
+  whose start is a cut as a cross that must name the clip before it, so the patch was refused.
+  Fix: `trackHasRoomFor` also calls `placementBreaksTransitions`, which puts a bare probe clip on
+  the lane and asks the validator's own rule (`laneTransitionProblems`, exported from
+  `validator.ts`) whether the placement adds a transition problem. Problems already on the lane
+  do not count. Every lane picker reads this rule: the allocator (shapes, `add_text_layer`,
+  stickers, `add_clip`, caption cues), web-editor drops, stock and picture-layer placement. So an
+  element's In/Out, a cutaway's entrance/exit, and a cross's gap are all respected, and the clip
+  goes to another lane of the same role or a new one. `add_shape` now refuses a named `trackId`
+  that names no lane, a picture/audio lane or a locked lane (the shared builder used to reroute
+  those without telling the model); a busy graphics lane is still resolved by the allocator. The
+  `set_element_animation` butt-join refusals in the same run ("The end of text__CAP_6633 is a cut
+  on its own layer (8s)…") were not a placement defect. Both `add_text_layer` calls named
+  `trackId: "CAP"` (`add_text_layer` requires a `trackId`), the lane had room, and a butt against
+  a clip with no edge effects is valid. The refusal names the right remedy. Evidence: run 17's
+  final project with STK/STK2 removed, through the built dist: all three calls land on
+  `layer_overlay_6` and validate clean (before: CAP, refused). Tests: `lane-placement.test.ts` (a
+  butt against an In or an Out naming no clip is not room; neither is the gap of a cross; a plain
+  butt, a gap before an In, and a lane that was already broken still are; the allocator skips such
+  a lane) and `elements.test.ts` (run 17's CAP lane and the three calls validate off CAP; a named
+  fitting lane is honoured; an unknown, picture or locked `trackId` is refused). Open: an element
+  placed automatically can still butt a plain neighbour on its lane, and animating either one
+  later is then refused (move_clip is the remedy). `move_clip` of a clip that carries its own
+  In/Out is not checked against the destination lane's butts (the validator still refuses it).
+  Stickers keep the builder's fallback for a named lane they cannot use, because the host has
+  already copied the file by then; the result note names the lane they landed on.
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

@@ -89,6 +89,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Shapes and other graphics no longer land where they break a neighbour's animation.** A new
+  shape could be put on a graphics lane ending exactly where a title with an In animation began.
+  That turns the title's entrance into a cut, so the whole edit was refused. Every placement now
+  checks the lane's transitions with the new clip in place and uses another lane, or opens one,
+  when it would break one. When the assistant names a lane for a shape that does not exist, is
+  not a graphics lane, or is locked, it is told why instead of the shape landing somewhere else.
 - **The assistant tries the tools it has not opened before giving up on part of a request.** It
   could mark an item on its plan as impossible ("no sound effects in the bin") and stop, without
   ever opening the tools that do it (the sound-effect library). When it now stops with items it
