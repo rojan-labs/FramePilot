@@ -242,6 +242,18 @@ def transition_underlays(
     return found
 
 
+def underlay_clock_offset(neighbour: Clip, window: tuple[float, float]) -> float:
+    """What an under-layer adds to its local time to read the neighbour's keyframes.
+
+    An under-layer is the neighbour carried past its out-point (``in``) or before its in-point
+    (``out``), so it is drawn as the neighbour draws itself: its reframe on its OWN clip clock,
+    extended across the cut. Keyframes hold outside their span, so past the last one the
+    transform holds its last value and before the first it holds the first. Mirrors
+    ``underlayClipTime`` in ``frame-plan.ts``.
+    """
+    return window[0] - float(neighbour.start)
+
+
 @dataclass(frozen=True)
 class UnderlayMaterial:
     """Where an under-layer's picture comes from in the neighbour's asset.
@@ -1075,7 +1087,7 @@ def _underlay_layer(ctx: _Context, track: Track, clip: Clip, underlay: Underlay)
         source_time = (
             local + material.handle_start if material.mode == "subclip" else material.edge_time
         )
-    plain = neighbour.model_copy(update={"keyframes": []})
+    clock = local + underlay_clock_offset(neighbour, underlay.window)
     return PlanLayer(
         kind="picture",
         role="underlay",
@@ -1090,7 +1102,8 @@ def _underlay_layer(ctx: _Context, track: Track, clip: Clip, underlay: Underlay)
             source_frame_index(source_time, fps, ctx.source_frame_times.get(neighbour.asset_id)),
         ),
         crop=_crop_json(neighbour),
-        geometry=_picture_geometry(ctx, plain, local, honour_crop=True, transition=None),
+        # The neighbour's reframe on its own clock, without its transition (AL40).
+        geometry=_picture_geometry(ctx, neighbour, clock, honour_crop=True, transition=None),
         blend_mode=_blend(neighbour),
         effects=_effects_json(neighbour),
     )

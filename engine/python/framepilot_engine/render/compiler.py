@@ -149,6 +149,7 @@ from framepilot_engine.render.frame_plan import (
     text_overlay_text,
     title_envelope_animates,
     transition_underlays,
+    underlay_clock_offset,
     underlay_material,
     uses_legacy_transition_path,
     video_source_time,
@@ -771,6 +772,7 @@ def _place_video_clip(
     centre: tuple[float, float] | None = None,
     still: bool = False,
     project_size: tuple[int, int] | None,
+    clock_offset: float = 0.0,
 ) -> VideoClip:
     """Scale, animate and position one picture layer inside the target frame.
 
@@ -788,6 +790,10 @@ def _place_video_clip(
     :param project_size: The project's frame, which the clip's ``x``/``y`` keyframes are authored
         in; ``None`` only when ``target`` is that frame or the clip has no such keyframes.
         Required so no caller at another size can forget it (frame grabs, review renders).
+    :param clock_offset: Added to the layer's time before its transform is read. Non-zero only
+        for a transition under-layer, which is the neighbour carried across the cut and so reads
+        its reframe on the neighbour's own clip clock (:func:`underlay_clock_offset`). Adding
+        ``0.0`` leaves every other layer's time exactly as it was.
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
@@ -806,19 +812,19 @@ def _place_video_clip(
     # The arithmetic lives in `frame_plan` so the plan the preview is tested against and the
     # export are one computation, not two that agree today.
     def scale_at(t: float) -> float:
-        return base_scale * layer_scale_at(clip, t, transition)
+        return base_scale * layer_scale_at(clip, t + clock_offset, transition)
 
     # A stretched layer (scaleX/scaleY) resizes to a per-axis pixel size; MoviePy truncates a
     # (w, h) exactly as it truncates ``scale * size``. An unstretched one keeps the uniform
     # factor, so its resize is the one it always was.
     def size_at(t: float) -> tuple[float, float]:
-        scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
+        scale_x, scale_y = layer_axis_scales_at(clip, t + clock_offset, base_scale, transition)
         return (clip_w * scale_x, clip_h * scale_y)
 
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
             clip,
-            t,
+            t + clock_offset,
             (clip_w, clip_h),
             base_scale,
             target,
@@ -829,7 +835,9 @@ def _place_video_clip(
 
     placed = _resized(source, size_at if has_stretch(clip) else scale_at, still)
     if ROTATION in animated_properties(clip):
-        placed = placed.rotated(lambda t: evaluate_clip_transform(clip, t).rotation, expand=False)
+        placed = placed.rotated(
+            lambda t: evaluate_clip_transform(clip, t + clock_offset).rotation, expand=False
+        )
     return placed.with_position(position_at)
 
 
@@ -873,6 +881,8 @@ def _underlay_layer(
     opened: list[Any],
     pixel_aspect_ratio: float = 1.0,
     decoder_threads: int | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Any:
     """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
 
@@ -888,6 +898,8 @@ def _underlay_layer(
     :param window: The sequence span to cover, from :func:`transition_underlay_window`.
     :param opened: The compiler's resource ledger; everything opened here is appended so a
         failed compile still closes it.
+    :param project_size: The project's frame, which the neighbour's ``x``/``y`` keyframes are
+        authored in (see :func:`_place_video_clip`).
     """
     start, _end = window
     reader = _open_source_reader(
@@ -911,12 +923,19 @@ def _underlay_layer(
 
     material = _apply_crop(material, neighbour)
     material = _apply_color_grade(material, neighbour, lut_base_dir)
-    # Placed with the NEIGHBOUR's framing, but without its transition (an under-layer is
-    # plain picture — it is the thing being revealed, never a second reveal) and without its
-    # keyframed motion, which is timed to the neighbour's own clip-local clock.
-    plain = neighbour.model_copy(update={"keyframes": []})
-    # No keyframes, so there is no x/y to convert: the project's size would change nothing.
-    placed = _place_video_clip(material, plain, target, None, project_size=None)
+    # Placed as the NEIGHBOUR places itself, but without its transition (an under-layer is
+    # plain picture: it is the thing being revealed, never a second reveal). Its keyframed
+    # reframe is read on its own clip clock, carried across the cut, so it holds its last
+    # keyframe past its out-point (AL40: dropping it letterboxed a reframed 16:9 shot under a
+    # portrait dissolve, and the ramp showed the bars through the incoming picture).
+    placed = _place_video_clip(
+        material,
+        neighbour,
+        target,
+        None,
+        project_size=project_size,
+        clock_offset=underlay_clock_offset(neighbour, window),
+    )
     return placed.with_start(start).with_duration(span)
 
 
@@ -2196,6 +2215,7 @@ def compile_timeline(
                                 opened,
                                 _pixel_aspect_ratio(project, resolved_neighbour),
                                 decoder_threads,
+                                project_size=project_size,
                             )
                             if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
                                 layer_mattes.add(track.id, clip.id, underlay)
