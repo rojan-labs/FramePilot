@@ -40,11 +40,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from framepilot_engine.effects.speed_curve import has_speed_ramp
-from framepilot_engine.render.frame_plan import PICTURE_KINDS, caption_tracks, clip_kind
+from framepilot_engine.render.frame_plan import caption_tracks, clip_kind
 from framepilot_engine.timeline.models import Clip, Project
+from framepilot_engine.timeline.synthetic_assets import DRAWN_CLIP_KINDS
 
 #: The clip kinds the compiler turns into picture layers (``compile_timeline``'s main loop).
-WINDOWED_KINDS = PICTURE_KINDS | frozenset({"text", "shape"})
+WINDOWED_KINDS = DRAWN_CLIP_KINDS
 
 #: Slack added on both sides of a clip's reach. The compiler refuses a constant-speed or
 #: reversed clip whose rendered segment differs from its timeline span by more than

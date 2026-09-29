@@ -55,6 +55,11 @@ import numpy.typing as npt
 
 from framepilot_engine.render.key_mask import luma_of
 from framepilot_engine.render.mask_raster import FloatArray
+from framepilot_engine.timeline.synthetic_assets import (
+    PICTURE_LANE_TYPES,
+    clip_render_kind,
+    is_drawn_clip_kind,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -219,8 +224,51 @@ class LayerMatteRefusal(ValueError):
     """A track matte the export cannot draw (a missing or looping source); says what to do."""
 
 
+#: What a track matte refused for reading no picture is told to read instead.
+_SOURCE_REMEDY = (
+    "Point the track matte at a clip or track on a "
+    + " or ".join(sorted(PICTURE_LANE_TYPES, key=lambda lane: lane != "video"))
+    + " track: a video, a still, a text overlay or a shape."
+)
+
+
+def _source_draws_no_picture(
+    source: Any,
+    clips: dict[str, Any],
+    track_of: dict[str, Any],
+    tracks: dict[str, Any],
+    asset_kinds: dict[str, str | None],
+) -> str | None:
+    """Why a track matte's source draws no picture, or ``None`` when it draws one (AL31a).
+
+    A picture is what the compile loop draws in a lane's place (``DRAWN_CLIP_KINDS``): a whole
+    track is a source when its lane type hosts drawn kinds (``video``, ``overlay``: titles and
+    shapes live there), and one clip is a source when it sits on such a lane AND is itself
+    drawn. A song or a caption cue parked on a picture lane still draws nothing there (a cue is
+    burned by its own pass over the frame, never registered as a matte layer). The validator
+    refuses the same (``mask-validation.ts``).
+    """
+    lane = (
+        track_of.get(str(source.clip_id))
+        if source.kind == "clip"
+        else tracks.get(str(source.track_id))
+    )
+    if lane is not None and str(lane.type.value) not in PICTURE_LANE_TYPES:
+        return "a track that holds no picture"
+    if source.kind != "clip":
+        return None
+    clip = clips.get(str(source.clip_id))
+    if clip is None:
+        return None
+    kind = clip_render_kind(str(clip.asset_id), asset_kinds.get(str(clip.asset_id)))
+    if is_drawn_clip_kind(kind):
+        return None
+    return f"clip {str(clip.id)!r}, which draws no picture of its own"
+
+
 def assert_layer_sources(project: Any) -> None:
-    """Refuse, before any frame renders, a track matte whose source is missing or loops.
+    """Refuse, before any frame renders, a track matte whose source is missing, draws no
+    picture, or loops.
 
     The validator refuses the same on mask edits; this also covers a loop created by moving a
     clip onto a track that another of its layer masks reads.
@@ -228,6 +276,7 @@ def assert_layer_sources(project: Any) -> None:
     clips: dict[str, Any] = {}
     track_of: dict[str, Any] = {}
     tracks: dict[str, Any] = {}
+    asset_kinds = {str(asset.id): asset.kind for asset in project.assets}
     for track in project.timeline.tracks:
         tracks[str(track.id)] = track
         for clip in track.clips:
@@ -262,15 +311,10 @@ def assert_layer_sources(project: Any) -> None:
                     f"Mask {mask.id!r} on clip {clip_id!r} reads a clip or track that does not "
                     "exist. Point the track matte at an existing clip or track."
                 )
-            source_track = (
-                track_of.get(str(source.clip_id))
-                if source.kind == "clip"
-                else tracks.get(str(source.track_id))
-            )
-            if source_track is not None and str(source_track.type.value) != "video":
+            no_picture = _source_draws_no_picture(source, clips, track_of, tracks, asset_kinds)
+            if no_picture is not None:
                 raise LayerMatteRefusal(
-                    f"Mask {mask.id!r} on clip {clip_id!r} reads a track that holds no picture. "
-                    "Point the track matte at a clip or track on a video track."
+                    f"Mask {mask.id!r} on clip {clip_id!r} reads {no_picture}. {_SOURCE_REMEDY}"
                 )
         stack = reads(clip)
         visited: set[str] = set()

@@ -40,7 +40,12 @@ import { TRANSITION_EXIT_BY_MASK } from '@framepilot/timeline-schema/transition-
 import { resolveCaptionCue } from './captions/cue.js';
 import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateSortedCurve } from './keyframes.js';
-import { clipRenderKind, syntheticClipKind, type ClipRenderKind } from './synthetic-assets.js';
+import {
+  clipRenderKind,
+  isDrawnClipKind,
+  syntheticClipKind,
+  type ClipRenderKind,
+} from './synthetic-assets.js';
 import { shapeBounds, shapeClipParams, type ShapeBounds } from './shape-geometry.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
 import {
@@ -1455,7 +1460,6 @@ interface TimelineIndex {
 }
 
 const NO_UNDERLAYS: readonly Underlay[] = [];
-const DRAWN_KINDS: ReadonlySet<ClipRenderKind> = new Set(['image', 'video', 'text', 'shape']);
 
 function indexTrack(track: Track, assetKinds: ReadonlyMap<string, string>): TrackIndex {
   if (track.hidden === true) return { track, placed: [], spans: NO_SPANS };
@@ -1471,7 +1475,7 @@ function indexTrack(track: Track, assetKinds: ReadonlyMap<string, string>): Trac
   });
   const spans = activitySpans(
     placed.map(({ clip, kind, underlays }) =>
-      DRAWN_KINDS.has(kind)
+      isDrawnClipKind(kind)
         ? [...underlays.map((underlay) => underlay.window), [clip.start, clip.end] as const]
         : [],
     ),

@@ -85,3 +85,21 @@ def lane_type_for_kind(kind: ClipRenderKind) -> LaneType:
     if kind in ("text", "shape"):
         return "overlay"
     return "video"
+
+
+#: The clip kinds drawn as a layer in their own lane's place: video, stills, text overlays and
+#: shapes. The frame plan and the compile loop draw exactly these on every lane, so a clip of
+#: one of them is a picture another clip can read as its track matte. Audio draws nothing; a
+#: caption cue is burned by its own pass over the whole frame, not composited in its lane.
+DRAWN_CLIP_KINDS: Final[frozenset[ClipRenderKind]] = frozenset({"video", "image", "text", "shape"})
+
+#: The advisory lane types that host drawn clips (``lane_type_for_kind`` of each drawn kind):
+#: ``video`` and ``overlay``. A track matte may read a whole track of one of these types.
+PICTURE_LANE_TYPES: Final[frozenset[LaneType]] = frozenset(
+    lane_type_for_kind(kind) for kind in DRAWN_CLIP_KINDS
+)
+
+
+def is_drawn_clip_kind(kind: str) -> bool:
+    """True when a clip of ``kind`` is drawn as a picture layer in its lane."""
+    return kind in DRAWN_CLIP_KINDS

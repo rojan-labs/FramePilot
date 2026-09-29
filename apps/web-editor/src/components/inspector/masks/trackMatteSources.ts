@@ -1,10 +1,12 @@
 /**
- * What a clip can use as its track matte (MK8.2): other clips on video tracks that play while it
- * does — a title (text as a mask), a graphic, another shot — and whole video tracks.
+ * What a clip can use as its track matte (MK8.2): other clips on picture lanes (video and overlay)
+ * that play while it does — a title (text as a mask), a shape, another shot — and those whole
+ * lanes. The validator and the export accept exactly these (AL31a).
  *
  * The choice is a picker value (`clip:<id>` / `track:<id>`) so one select can hold both kinds; the
  * command receives the typed source ({@link parseTrackMatteSource}).
  */
+import { PICTURE_LANE_TYPES, clipRenderKind, isDrawnClipKind } from '@framepilot/editor-core';
 import type { Clip, Timeline } from '@framepilot/timeline-schema';
 
 /** A `layer` mask's source, as the schema stores it. */
@@ -42,18 +44,21 @@ function clipName(clip: Clip): string {
 }
 
 /**
- * Sources `clip` can read: clips on OTHER video tracks overlapping it in time (a matte that never
- * plays while the clip does would draw nothing), then the other video tracks.
+ * Sources `clip` can read: drawn clips on OTHER picture lanes overlapping it in time (a matte that
+ * never plays while the clip does would draw nothing), then those other lanes. A caption cue is
+ * burned by its own pass, never drawn in its lane, so it is not offered even on a picture lane.
  */
 export function trackMatteOptions(timeline: Timeline, clip: Clip): TrackMatteOption[] {
   const clips: TrackMatteOption[] = [];
   const tracks: TrackMatteOption[] = [];
   for (const track of timeline.tracks) {
-    if (track.type !== 'video' || track.id === clip.trackId) continue;
+    if (!PICTURE_LANE_TYPES.has(track.type) || track.id === clip.trackId) continue;
     const trackName = `track ${track.id}`;
     for (const candidate of track.clips) {
       if (candidate.id === clip.id) continue;
       if (candidate.end <= clip.start || candidate.start >= clip.end) continue;
+      // No asset table here: a media id reads as picture, as the renderer draws it.
+      if (!isDrawnClipKind(clipRenderKind(candidate.assetId, undefined))) continue;
       clips.push({
         value: trackMatteValue({ kind: 'clip', clipId: candidate.id }),
         label: `${clipName(candidate)} (${trackName})`,

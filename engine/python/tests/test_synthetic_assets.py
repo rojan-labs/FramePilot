@@ -17,11 +17,13 @@ import pytest
 
 from framepilot_engine.timeline.synthetic_assets import (
     CAPTION_ASSET_ID,
+    PICTURE_LANE_TYPES,
     SHAPE_ASSET_ID,
     SYNTHETIC_ASSET_IDS,
     TEXT_OVERLAY_ASSET_ID,
     clip_render_kind,
     has_time_based_source,
+    is_drawn_clip_kind,
     is_synthetic_asset_id,
     lane_type_for_kind,
     synthetic_clip_kind,
@@ -47,6 +49,13 @@ def test_every_row_agrees_with_the_typescript_twin(row: dict[str, Any]) -> None:
     assert is_synthetic_asset_id(row["assetId"]) is row["synthetic"]
     assert has_time_based_source(_Clip(row["assetId"])) is row["hasTimeBasedSource"]
     assert lane_type_for_kind(kind) == row["laneType"]
+    assert is_drawn_clip_kind(kind) is row["drawn"]
+
+
+def test_picture_lanes_are_the_lanes_of_drawn_kinds() -> None:
+    # A track matte may read a whole lane of these types (AL31a: overlay lanes hold titles and
+    # shapes, so they are picture lanes; audio and caption lanes are not).
+    assert frozenset({"video", "overlay"}) == PICTURE_LANE_TYPES
 
 
 def test_names_what_each_synthetic_id_draws() -> None:

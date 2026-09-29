@@ -9,11 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CAPTION_ASSET_ID,
+  PICTURE_LANE_TYPES,
   SHAPE_ASSET_ID,
   SYNTHETIC_ASSET_IDS,
   TEXT_OVERLAY_ASSET_ID,
   clipRenderKind,
   hasTimeBasedSource,
+  isDrawnClipKind,
   isSyntheticAssetId,
   laneTypeForKind,
   syntheticClipKind,
@@ -25,6 +27,7 @@ interface ClipKindCase {
   readonly kind: string;
   readonly synthetic: boolean;
   readonly hasTimeBasedSource: boolean;
+  readonly drawn: boolean;
   readonly laneType: string;
 }
 
@@ -41,6 +44,13 @@ describe('synthetic assets and clip kind', () => {
     expect(isSyntheticAssetId(row.assetId)).toBe(row.synthetic);
     expect(hasTimeBasedSource({ assetId: row.assetId })).toBe(row.hasTimeBasedSource);
     expect(laneTypeForKind(kind)).toBe(row.laneType);
+    expect(isDrawnClipKind(kind)).toBe(row.drawn);
+  });
+
+  it('takes picture lanes from the lanes of drawn kinds', () => {
+    // A track matte may read a whole lane of these types (AL31a: overlay lanes hold titles and
+    // shapes, so they are picture lanes; audio and caption lanes are not).
+    expect([...PICTURE_LANE_TYPES].sort()).toEqual(['overlay', 'video']);
   });
 
   it('names what each synthetic id draws, and nothing for media', () => {
