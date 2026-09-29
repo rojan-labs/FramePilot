@@ -1434,9 +1434,10 @@ export class LayerCompositor {
 
   /**
    * A track matte's source: its layers composited alone, back to front, on a TRANSPARENT frame
-   * of the output size — `CompositeVideoClip(layers, size)` with no background, as the export
-   * builds it. Nested track mattes are followed (the validator refuses loops); past a depth no
-   * real edit reaches, the source draws nothing rather than recursing without end.
+   * of the output size — `composite_alone` in `layer_mattes.py`, as the export builds it: each
+   * layer through its own step at this instant, so an animated source's size follows it (AL31).
+   * Nested track mattes are followed (the validator refuses loops); past a depth no real edit
+   * reaches, the source draws nothing rather than recursing without end.
    */
   private matteSourceFrame(layers: readonly CompositeLayer[]): RenderTarget {
     const r = this.resources;

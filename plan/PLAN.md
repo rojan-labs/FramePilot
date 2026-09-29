@@ -279,6 +279,24 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `_fitted_source_span` now solve along the curve to its last point, holding only past it. Pinned
   with the run's clip and call in `operations.test.ts` and `test_operations.py` (both reproduced
   the exact numbers before the fix) plus a cross-runtime parity case.
+- [x] **AL31** A track matte whose source animates its size did not follow it in the export:
+  a window scaling 0.4 -> 1.0 kept its t=0 width (37 px) while its position followed the
+  growth, then left the middle row. Cause: `LayerMatteResolver.frame_at` read MoviePy's
+  `CompositeVideoClip.mask`, which gives a layer without a mask `clip.with_mask()`, a solid
+  mask of the layer's size at construction; MoviePy's time-varying `Resize` leaves
+  `has_constant_size` True, so the mask never resized. Only opaque sources (video, opaque
+  images) were hit; shapes and titles carry their own alpha, which is resized. The matte is
+  now the export's own `compose_layer_on` of the source's layers on a transparent frame
+  (`layer_mattes.composite_alone`), one picture and one alpha per layer at each instant.
+  Pinned in `test_layer_mattes.py` (scale and scaleX windows failed before; a growing-shape
+  guard). The monitor was already right: the frame plan gives `matteOnly` layers per-instant
+  geometry and `matteSourceFrame` rasterizes each through its own step.
+- [ ] **AL31a** Text overlays and shapes cannot be track-matte sources. They live on `overlay`
+  lanes (`add_shape`, titles), and both `mask-validation.ts` (`sourceTrack.type !== 'video'`)
+  and `layer_mattes.assert_layer_sources` refuse a source on a non-video track, although
+  `mask_with_layer` offers "a text overlay for video inside text". Allow `overlay` sources in
+  both runtimes (and check the frame plan's `matteOnly` marking and the monitor), with parity
+  tests.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

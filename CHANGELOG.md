@@ -70,6 +70,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A track matte now grows with its source in the export.** A video or photo used as a track
+  matte that grows (or stretches) now opens the clip through a growing window, as the monitor
+  already showed. Before, the exported window kept its first size while it moved, so a window
+  growing from the centre slid up and out of the picture partway through. Shapes and text
+  overlays used as mattes were not affected.
 - **A remembered answer no longer overrides what you ask for now.** If you once told the
   assistant "imitate it in the default face", a later request for text behind a subject or a
   masked opener was being refused on the strength of that old answer. A remembered decision

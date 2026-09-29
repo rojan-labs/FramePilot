@@ -28,6 +28,7 @@ from framepilot_engine.render.layer_mattes import (
 from framepilot_engine.render.presets import frame_target
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Project
+from framepilot_engine.timeline.synthetic_assets import SHAPE_ASSET_ID
 from tests.matte_fixtures import write_source
 
 WIDTH, HEIGHT, FPS = 96, 72, 30
@@ -278,6 +279,98 @@ def test_a_scaled_target_reads_the_matte_where_its_pixels_land(media: Path) -> N
         red = frame[row, x, 0]
         mixed = BLUE[0] + (RED[0] - BLUE[0]) * expected
         assert abs(red - mixed) <= 8, (x, red, mixed)
+
+
+def _growing(prop: str) -> list[dict[str, Any]]:
+    return [
+        {"id": "g0", "time": 0.0, "property": prop, "value": 0.4},
+        {"id": "g1", "time": SECONDS, "property": prop, "value": 1.0},
+    ]
+
+
+def _through_window(window: dict[str, Any]) -> Project:
+    """A red clip cut by ``window`` (alpha) over a blue base."""
+    return _project(
+        [
+            {"id": "matte", "type": "video", "clips": [window]},
+            {
+                "id": "v1",
+                "type": "video",
+                "clips": [
+                    _clip("fill", "red", "v1", masks=[_layer({"kind": "clip", "clipId": "window"})])
+                ],
+            },
+            {"id": "v2", "type": "video", "clips": [_clip("base", "blue", "v2")]},
+        ]
+    )
+
+
+def _red_columns(frame: np.ndarray) -> tuple[int, int] | None:
+    reds = [x for x in range(WIDTH) if _is(frame[HEIGHT // 2, x], RED)]
+    return (reds[0], reds[-1]) if reds else None
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_an_animated_matte_source_opens_the_clip_through_a_growing_window(media: Path) -> None:
+    # The matte is the source as drawn at each instant, so the source's own keyframes move it:
+    # a window that scales 0.4 -> 1.0 reveals the clip from a centre rectangle to the full frame
+    # (the "shape-mask opener" the agent is told it can build from add_shape + mask_with_layer).
+    # AL31: an opaque source's matte kept its first frame's size and slid off the middle row.
+    project = _through_window(_clip("window", "blue", "matte", keyframes=_growing("scale")))
+    spans = [_red_columns(_render(project, media, t=t)) for t in (0.0, 0.1, 0.2, 0.3)]
+    widths = [0 if span is None else span[1] - span[0] for span in spans]
+    assert widths == sorted(widths) and widths[0] < widths[-1], spans
+    early = _render(project, media, t=0.0)
+    late = _render(project, media, t=SECONDS - 1 / FPS)
+    row, edge, centre = HEIGHT // 2, 6, WIDTH // 2
+    assert _is(early[row, centre], RED) and _is(early[row, edge], BLUE)
+    assert _is(late[row, centre], RED) and _is(late[row, edge], RED)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_matte_source_stretching_wider_opens_the_clip_sideways(media: Path) -> None:
+    # A stretch (scaleX) resizes the source per frame the same way a scale does.
+    project = _through_window(_clip("window", "blue", "matte", keyframes=_growing("scaleX")))
+    early = _render(project, media, t=0.0)
+    late = _render(project, media, t=SECONDS - 1 / FPS)
+    row, edge, centre = HEIGHT // 2, 6, WIDTH // 2
+    assert _is(early[row, centre], RED) and _is(early[row, edge], BLUE)
+    assert _is(early[2, centre], RED), "a horizontal stretch keeps the full height"
+    assert _is(late[row, edge], RED) and _is(late[row, WIDTH - 1 - edge], RED)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_growing_shape_matte_opens_the_clip_with_it(media: Path) -> None:
+    # The advertised case: a shape (drawn with its own alpha) growing on the matte track.
+    shape = {
+        **_clip("window", SHAPE_ASSET_ID, "matte", keyframes=_growing("scale")),
+        "effects": [
+            {
+                "id": "window__shape",
+                "type": "shape",
+                "params": {
+                    "shape": "rounded-rect",
+                    "x": 50,
+                    "y": 50,
+                    "width": 60,
+                    "height": 40,
+                    "fill": "#FFFFFF",
+                    "stroke": None,
+                    "strokeWidth": 1,
+                    "strokeStyle": "solid",
+                    "cornerRadius": 0,
+                },
+                "keyframes": [],
+            }
+        ],
+    }
+    project = _through_window(shape)
+    early = _render(project, media, t=0.0)
+    late = _render(project, media, t=SECONDS - 1 / FPS)
+    # At full size the box spans columns 27-68 of the middle row; at 0.4 it is a centre sliver.
+    row, centre, inside = HEIGHT // 2, WIDTH // 2, 30
+    assert _is(early[row, centre], RED) and _is(early[row, inside], BLUE)
+    assert _is(late[row, inside], RED) and _is(late[row, 6], BLUE)
 
 
 def test_a_track_matte_that_loops_back_is_refused_before_rendering(media: Path) -> None:
