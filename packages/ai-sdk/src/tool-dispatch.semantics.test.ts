@@ -87,6 +87,17 @@ describe('a refusal is not a bad argument', () => {
    * arguments — it nudges `start`, tries another `trackId` — instead of taking
    * the alternative the refusal sentence names.
    */
+  const clipOf = (id: string, assetId: string, trackId: string, start: number, end: number) => ({
+    id,
+    assetId,
+    trackId,
+    start,
+    end,
+    sourceStart: 0,
+    sourceEnd: end - start,
+    effects: [],
+    keyframes: [],
+  });
   const project = parseProject({
     id: 'proj_refusal',
     name: 'Refusal',
@@ -96,56 +107,27 @@ describe('a refusal is not a bad argument', () => {
     assets: [
       { id: 'asset_v', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
       { id: 'asset_b', path: 'media/b.mp4', kind: 'video', durationSeconds: 60 },
+      { id: 'asset_c', path: 'media/c.mp4', kind: 'video', durationSeconds: 60 },
     ],
     timeline: {
       tracks: [
-        {
-          id: 'video_1',
-          type: 'video',
-          clips: [
-            {
-              id: 'clip_a',
-              assetId: 'asset_v',
-              trackId: 'video_1',
-              start: 0,
-              end: 10,
-              sourceStart: 0,
-              sourceEnd: 10,
-              effects: [],
-              keyframes: [],
-            },
-          ],
-        },
-        {
-          id: 'video_2',
-          type: 'video',
-          clips: [
-            {
-              id: 'clip_b',
-              assetId: 'asset_b',
-              trackId: 'video_2',
-              start: 20,
-              end: 24,
-              sourceStart: 0,
-              sourceEnd: 4,
-              effects: [],
-              // A punch-in: the one thing that makes a stacked layer un-showable.
-              keyframes: [{ id: 'k1', time: 0, property: 'scale', value: 0.5, easing: 'linear' }],
-            },
-          ],
-        },
+        // A cutaway 2–6s in front of the A-roll.
+        { id: 'video_top', type: 'video', clips: [clipOf('clip_b', 'asset_b', 'video_top', 2, 6)] },
+        { id: 'video_1', type: 'video', clips: [clipOf('clip_a', 'asset_v', 'video_1', 0, 10)] },
+        { id: 'video_2', type: 'video', clips: [] },
       ],
       markers: [],
     },
   });
 
-  // A bare `add_clip` over picture is no longer refused — ADR 0169 lifts it to a front
-  // layer. What is still refused is a layer the preview cannot show: here a scaled clip
-  // moved over `clip_a`.
+  // A placement over picture is no longer refused for what the monitor can show (ADR 0180
+  // amendment, 2026-09-29). What is still refused is a full-frame one that swallows a cutaway
+  // whole: here 0–8s over `clip_b`.
   const stack = () =>
-    operationsForCall(call('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 2 }), {
-      project,
-    });
+    operationsForCall(
+      call('add_clip', { trackId: 'video_2', assetId: 'asset_c', start: 0, end: 8 }),
+      { project },
+    );
 
   it('is classified `refusal`, never `invalid_args`', () => {
     let error: unknown;

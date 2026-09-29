@@ -2380,7 +2380,7 @@ export function arrangementLine(project: Project): string {
       // Same words `get_timeline_summary`'s `hiddenBehindPicture` flag stands for, so the
       // constraint the run reads here and the answer it gets from the tool are one rule.
       const noRoom = blocked.has(track.id)
-        ? ` — hidden behind picture 0–${round2(end)}s (a full-frame clip added here lands on a new front layer)`
+        ? ` — hidden behind picture 0–${round2(end)}s (a clip added here lands on a new front layer)`
         : '';
       // The mix role is part of the arrangement: it is what `professional_audio` ducks
       // by, and a run that cannot see it re-labels the same track every turn.
@@ -3270,7 +3270,7 @@ export function summarizeReadResult(
             // a run that read one plans against a constraint the other never mentioned.
           }${
             t.hiddenBehindPicture === true
-              ? ` — hidden behind picture 0–${duration} (a full-frame clip added here lands on a new front layer)`
+              ? ` — hidden behind picture 0–${duration} (a clip added here lands on a new front layer)`
               : ''
           }`,
         'tracks',

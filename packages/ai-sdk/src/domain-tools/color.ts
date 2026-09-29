@@ -12,7 +12,12 @@
 import { z } from 'zod/v4';
 import type { Effect } from '@framepilot/timeline-schema';
 import type { ToolSpec } from '../tool-registry.js';
-import { COLOR_GRADE_PARAMETER_CONTRACTS } from '@framepilot/editor-core';
+import {
+  CLIP_BLUR_EFFECT_TYPE,
+  COLOR_GRADE_PARAMETER_CONTRACTS,
+  MAX_CLIP_BLUR_AMOUNT,
+  clipBlurEffectId,
+} from '@framepilot/editor-core';
 import { analysisTool, mutateTool } from './tool-factories.js';
 import { id } from './tool-args.js';
 
@@ -46,11 +51,14 @@ export const COLOR_TOOLS: readonly ToolSpec[] = [
         'Grade ONE clip with NUMBERS YOU SUPPLY. Reach for this only when the editor names ' +
         'a value; otherwise match_color, normalize_exposure and apply_look solve the ' +
         'numbers from what the shots measure and are right more often. ' +
-        'Two kinds: `color_grade` (the default) takes signed offsets ' +
+        'Three kinds: `color_grade` (the default) takes signed offsets ' +
         `where 0 changes nothing — ${GRADE_PARAMS}. A value outside its range, or a name ` +
         'not on that list, is refused rather than silently ignored, and every parameter ' +
         'you omit stays at 0, so a correction can name only the axis it fixes. ' +
-        '`lut` instead takes params.path — a .cube file inside the project. There is no ' +
+        '`lut` instead takes params.path — a .cube file inside the project. `blur` softens ' +
+        `the whole clip: params.amount 0..${String(MAX_CLIP_BLUR_AMOUNT)}, the radius as a ` +
+        "fraction of the picture's smaller side (0.05–0.08 for a blurred-fill background; " +
+        'the same call again replaces it, amount 0 turns it off). There is no ' +
         'grade for position, scale or rotation: those are keyframes (add_keyframes, ' +
         'punch_in). Grading is per clip, so a whole-sequence look is one call per clip.',
     },
@@ -64,14 +72,18 @@ export const COLOR_TOOLS: readonly ToolSpec[] = [
         // sentence that helps — position, scale and rotation are keyframes, not a grade.
         // Narrowing here instead would hand back Zod's generic "invalid_value" and throw
         // that explanation away.
-        type: z.enum(['color_grade', 'lut', 'transform']).optional(),
+        type: z.enum(['color_grade', 'lut', 'blur', 'transform']).optional(),
         params: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     (a) => {
+      const type = a.type ?? 'color_grade';
       const effect: Effect = {
-        id: id('grade', a.clipId),
-        type: a.type ?? 'color_grade',
+        // A blur takes the id the Inspector's Blur control writes (`clip-blur.ts`), so the two
+        // edit one effect and a second call replaces the first rather than stacking a blur on
+        // a grade's id — which would have REPLACED the grade.
+        id: type === CLIP_BLUR_EFFECT_TYPE ? clipBlurEffectId(a.clipId) : id('grade', a.clipId),
+        type,
         params: a.params ?? {},
         keyframes: [],
       };

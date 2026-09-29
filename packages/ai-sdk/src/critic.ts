@@ -40,7 +40,7 @@ import { verifyCaptions } from './verify.js';
 import type { TargetPlatform } from './context-builder.js';
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 import type { TemporalReviewReport } from './temporal-review.js';
-import { hiddenPictureClips } from './domain-tools/picture-layers.js';
+import { backedByFullFramePicture, hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
 import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
@@ -970,7 +970,12 @@ function coversFrameByZoom(project: Project, clip: Clip): boolean {
 }
 
 function checkReframeCoverage(project: Project): CriticCheck {
-  const picture = pictureClips(project);
+  // A clip with frame-filling picture behind it cannot show black bars — its bars show that
+  // picture. A blurred-fill foreground is the whole 16:9 shot fitted uncropped over a
+  // cover-cropped copy of itself, and counting it here failed the recipe that answers "fill
+  // the vertical frame without upscaling" as "renders with black bars". Coverage is a
+  // relation (ADR 0170): the clip behind is still judged, on its own.
+  const picture = pictureClips(project).filter((clip) => !backedByFullFramePicture(project, clip));
   if (picture.length === 0) {
     return check('reframe_coverage', 'Reframing is consistent', 'skipped', 'No picture clips.');
   }

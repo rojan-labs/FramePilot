@@ -521,6 +521,41 @@ interface Placement {
 }
 
 /**
+ * The crop a placement will show its source through, when that is known before the picture
+ * placer runs: the caller named it (`add_clip`'s `crop`, `null` for the whole picture), or the
+ * portrait auto-reframe computed it. `undefined` when only the placer can tell.
+ */
+type KnownGeometry = { readonly crop: CropRect | undefined } | undefined;
+
+/** Crop fractions are rounded to six places where they are derived; compare them the same way. */
+const CROP_EPSILON = 1e-6;
+
+/** Whether two crops show the same part of a source. No crop is the whole source. */
+function sameCrop(a: CropRect | undefined, b: CropRect | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return (
+    Math.abs(a.x - b.x) <= CROP_EPSILON &&
+    Math.abs(a.y - b.y) <= CROP_EPSILON &&
+    Math.abs(a.width - b.width) <= CROP_EPSILON &&
+    Math.abs(a.height - b.height) <= CROP_EPSILON
+  );
+}
+
+/**
+ * Whether a copy of the same frames is a DIFFERENT picture because it shows them through a
+ * different crop.
+ *
+ * A blurred-fill background and its foreground are one shot at one moment, twice: the back
+ * copy cover-cropped to fill the frame, the front one whole and fitted over it. Refusing the
+ * second copy as "invisible behind the first" refused the recipe. Only a crop known before the
+ * placer runs can say so; without one the placer may still add the same cover crop, and the
+ * copy would be the invisible duplicate the refusal exists for.
+ */
+function differentGeometry(geometry: KnownGeometry, existing: CropRect | undefined): boolean {
+  return geometry !== undefined && !sameCrop(geometry.crop, existing);
+}
+
+/**
  * The stretch of sequence time two placements of one asset show the identical frames over.
  *
  * The test is the OFFSET, not the span: `sourceStart - start` is where the file is pinned
@@ -571,12 +606,17 @@ interface SameFramesPlacement {
  * of the file at that instant: a strange edit, but a real one, and not this function's to
  * refuse. See {@link addClipOperation}.
  */
-function existingPlacement(project: Project, clip: Placement): SameFramesPlacement | undefined {
+function existingPlacement(
+  project: Project,
+  clip: Placement,
+  geometry: KnownGeometry,
+): SameFramesPlacement | undefined {
   const frame = frameSlack(project);
   for (const track of project.timeline.tracks) {
     for (const existing of track.clips) {
       const shared = sameFrames(frame, existing, clip);
       if (!shared) continue;
+      if (differentGeometry(geometry, existing.crop)) continue;
       return { trackId: track.id, clipId: existing.id, ...shared };
     }
   }
@@ -597,15 +637,23 @@ function existingPlacement(project: Project, clip: Placement): SameFramesPlaceme
  */
 function bookedPlacement(
   project: Project,
-  booked: readonly Placement[],
+  booked: readonly BookedPlacement[],
   clip: Placement,
+  geometry: KnownGeometry,
 ): { readonly overlapStart: number; readonly overlapEnd: number } | undefined {
   const frame = frameSlack(project);
   for (const earlier of booked) {
     const shared = sameFrames(frame, earlier, clip);
-    if (shared) return shared;
+    if (!shared) continue;
+    if (differentGeometry(geometry, earlier.crop)) continue;
+    return shared;
   }
   return undefined;
+}
+
+/** A placement this call already handed out, with the crop it was placed through. */
+interface BookedPlacement extends Placement {
+  readonly crop: CropRect | undefined;
 }
 
 /**
@@ -652,6 +700,12 @@ function addClipOperation(
     readonly start: number;
     readonly end: number;
     readonly sourceStart: number;
+    /**
+     * The geometry the caller chose: a rect of the source, or `null` for the whole picture
+     * fitted inside the frame. Absent means the default — fill the frame (the portrait
+     * auto-reframe, or the placer's cover crop over picture).
+     */
+    readonly crop?: CropRect | null | undefined;
   },
   ctx: ToolContext,
   lanes: LaneAllocator,
@@ -662,7 +716,7 @@ function addClipOperation(
    * which applies the same pin-and-overlap rule to them that {@link existingPlacement}
    * applies to the clips that were on the timeline before the call.
    */
-  booked: Placement[],
+  booked: BookedPlacement[],
 ): Operation[] {
   // Resolve the lane rather than trusting the one that was named — by two
   // different rules, because picture and everything else fail differently.
@@ -673,12 +727,11 @@ function addClipOperation(
   // express, so those are relocated to a lane with room.
   //
   // Picture is answered by `picture-layers.ts` (ADR 0169) because "a lane with
-  // room" is not enough for it: the preview paints ONE picture layer, so the
-  // clip has to end up in FRONT of everything it covers or the user approves a
-  // frame the export does not produce. That placer keeps the named lane when the
-  // lane can be seen, moves to an existing front lane when there is one, and
-  // otherwise opens a front lane in the same patch. A placement that could not
-  // preview honestly at all — scaled, cropped, faded, blended — it refuses.
+  // room" is not enough for it: the clip has to end up in FRONT of everything it
+  // covers or it is composited behind it and never seen. That placer keeps the named
+  // lane when the lane can be seen, moves to an existing front lane when there is
+  // one, and otherwise opens a front lane in the same patch — for a full-frame
+  // cutaway and a picture-in-picture alike (ADR 0180 amendment, 2026-09-29).
   //
   // Both are allocators rather than lookups because `add_clips` plans every entry
   // against the same pre-call timeline: without booking each span as it is handed
@@ -712,9 +765,17 @@ function addClipOperation(
       artFraction: elementArtFraction(elementAsset),
     }).operations as Operation[];
   }
-  const alreadyThere = existingPlacement(ctx.project, clip);
+  const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
+  const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
+  // The caller's crop wins; otherwise the portrait auto-reframe (see `autoReframeCrop`).
+  const chosen = clip.crop;
+  const reframe = chosen === undefined ? autoReframeCrop(ctx, clip) : undefined;
+  const planned: CropRect | undefined = chosen === undefined ? reframe : (chosen ?? undefined);
+  const geometry: KnownGeometry =
+    chosen !== undefined || reframe !== undefined ? { crop: planned } : undefined;
+  const alreadyThere = existingPlacement(ctx.project, clip, geometry);
   if (alreadyThere) throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
-  const alreadyBooked = bookedPlacement(ctx.project, booked, clip);
+  const alreadyBooked = bookedPlacement(ctx.project, booked, clip, geometry);
   if (alreadyBooked) {
     // Named by the SHARED frames, not by this entry's own span: what the model has to
     // change is the overlap, and on the 0–9.9s / 0–28.3s pair of run `137d8fd0` the
@@ -727,22 +788,20 @@ function addClipOperation(
       ),
     );
   }
-  const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
-  const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
-  const reframe = autoReframeCrop(ctx, clip);
   const placed: { trackId: string; setupOps: readonly Operation[]; crop?: CropRect } = isPicture
     ? picture.place({
         trackId: clip.trackId,
         assetId: clip.assetId,
         start: clip.start,
         end: clip.end,
-        compositing: reframe ? { crop: reframe } : {},
+        compositing: planned ? { crop: planned } : {},
+        ...(chosen !== undefined ? { keepGeometry: true } : {}),
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
   // The placer's own cover crop wins when it applied one: it is the crop the lane was
   // chosen on (`PicturePlacement.crop`), and the placer only applies it to an uncropped
-  // candidate, so the two never both exist.
-  const crop = placed.crop ?? reframe;
+  // candidate whose caller chose no geometry, so the two never both exist.
+  const crop = placed.crop ?? planned;
   const clipId = crop ? placementClipId({ ...clip, trackId: placed.trackId }) : undefined;
   const add: Operation = {
     type: 'add_clip',
@@ -754,7 +813,7 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
-  booked.push(clip);
+  booked.push({ ...clip, crop });
   const ops = [...placed.setupOps, add];
   if (!crop || !clipId) return ops;
   return [...ops, { type: 'set_clip_crop', clipId, crop }];
@@ -1373,9 +1432,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
     (a, ctx) => {
       // Moving picture over picture is the same question `add_clip` answers, so it
-      // goes through the same placer: a full-frame clip lands in front of what it
-      // covers (on a layer opened here when there is none), and one that could not
-      // preview honestly is refused in the same words. Unlike a fresh placement
+      // goes through the same placer: the clip lands in front of what it covers (on a
+      // layer opened here when there is none), and a full-frame one that would swallow a
+      // cutaway whole is refused in the same words. Unlike a fresh placement
       // this clip ALREADY carries compositing — a crop, a punch-in, a blend mode —
       // so the real fields are handed over rather than assumed empty. An unknown
       // clip is left to the validator, which names the ids that do exist.
@@ -1496,16 +1555,19 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'track whose range is free — clips on one track can never overlap. Placing ' +
         'video or an image over footage that is already there is fine: the shot is put ' +
         'on a layer in FRONT of what it covers, opening one if needed, and the result ' +
-        'is in the patch you get back. It covers the frame completely, so use it for a ' +
-        'cutaway or a montage, not for a picture-in-picture or a see-through overlay — ' +
-        'a scaled, cropped, faded or blended clip over other picture is refused, ' +
-        'because the preview can only show one picture layer at a time. ' +
-        'In a PORTRAIT project, a source the engine has measured as landscape gets a ' +
-        'centred fill crop on the way in (a set_clip_crop you will see in the result), ' +
-        'because the renderer fits rather than fills and it would otherwise export with ' +
-        'black bars — call set_clip_crop on that clip to re-centre it on the subject, or ' +
-        'with crop: null to keep the whole frame. An UNMEASURED source gets nothing: ' +
-        'check list_assets for `shape: "unmeasured"` and crop it yourself.',
+        'is in the patch you get back. By default it fills the frame (a cutaway). A ' +
+        'layered look is the same placement with its own geometry, and the preview ' +
+        'composites every layer as the export does: pass `crop` (source fractions ' +
+        '{x, y, width, height}, or null for the whole picture fitted inside the frame, ' +
+        'its bars transparent so the layer behind shows), then scale or move it with ' +
+        'add_keyframes (x/y in project pixels from the frame centre), fade, blend or mask ' +
+        'it — picture-in-picture, a split-screen panel, a blurred-fill foreground. ' +
+        'Without `crop`, a PORTRAIT project gives a source the engine has measured as ' +
+        'landscape a centred fill crop on the way in (a set_clip_crop you will see in the ' +
+        'result), because the renderer fits rather than fills and it would otherwise ' +
+        'export with black bars — call set_clip_crop on that clip to re-centre it on the ' +
+        'subject. An UNMEASURED source gets nothing: check list_assets for ' +
+        '`shape: "unmeasured"` and crop it yourself.',
     },
     z
       .object({
@@ -1519,6 +1581,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         // this optional field accepts older MCP/provider calls without letting a model
         // create an internally inconsistent clip.
         sourceEnd: seconds.optional(),
+        /** The part of the source to show; null = the whole picture, fitted. See addClipOperation. */
+        crop: CropRectSchema.nullable().optional(),
       })
       .strict(),
     (a, ctx) =>
@@ -1572,7 +1636,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
       const picture = createPicturePlacer(ctx.project);
-      const booked: Placement[] = [];
+      const booked: BookedPlacement[] = [];
       return a.clips.flatMap((clip) =>
         addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture, booked),
       );

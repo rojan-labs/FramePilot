@@ -764,6 +764,35 @@ def test_add_clip(ctx: ToolContext, project: Project) -> None:
     assert result.operations[0]["sourceEnd"] == pytest.approx(0.46)
 
 
+def test_add_clip_with_a_crop_places_a_window(ctx: ToolContext, project: Project) -> None:
+    """A split-screen panel: the rect rides the same patch, addressed to the named clip."""
+    panel = {"x": 0.25, "y": 0.0, "width": 0.5, "height": 1.0}
+    result = run_tool(
+        "add_clip",
+        {"trackId": "v", "assetId": "asset_001", "start": 10.0, "end": 10.46, "crop": panel},
+        ctx,
+    )
+    _assert_patch_ok(result, project)
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_clip", "set_clip_crop"]
+    assert result.operations[0]["clipId"] == "clip__v_asset_001_10000"
+    assert result.operations[1] == {
+        "type": "set_clip_crop",
+        "clipId": "clip__v_asset_001_10000",
+        "crop": panel,
+    }
+
+
+def test_add_clip_with_crop_null_is_the_whole_picture(ctx: ToolContext) -> None:
+    result = run_tool(
+        "add_clip",
+        {"trackId": "v", "assetId": "asset_001", "start": 10.0, "end": 10.46, "crop": None},
+        ctx,
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_clip"]
+
+
 def test_add_clips_places_a_sequence_in_one_patch(ctx: ToolContext, project: Project) -> None:
     """GAP-004: laying out a sequence should cost one call, not one per shot.
 
@@ -1319,6 +1348,32 @@ def test_apply_color_grade_lut_requires_a_path(ctx: ToolContext) -> None:
         run_tool(
             "apply_color_grade", {"clipId": "A", "type": "lut", "params": {"name": "teal"}}, ctx
         )
+
+
+def test_apply_color_grade_blur_is_the_whole_clip_blur(ctx: ToolContext, project: Project) -> None:
+    """The blurred-fill background: the Inspector's blur id, so a second call replaces it."""
+    result = run_tool(
+        "apply_color_grade", {"clipId": "A", "type": "blur", "params": {"amount": 0.06}}, ctx
+    )
+    assert result.operations is not None
+    assert result.operations[0]["effect"] == {
+        "id": "A__blur",
+        "type": "blur",
+        "params": {"amount": 0.06},
+        "keyframes": [],
+    }
+    _assert_patch_ok(result, project)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{}, {"amount": 0.5}, {"amount": -0.1}, {"amount": 0.05, "radius": 3}, {"amount": True}],
+)
+def test_apply_color_grade_blur_refuses_what_the_renderer_would_clamp(
+    ctx: ToolContext, params: dict[str, object]
+) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool("apply_color_grade", {"clipId": "A", "type": "blur", "params": params}, ctx)
 
 
 def test_apply_color_grade_rejects_unsupported_type(ctx: ToolContext) -> None:

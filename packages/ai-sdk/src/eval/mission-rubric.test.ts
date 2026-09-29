@@ -14,7 +14,7 @@ import {
   checkContentPreserved,
   checkCutawayInWindow,
   checkDurationKept,
-  checkStackedPictureIsPreviewable,
+  checkStackedPictureIsVisible,
   checkFirstClipEndsAt,
   checkLastClipMovedFirst,
   checkNoCollateralChanges,
@@ -710,41 +710,45 @@ describe('b-roll over an empty overlay track', () => {
   /** The other right answer since ADR 0169: a full-frame cutaway taking the front layer. */
   const stackedOpaque = () => stacked();
   /** The same stack, but cropped to half the source width — a 16:9 source cut to 8:9 is
-      fitted to 960x1080 in the 1920x1080 frame, so the narration's left and right edges
-      leak past it at export while the monitor shows only the cutaway. */
+      fitted to 960x1080 in the 1920x1080 frame, so the narration shows either side of it —
+      in the export and, since ADR 0180, in the monitor alike. */
   const stackedCropped = () =>
     overlay(
       [clip('talk', 0, 100)],
       [{ ...b('bro', 5, 12, 'b_roll'), crop: { x: 0, y: 0, width: 0.5, height: 1 } } as Clip],
     );
 
-  it('checkStackedPictureIsPreviewable passes a stack the monitor can actually show', () => {
-    // Both routes score: the split-and-cut-in, and the full-frame front layer.
-    expect(checkStackedPictureIsPreviewable(cutIn()).ok).toBe(true);
-    const layered = checkStackedPictureIsPreviewable(stackedOpaque());
-    expect(layered.ok).toBe(true);
-    expect(layered.detail).toContain('full-frame');
+  /** The b-roll dropped on a lane BEHIND the narration, which covers it end to end. */
+  const buriedBehind = () =>
+    ({
+      ...overlay([clip('talk', 0, 100)]),
+      timeline: {
+        ...overlay([clip('talk', 0, 100)]).timeline,
+        tracks: [
+          { id: 'video_1', type: 'video', clips: [clip('talk', 0, 100)] },
+          { id: 'b_roll', type: 'video', clips: [b('bro', 5, 12, 'b_roll')] },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    }) as Project;
+
+  it('checkStackedPictureIsVisible passes every stack the viewer can see', () => {
+    // The split-and-cut-in, the full-frame front layer, and — since ADR 0180's 2026-09-29
+    // amendment — a cropped window over the narration, which the monitor composites exactly
+    // as the export does. Every one of them shows the b-roll.
+    expect(checkStackedPictureIsVisible(cutIn()).ok).toBe(true);
+    expect(checkStackedPictureIsVisible(stackedOpaque()).ok).toBe(true);
+    const windowed = checkStackedPictureIsVisible(stackedCropped());
+    expect(windowed.ok).toBe(true);
+    expect(windowed.detail).toBe('every picture clip is seen');
   });
 
-  it('passes a LETTERBOXED stack whose bars coincide — both clips are the same shape', () => {
-    // Two portrait sources in a landscape frame: both are fitted to 607.5x1080 and pillar-
-    // boxed identically, so the export blends transparent over transparent and paints black
-    // exactly where the monitor does. Refusing this buys nothing, and "does the front clip
-    // fill the frame?" refused it.
-    const portrait = overlay(
-      [{ ...clip('talk', 0, 100), assetId: 'asset_broll_portrait' } as Clip],
-      [{ ...b('bro', 5, 12, 'b_roll'), assetId: 'asset_broll_portrait' } as Clip],
-    );
-    expect(checkStackedPictureIsPreviewable(portrait).ok).toBe(true);
-  });
-
-  it('checkStackedPictureIsPreviewable fails the stack that previews differently', () => {
-    const bad = checkStackedPictureIsPreviewable(stackedCropped());
+  it('checkStackedPictureIsVisible fails b-roll buried behind the narration', () => {
+    const bad = checkStackedPictureIsVisible(buriedBehind());
     expect(bad.ok).toBe(false);
     expect(bad.detail).toContain('bro on b_roll');
-    expect(bad.detail).toContain('leaks');
     // The per-track check is blind to it — which is exactly why this one exists.
-    expect(checkNoOverlaps(stackedCropped()).ok).toBe(true);
+    expect(checkNoOverlaps(buriedBehind()).ok).toBe(true);
   });
 
   it('scores the cut-in 1 and every wrong answer below it', () => {
@@ -759,9 +763,13 @@ describe('b-roll over an empty overlay track', () => {
     // choosing the other correct route.
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(cutIn())).score).toBe(1);
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedOpaque())).score).toBe(1);
-    // A stack the monitor cannot show is still wrong — that is what 0169 kept refusing.
+    // A windowed stack is a third right answer now that the monitor composites it (ADR 0180);
+    // b-roll nobody can see is still wrong.
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedCropped())).score).toBe(
+      1,
+    );
     expect(
-      scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedCropped())).score,
+      scoreMissionScenario('broll-cutaway-empty-overlay', ctx(buriedBehind())).score,
     ).toBeLessThan(1);
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(before())).score).toBeLessThan(1);
     // A cutaway that lengthened the programme instead of covering part of it.

@@ -109,6 +109,44 @@
               "string"
             ]
           },
+          "crop": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              }
+            }
+          },
           "end": {
             "type": [
               "number"
@@ -1351,6 +1389,7 @@
               "string"
             ],
             "enum": [
+              "blur",
               "color_grade",
               "lut",
               "transform"

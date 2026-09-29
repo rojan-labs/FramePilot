@@ -998,7 +998,7 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
       const line = arrangementLine(stacked(5));
       expect(line).toContain(
         'b_roll [video] empty — hidden behind picture 0–10s ' +
-          '(a full-frame clip added here lands on a new front layer)',
+          '(a clip added here lands on a new front layer)',
       );
       // The track doing the covering is in FRONT of it, so it says nothing extra.
       expect(line).toContain('v_main [video] 2 clips 0–10s;');

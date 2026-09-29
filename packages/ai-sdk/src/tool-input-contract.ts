@@ -1,8 +1,10 @@
 import {
   AUDIO_PARAMETER_CONTRACTS,
+  CLIP_BLUR_EFFECT_TYPE,
   CLIP_STRETCH_PROPERTIES,
   CLIP_TRANSFORM_PROPERTIES,
   COLOR_GRADE_PARAMETER_CONTRACTS,
+  MAX_CLIP_BLUR_AMOUNT,
   transitionEligibility,
 } from '@framepilot/editor-core';
 import { findEffect } from '@framepilot/timeline-schema/effect-catalog';
@@ -128,14 +130,18 @@ function assertKeyframes(value: Record<string, unknown>): void {
 
 function assertColorGrade(value: Record<string, unknown>): void {
   const type = typeof value.type === 'string' ? value.type : 'color_grade';
-  if (type !== 'color_grade' && type !== 'lut') {
+  if (type !== 'color_grade' && type !== 'lut' && type !== CLIP_BLUR_EFFECT_TYPE) {
     throw new ToolInputContractError(
       'apply_color_grade',
-      `Unsupported color effect type "${type}". Use color_grade or lut. Position, scale ` +
-        'and rotation are not grades — they come from keyframes (add_keyframes, punch_in).',
+      `Unsupported color effect type "${type}". Use color_grade, lut or blur. Position, ` +
+        'scale and rotation are not grades — they come from keyframes (add_keyframes, punch_in).',
     );
   }
   const params = record(value.params) ?? {};
+  if (type === CLIP_BLUR_EFFECT_TYPE) {
+    assertClipBlur(params);
+    return;
+  }
   if (type === 'lut') {
     const path = params.path;
     if (typeof path !== 'string' || path.trim() === '') {
@@ -160,6 +166,35 @@ function assertColorGrade(value: Record<string, unknown>): void {
         `${name} must be within ${String(contract.min)}..${String(contract.max)}.`,
       );
     }
+  }
+}
+
+/**
+ * A whole-clip blur takes exactly one parameter, `amount`, inside the range both renderers
+ * clamp to (`editor-core/clip-blur.ts`, `render/clip_blur.py`). Refused rather than clamped:
+ * a model that sent 0.5 meant something the renderer would silently halve.
+ */
+function assertClipBlur(params: Record<string, unknown>): void {
+  for (const name of Object.keys(params)) {
+    if (name !== 'amount') {
+      throw new ToolInputContractError(
+        'apply_color_grade',
+        `Unknown blur parameter "${name}". A blur takes params.amount only.`,
+      );
+    }
+  }
+  const amount = params.amount;
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) {
+    throw new ToolInputContractError(
+      'apply_color_grade',
+      'A blur requires params.amount, a finite number.',
+    );
+  }
+  if (amount < 0 || amount > MAX_CLIP_BLUR_AMOUNT) {
+    throw new ToolInputContractError(
+      'apply_color_grade',
+      `params.amount must be within 0..${String(MAX_CLIP_BLUR_AMOUNT)}.`,
+    );
   }
 }
 
@@ -344,7 +379,7 @@ function keyframeParameters(parameters: ToolParameterSchema): ToolParameterSchem
 
 function colorGradeParameters(parameters: ToolParameterSchema): ToolParameterSchema {
   const properties = objectProperties(parameters);
-  properties.type = { type: 'string', enum: ['color_grade', 'lut'] };
+  properties.type = { type: 'string', enum: ['color_grade', 'lut', CLIP_BLUR_EFFECT_TYPE] };
   return { ...parameters, properties };
 }
 

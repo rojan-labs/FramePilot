@@ -101,7 +101,7 @@ describe('renderer-backed model-facing schemas', () => {
     const parameters = tool('apply_color_grade').parameters as {
       properties?: { type?: { enum?: string[] } };
     };
-    expect(parameters.properties?.type?.enum).toEqual(['color_grade', 'lut']);
+    expect(parameters.properties?.type?.enum).toEqual(['color_grade', 'lut', 'blur']);
     expect(() =>
       parseToolArguments(tool('apply_color_grade'), {
         clipId: 'clip-1',
@@ -113,6 +113,41 @@ describe('renderer-backed model-facing schemas', () => {
     expect(() =>
       parseToolArguments(tool('apply_color_grade'), { clipId: 'clip-1', type: 'transform' }),
     ).toThrow(/add_keyframes|punch_in/);
+  });
+
+  it('takes a whole-clip blur by amount only, inside the range the renderers clamp to', () => {
+    // The blurred-fill background (plan AL34): the Inspector's blur, as the agent writes it.
+    expect(
+      parseToolArguments(tool('apply_color_grade'), {
+        clipId: 'clip-1',
+        type: 'blur',
+        params: { amount: 0.06 },
+      }),
+    ).toMatchObject({ type: 'blur', params: { amount: 0.06 } });
+    for (const [params, message] of [
+      [{}, /requires params\.amount/],
+      [{ amount: 0.5 }, /within 0\.\.0\.25/],
+      [{ amount: -0.01 }, /within 0\.\.0\.25/],
+      [{ amount: 0.05, radius: 3 }, /Unknown blur parameter "radius"/],
+    ] as const) {
+      expect(() =>
+        parseToolArguments(tool('apply_color_grade'), { clipId: 'clip-1', type: 'blur', params }),
+      ).toThrow(message);
+    }
+  });
+
+  it('writes the blur under the id the Inspector edits, never the grade id', () => {
+    const ops = getTool('apply_color_grade')!.buildOps!(
+      { clipId: 'clip-1', type: 'blur', params: { amount: 0.06 } },
+      { project: {} as never },
+    );
+    expect(ops).toEqual([
+      {
+        type: 'apply_color_grade',
+        clipId: 'clip-1',
+        effect: { id: 'clip-1__blur', type: 'blur', params: { amount: 0.06 }, keyframes: [] },
+      },
+    ]);
   });
 
   it('rejects unknown and out-of-range color-grade params', () => {

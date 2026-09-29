@@ -3,43 +3,36 @@
  *
  * ## Why this exists
  *
- * The preview paints ONE picture layer at a time. The DOM monitor shows the
- * front-most picture clip at the playhead; the canvas compositor consumes
- * `apps/web-editor/src/editor/selectors-base.ts#pictureSegments`, which resolves
- * a stack the same way. The export does not: `render/compiler.py` composites
- * every track's picture, bottom-up, with alpha and blend modes.
- *
- * Those two agree exactly when the layer in front **covers the whole frame
- * opaquely** — then "show the front clip" and "composite the layers" produce the
- * same pixels. They disagree the moment the front layer is scaled, positioned,
- * cropped, masked, faded or blended, because the export folds in what is
- * underneath and the preview cannot.
+ * Clips on one track can never overlap, so picture laid over picture needs a lane, and the
+ * lane has to sit IN FRONT of what it covers or the new clip is composited behind it and
+ * never seen. The export composites every picture track bottom-up with alpha and blend modes
+ * (`render/compiler.py`), and since ADR 0180 the program monitor composites the same frame
+ * plan in every build, so where a clip lands is the only question left: the monitor and the
+ * export agree about any stack.
  *
  * ## What this module does about it
  *
- * ADR 0140 refused every stacked picture placement, which was the safe answer
- * before anything knew which layer was in front. ADR 0169 narrows it to the case
- * that genuinely diverges:
+ * - Any placement over existing picture lands on a layer in FRONT of everything it covers —
+ *   an existing one when there is a usable one, otherwise a new layer opened at the visual
+ *   front in the same patch, so it applies atomically and one undo removes both. That holds
+ *   for a full-frame cutaway and for a scaled, positioned, cropped, faded, blended or masked
+ *   one alike: picture-in-picture, a blurred-fill foreground and a split-screen panel are
+ *   ordinary layered edits.
+ * - A FRESH placement whose only problem is its shape gets the cover crop that makes it fill
+ *   the frame (see {@link PicturePlacement.crop}), unless its caller chose the geometry.
+ * - A placement that would hide what it covers is refused when it would swallow another
+ *   cutaway whole (run `137d8fd0`): that clip would never be seen, which is a real defect
+ *   whatever the monitor can show.
+ * - `add_stock` asks for `cutawaysOnly`: its one job is a full-frame cutaway at a moment, it
+ *   takes no geometry, and a stock clip that could not hide what it covers would leave the
+ *   footage showing round its edges. That refusal names the route that CAN layer it.
  *
- * - a **full-frame opaque** placement over existing picture is legal, and lands
- *   on a layer in FRONT of everything it covers — an existing one when there is
- *   a usable one, otherwise a new layer opened at the visual front in the same
- *   patch, so it applies atomically and one undo removes both;
- * - anything else — scaled, positioned, cropped, masked, faded, blended — is
- *   still refused, with the reason and the two legal moves.
+ * ADR 0140 refused every stacked placement, ADR 0169 allowed full-frame ones, and ADR 0170
+ * made coverage a relation ({@link coverageVerdict}); all three were reasoned from a monitor
+ * that painted one picture layer. ADR 0180's amendment of 2026-09-29 records the lift.
  *
- * {@link coverageVerdict} is the predicate, and it lives in `editor-core`
- * because the canvas preview's eligibility test asks the identical question.
- * Two copies would drift, and the way they would drift is that this one starts
- * allowing an overlay the preview cannot show.
- *
- * ADR 0170 made it a RELATION rather than a property of the front clip: the
- * renderer fits rather than covers, so whether a letterboxed layer diverges
- * depends on the shape of what is UNDERNEATH it. A crop is part of that
- * geometry, which is why a cover-cropped placement is now legal.
- *
- * Manual UI editing is deliberately out of scope: a person dragging a clip onto
- * a second layer can see both, chose it, and owns the result.
+ * Manual UI editing is deliberately out of scope: a person dragging a clip onto a second
+ * layer can see both, chose it, and owns the result.
  *
  * ## Why it is not `editor-core`'s `picturePlacementConflict`
  *
@@ -62,7 +55,7 @@ import {
 import { clipKindOf } from '../project-index.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 
-/** Clip kinds that flow through the preview's single picture chain. */
+/** Clip kinds that are picture: they composite as layers of the frame. */
 const PICTURE_KINDS: ReadonlySet<string> = new Set(['video', 'image']);
 
 /** A placement to test: where it would land, and for how long. */
@@ -77,14 +70,19 @@ export interface PictureCandidate {
    */
   readonly ignoreClipId?: string;
   /**
+   * The caller CHOSE this placement's geometry (`add_clip` with `crop`, including `null` for
+   * the whole picture), so the placer never writes a cover crop over it. A blurred-fill
+   * foreground is the same shot fitted whole over a cover-cropped copy of itself, and a
+   * placer that "fixed" its bars would put back the very crop the recipe exists to avoid.
+   */
+  readonly keepGeometry?: boolean;
+  /**
    * The compositing the placed clip will carry, when it is not a plain placement.
    *
-   * `add_clip`/`add_clips` write a bare clip, but they compute their auto-reframe
-   * crop BEFORE asking, and pass it: under ADR 0170 a crop is geometry, and the
-   * cover crop is precisely what makes a landscape source legal over picture in a
-   * portrait project. Asking first and cropping afterwards refused the placement
-   * the reframe exists to make work. `move_clip` moves a clip that already exists
-   * and may carry any compositing, so it passes the real one.
+   * `add_clip`/`add_clips` compute their crop (the auto-reframe, or the one the caller
+   * named) BEFORE asking and pass it, because a crop is geometry: it decides whether the
+   * clip hides what it covers, and so whether it can bury a cutaway. `move_clip` moves a
+   * clip that already exists and may carry any compositing, so it passes the real one.
    */
   readonly compositing?: FullFrameOpaqueFields;
 }
@@ -193,10 +191,10 @@ function assetLabel(project: Project, assetId: string): string {
 }
 
 /**
- * The refusal, worded once.
+ * The `cutawaysOnly` refusal, worded once: a stock cutaway that would not hide what it covers.
  *
- * It names the offending clip and track, says which property of the placement makes it
- * un-showable, and gives the ways out. Deliberately NOT "try a different track" — every
+ * It names the offending clip and track, says which property of the placement leaves the
+ * footage showing, and gives the ways out. Deliberately NOT "try a different track" — every
  * track has the same answer, and a run told otherwise walks the placement across layers one
  * at a time.
  *
@@ -208,7 +206,7 @@ function assetLabel(project: Project, assetId: string): string {
  * @param project - The project, for the asset's name and measured shape.
  * @param candidate - The refused placement.
  * @param conflicts - What it would have covered, from {@link pictureOverlapAcross}.
- * @param verdict - Why the monitor and the export would disagree.
+ * @param verdict - Why it would not hide them.
  */
 export function pictureOverlapRefusal(
   project: Project,
@@ -225,37 +223,28 @@ export function pictureOverlapRefusal(
   const head =
     `Refused: "${file}" at ${timeText(candidate.start)}–${timeText(candidate.end)}s ` +
     `would sit on top of ${first.clipId} on ${first.trackId}${others}, and `;
-  const divergence =
-    'The preview shows one picture layer at a time, so only a layer that hides everything ' +
-    'it covers previews the way it exports (ADR 0169 / 0170, SUC-P1). ';
-  // The alternative that is legal WHATEVER the shapes are: a cutaway on the same track is
-  // one picture layer, so there is nothing for the export to fold in.
+  // Why a cutaway has to hide what it covers — an editorial rule, not a limit of the monitor,
+  // which composites any stack (ADR 0180).
+  const rule =
+    'A stock cutaway placed at a moment replaces the picture there, so it has to hide what ' +
+    'it covers. ';
+  // The alternative that is legal WHATEVER the shapes are: a cutaway on the same track has
+  // nothing under it to show round its edges.
   const hole =
     `cut a hole for it: split at ${timeText(candidate.start)}s and ` +
     `${timeText(candidate.end)}s and add it on the same track as a cutaway.`;
+  // The route that layers it as it is: the bin, then add_clip, which puts any picture on a
+  // front layer and takes a crop.
+  const layered =
+    ' To layer it as it is (picture-in-picture, a window), call add_stock without atSeconds ' +
+    'and place it with add_clip.';
 
   if (verdict.reason === 'leaks') {
     const shape = sourceShapeOf(project, candidate.assetId);
     const size = shape ? `${String(shape.width)}x${String(shape.height)}` : 'letterboxed';
-    // The crop first, because it is the move that keeps the layered edit the run asked for;
-    // the hole is the fallback that changes the edit.
-    // `null` rather than a rect when the SOURCE already matches the frame: the leak is then
-    // the crop the clip is carrying, and the move is to put the whole frame back.
-    const rect =
-      verdict.coverCrop ?? (candidate.compositing?.crop !== undefined ? null : undefined);
-    // A fresh `add_clip` only reaches this sentence when the cover crop did NOT close the
-    // leak (the placer applies it itself when it does — see `PicturePlacement.crop`), so
-    // naming a crop for a fresh add would name a move that was just tried. Only a clip
-    // that already exists gets the crop remedy, on its own id.
-    const cropWay =
-      rect !== undefined && candidate.ignoreClipId !== undefined
-        ? `set_clip_crop on ${candidate.ignoreClipId} with crop ` +
-          `${JSON.stringify(rect)} so it fills the frame; then it goes on its own front ` +
-          'layer. Or '
-        : '';
     return (
       `${head}"${file}" is ${size} and ${verdict.detail ?? 'it does not cover them'}. ` +
-      `${divergence}${cropWay}${cropWay === '' ? hole.charAt(0).toUpperCase() + hole.slice(1) : hole}`
+      `${rule}${hole.charAt(0).toUpperCase() + hole.slice(1)}${layered}`
     );
   }
 
@@ -265,28 +254,35 @@ export function pictureOverlapRefusal(
     // throws away picture in the wrong axis.
     const unknown =
       sourceShapeOf(project, candidate.assetId) === undefined
-        ? `"${file}" has not been measured, so nothing can tell whether its bars line up ` +
-          `with ${covered}'s`
-        : `${covered} has not been measured, so nothing can tell whether its bars line up ` +
-          `with "${file}"'s`;
+        ? `"${file}" has not been measured, so nothing can tell whether it covers ${covered}`
+        : `${covered} has not been measured, so nothing can tell whether "${file}" covers it`;
     return (
-      `${head}${unknown}. ${divergence}Either ${hole} It previews and exports identically ` +
-      'whatever its shape. Or place it again once the engine has measured it — `list_assets` ' +
-      'shows an asset\'s orientation and aspect instead of `shape: "unmeasured"` once it has.'
+      `${head}${unknown}. ${rule}Either ${hole} Or place it again once the engine has ` +
+      "measured it — `list_assets` shows an asset's orientation and aspect instead of " +
+      `\`shape: "unmeasured"\` once it has.${layered}`
     );
   }
 
+  /* v8 ignore next 6 -- a stock placement carries no compositing of its own, so only the
+     geometry arms above can refuse it; kept so the sentence is total over the verdict */
   const opacity =
     verdict.reason === 'blend'
       ? `it blends with what is under it (blendMode "${verdict.detail ?? ''}")`
       : verdict.reason === 'keyframes'
         ? 'it carries transform keyframes (a scaled, moved or faded layer)'
         : 'it carries a mask or a transition, so part of the frame shows through it';
-  return (
-    `${head}${opacity}. ${divergence}Either place it full-frame — a plain placement with no ` +
-    'transform, blend mode or mask is put on its own front layer for you — or ' +
-    `${hole}`
-  );
+  return `${head}${opacity}. ${rule}Either ${hole}${layered}`;
+}
+
+/** How a placer treats a placement that would not hide what it covers. */
+export interface PicturePlacerOptions {
+  /**
+   * Refuse it (`picture_over_picture`) instead of layering it. `add_stock` asks for this: it
+   * places a full-frame cutaway at a moment and takes no geometry, so a stock clip that could
+   * not hide the footage under it would leave that footage showing round its edges. Every
+   * other caller layers such a placement in front, as picture-in-picture.
+   */
+  readonly cutawaysOnly?: boolean;
 }
 
 /** A resolved picture placement: the lane it lands on, and what must exist first. */
@@ -301,8 +297,9 @@ export interface PicturePlacement {
   readonly setupOps: readonly Operation[];
   /**
    * The cover crop the placer applied on the candidate's behalf so that it hides what it
-   * covers — present only when the candidate came in uncropped and would otherwise have
-   * leaked. The caller MUST write it onto the placed clip (`set_clip_crop` in the same
+   * covers — present only when the candidate came in uncropped, did not choose its own
+   * geometry ({@link PictureCandidate.keepGeometry}), and would otherwise have letterboxed
+   * over the picture it covers. The caller MUST write it onto the placed clip (`set_clip_crop` in the same
    * patch); the lane was chosen on the strength of it.
    *
    * WHY the placer does this rather than refusing: the refusal it replaces said "add it,
@@ -347,8 +344,12 @@ function nextCutawayLayerId(project: Project, opened: readonly string[]): string
  * the layer the first opened.
  *
  * @param project - The project the placements are being planned against.
+ * @param options - See {@link PicturePlacerOptions}.
  */
-export function createPicturePlacer(project: Project): {
+export function createPicturePlacer(
+  project: Project,
+  options: PicturePlacerOptions = {},
+): {
   place: (candidate: PictureCandidate) => PicturePlacement;
 } {
   /** Spans booked during this call, per lane id, on top of what the timeline holds. */
@@ -406,7 +407,9 @@ export function createPicturePlacer(project: Project): {
         return { trackId: candidate.trackId, setupOps: [] };
       }
       // Coverage is a relation (ADR 0170): the front clip's compositing AND its fitted
-      // rect against every rect it covers, in this project's frame.
+      // rect against every rect it covers, in this project's frame. It no longer decides
+      // WHETHER a placement lands (every stack previews as it exports, ADR 0180); it decides
+      // whether a fresh placement gets a cover crop, and whether it can bury a cutaway.
       const source = sourceShapeOf(project, candidate.assetId);
       const behind = conflicts.map((conflict) => conflict.shaped);
       const verdictFor = (compositing: FullFrameOpaqueFields): CoverageVerdict =>
@@ -416,17 +419,17 @@ export function createPicturePlacer(project: Project): {
           project.resolution,
         );
       let verdict = verdictFor(candidate.compositing ?? {});
-      // A FRESH placement whose only problem is its shape gets the crop that fixes it,
-      // rather than a refusal telling it to "add it, then crop it" — see
-      // {@link PicturePlacement.crop}. A `move_clip` (`ignoreClipId`) keeps the refusal:
-      // that clip already carries compositing the editor may have chosen, and the refusal
-      // names `set_clip_crop` on it, which is a move that exists.
+      // A FRESH placement whose only problem is its shape gets the crop that fixes it — see
+      // {@link PicturePlacement.crop}. A `move_clip` (`ignoreClipId`) keeps the compositing
+      // it already carries, which the editor may have chosen, and a caller that chose its
+      // own geometry (`keepGeometry`) keeps that.
       let appliedCrop: CropRect | undefined;
       if (
         !verdict.hides &&
         verdict.reason === 'leaks' &&
         verdict.coverCrop !== undefined &&
         candidate.ignoreClipId === undefined &&
+        candidate.keepGeometry !== true &&
         candidate.compositing?.crop === undefined
       ) {
         const cropped = verdictFor({ ...(candidate.compositing ?? {}), crop: verdict.coverCrop });
@@ -435,23 +438,35 @@ export function createPicturePlacer(project: Project): {
           verdict = cropped;
         }
       }
-      if (!verdict.hides) {
+      if (!verdict.hides && options.cutawaysOnly === true) {
         throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts, verdict), {
           refusalCause: 'picture_over_picture',
         });
       }
       const withCrop = (placement: PicturePlacement): PicturePlacement =>
         appliedCrop === undefined ? placement : { ...placement, crop: appliedCrop };
-      // The placement is legal, so it is about to be LIFTED in front of everything it
-      // covers. Before that: is anything it covers a cutaway it would swallow whole?
-      // Covering the base A-roll is what a cutaway is for (ADR 0169) and stays legal;
-      // burying another cutaway end to end is a clip nobody will ever see, and run
-      // `137d8fd0` did it thirteen times at t=0 while reading `completed` every time.
-      const buried = buriedCutaways(project, candidate, conflicts, placedThisCall);
-      if (buried.length > 0) {
-        throw new ToolRefusalError(hidesCutawayRefusal(project, candidate, buried), {
-          refusalCause: 'hides_a_cutaway',
-        });
+      // A FULL-FRAME placement is about to be lifted in front of everything it covers.
+      // Before that: is anything it covers a cutaway it would swallow whole? Covering the
+      // base A-roll is what a cutaway is for (ADR 0169) and stays legal; burying another
+      // cutaway end to end is a clip nobody will ever see, and run `137d8fd0` did it thirteen
+      // times at t=0 while reading `completed` every time. A window — see-through, scaled,
+      // or cropped smaller than the frame — is a layered look still being built: a
+      // split-screen panel lands centred and is moved afterwards, and refusing it for the
+      // panel it briefly sits on would refuse the split.
+      const front: ShapedClip = {
+        clip: { ...(candidate.compositing ?? {}), ...(appliedCrop ? { crop: appliedCrop } : {}) },
+        source,
+      };
+      // An unmeasured pair counts as hiding here exactly as it does in `occludes`: nothing can
+      // say the bars miss the cutaway, and a burial nobody measured is still a burial.
+      const hidesCovered = verdict.hides || verdict.reason === 'unmeasured';
+      if (hidesCovered && occludes(project, front, wholeFrame(project))) {
+        const buried = buriedCutaways(project, candidate, conflicts, placedThisCall);
+        if (buried.length > 0) {
+          throw new ToolRefusalError(hidesCutawayRefusal(project, candidate, buried), {
+            refusalCause: 'hides_a_cutaway',
+          });
+        }
       }
       // Everything it covers must end up BEHIND it, so the lane has to sit in
       // front of the front-most thing it covers.
@@ -509,6 +524,42 @@ export function createPicturePlacer(project: Project): {
 const COVERAGE_EPSILON = 1e-6;
 
 /**
+ * Does `front` hide `covered` wherever the two overlap in time?
+ *
+ * Picture in front of a clip hides it only when the front layer is opaque and its fitted rect
+ * contains the covered one's ({@link coverageVerdict}). A picture-in-picture, a fitted
+ * blurred-fill foreground, a split-screen panel or a blended texture sits in front of the
+ * picture it covers and hides none of it. Counting every clip in front as a cover was right
+ * only while the agent could stack nothing else, and after the lift it would report the
+ * A-roll under a picture-in-picture as buried.
+ *
+ * A covered clip that carries keyframes sits wherever they put it — a split-screen panel moved
+ * to the top third, a window drifting across the frame — and the fitted-rect comparison only
+ * knows the centred fit. So only a front layer that fills the WHOLE frame is sure to hide it.
+ *
+ * An UNMEASURED pair counts as hiding: nothing can say the bars miss it, and a cutaway nobody
+ * measured is far more often full-frame b-roll than a window, so the hidden-picture advisory
+ * errs toward saying so.
+ *
+ * @param project - For the measured shapes and the frame.
+ * @param front - The clip nearer the viewer, or the compositing a placement would carry.
+ * @param covered - What it sits over.
+ */
+function occludes(project: Project, front: ShapedClip, covered: ShapedClip): boolean {
+  const target = (covered.clip.keyframes ?? []).length > 0 ? wholeFrame(project) : covered;
+  const verdict = coverageVerdict(front, [target], project.resolution);
+  return verdict.hides || verdict.reason === 'unmeasured';
+}
+
+/**
+ * A stand-in for "a clip that fills the frame", for asking whether a lane is covered before
+ * anything is on it: a measured source of exactly the frame's shape, fitted to all of it.
+ */
+function wholeFrame(project: Project): ShapedClip {
+  return { clip: {}, source: project.resolution };
+}
+
+/**
  * The video tracks that picture IN FRONT of them already covers end to end — so
  * anything placed there would be composited behind it and never seen.
  *
@@ -524,7 +575,9 @@ const COVERAGE_EPSILON = 1e-6;
  * Z-ORDER, not merely time, is what changed with ADR 0169. Picture BEHIND a track does not
  * hide it; only picture in front does. So the sweep looks at the tracks nearer the viewer
  * (a lower index — see `editor-core/operations.ts#AddLayerOp`), which is exactly the
- * question {@link createPicturePlacer} asks when it decides a lane is unusable.
+ * question {@link createPicturePlacer} asks when it decides a lane is unusable. And only
+ * picture that FILLS the frame opaquely counts ({@link occludes}): a lane behind a
+ * picture-in-picture is seen round it.
  *
  * Bounded like the line it feeds: one asset map, one pass over the clips to collect the
  * picture spans, then one sweep per video track. A project has few tracks.
@@ -546,6 +599,7 @@ export function tracksCoveredByPictureInFront(project: Project): ReadonlySet<str
       depth,
       spans: track.clips
         .filter((clip) => PICTURE_KINDS.has(clipKindOf(clip, assetById)))
+        .filter((clip) => occludes(project, shapedOf(project, clip), wholeFrame(project)))
         .map((clip) => ({ start: clip.start, end: clip.end })),
     });
   });
@@ -578,11 +632,15 @@ function assetsById(project: Project): Map<string, Asset> {
   return new Map<string, Asset>((project.assets ?? []).map((asset) => [asset.id, asset]));
 }
 
-/** Every picture span on the tracks NEARER the viewer than `depth` (a lower index). */
+/**
+ * Every span of picture on the tracks NEARER the viewer than `depth` (a lower index) that
+ * hides `covered` ({@link occludes}).
+ */
 function pictureSpansInFrontOf(
   project: Project,
   depth: number,
   assetById: ReadonlyMap<string, Asset>,
+  covered: ShapedClip,
 ): { start: number; end: number }[] {
   const spans: { start: number; end: number }[] = [];
   project.timeline.tracks.forEach((track, index) => {
@@ -590,6 +648,7 @@ function pictureSpansInFrontOf(
     if (!carriesPicture(track)) return;
     for (const clip of track.clips) {
       if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
+      if (!occludes(project, shapedOf(project, clip), covered)) continue;
       spans.push({ start: clip.start, end: clip.end });
     }
   });
@@ -620,9 +679,9 @@ function uncoveredSeconds(
 /**
  * How many seconds of a picture clip a viewer can actually see.
  *
- * The preview paints one picture layer and the export composites full-frame layers
- * bottom-up, so under ADR 0169/0170 both agree on this: a picture clip is visible exactly
- * where no picture on a track NEARER the viewer (a lower index) sits over it.
+ * A picture clip is visible exactly where no picture on a track NEARER the viewer (a lower
+ * index) hides it ({@link occludes}); the monitor and the export composite the same stack
+ * (ADR 0180), so they agree on the answer.
  *
  * @param project - The project as it stands.
  * @param trackIndex - The clip's own z-order slot; 0 is the visual front.
@@ -634,8 +693,45 @@ export function visiblePictureSeconds(project: Project, trackIndex: number, clip
   if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) return 0;
   return uncoveredSeconds(
     { start: clip.start, end: clip.end },
-    pictureSpansInFrontOf(project, trackIndex, assetById),
+    pictureSpansInFrontOf(project, trackIndex, assetById, shapedOf(project, clip)),
   );
+}
+
+/** A clip with its measured source shape, for {@link occludes}. */
+function shapedOf(project: Project, clip: Clip): ShapedClip {
+  return { clip, source: sourceShapeOf(project, clip.assetId) };
+}
+
+/**
+ * Does picture that FILLS the frame sit BEHIND this clip for the whole of its span?
+ *
+ * Then the clip's own bars — a fitted blurred-fill foreground, a scaled picture-in-picture,
+ * a split-screen panel — show that picture, not black, and "renders with black bars" is not
+ * true of it. The picture behind is judged on its own: if IT letterboxes, it is the clip the
+ * reframing check names.
+ *
+ * @param project - The project as it stands.
+ * @param clip - A picture clip on one of the project's tracks.
+ * @returns TRUE when every moment of the clip has frame-filling picture behind it.
+ */
+export function backedByFullFramePicture(project: Project, clip: Clip): boolean {
+  const depth = project.timeline.tracks.findIndex((track) =>
+    track.clips.some((candidate) => candidate.id === clip.id),
+  );
+  if (depth < 0) return false;
+  const assetById = assetsById(project);
+  const behind: { start: number; end: number }[] = [];
+  project.timeline.tracks.forEach((track, index) => {
+    if (index <= depth) return;
+    if (!carriesPicture(track) || track.hidden === true) return;
+    for (const back of track.clips) {
+      if (!PICTURE_KINDS.has(clipKindOf(back, assetById))) continue;
+      if (!occludes(project, shapedOf(project, back), wholeFrame(project))) continue;
+      behind.push({ start: back.start, end: back.end });
+    }
+  });
+  if (behind.length === 0) return false;
+  return uncoveredSeconds({ start: clip.start, end: clip.end }, behind) <= COVERAGE_EPSILON;
 }
 
 /** A picture clip nothing on the timeline ever shows. */
@@ -648,7 +744,9 @@ export interface HiddenPictureClip {
 }
 
 /**
- * Every picture clip that is buried end to end by picture in front of it.
+ * Every picture clip that is buried end to end by picture in front of it that HIDES it
+ * ({@link occludes}) — so the A-roll under a picture-in-picture, a split-screen panel or a
+ * blurred-fill foreground is not reported.
  *
  * ## Why this has to be measurable
  *
@@ -670,10 +768,10 @@ export function hiddenPictureClips(project: Project): readonly HiddenPictureClip
   const hidden: HiddenPictureClip[] = [];
   project.timeline.tracks.forEach((track, depth) => {
     if (!carriesPicture(track)) return;
-    const inFront = pictureSpansInFrontOf(project, depth, assetById);
-    if (inFront.length === 0) return;
     for (const clip of track.clips) {
       if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
+      const inFront = pictureSpansInFrontOf(project, depth, assetById, shapedOf(project, clip));
+      if (inFront.length === 0) continue;
       if (uncoveredSeconds({ start: clip.start, end: clip.end }, inFront) > COVERAGE_EPSILON) {
         continue;
       }
@@ -851,7 +949,7 @@ function buriedCutaways(
     if (!isCutaway(project, conflict.depth, conflict, assetById)) continue;
     const visible = uncoveredSeconds(
       conflict,
-      pictureSpansInFrontOf(project, conflict.depth, assetById),
+      pictureSpansInFrontOf(project, conflict.depth, assetById, conflict.shaped),
     );
     if (visible <= COVERAGE_EPSILON) continue;
     buried.push({

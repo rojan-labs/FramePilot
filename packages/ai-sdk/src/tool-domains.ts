@@ -73,11 +73,11 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   // calls, so three shipped tools were unreachable in practice — the summary is the whole
   // discovery surface, and "match shots to each other" is not what that request sounds like.
   color:
-    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly (measure_color, always available, reads what is on screen first)',
+    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly, blur a whole clip (a blurred-fill background) (measure_color, always available, reads what is on screen first)',
   // `set_clip_crop` lives here; a summary without "crop" or "reframe" left the one static
   // reframing tool undiscoverable to a request that asked for exactly that.
   motion:
-    'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source',
+    'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source; scale and position a layer (picture-in-picture, split-screen panels)',
   effects:
     'effects, transitions, blend modes and on-screen text — text overlays in designed styles and bundled fonts, and restyling them; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.

@@ -81,6 +81,7 @@ from framepilot_engine.ai_tools.text_overlay_styles import (
 from framepilot_engine.effects.keyframes import evaluate_keyframes, punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
 from framepilot_engine.render.captions import _font_manifest
+from framepilot_engine.render.clip_blur import CLIP_BLUR_EFFECT_TYPE
 from framepilot_engine.render.shape_catalog import (
     ICON_PREFIX,
     catalogue_entry,
@@ -480,7 +481,19 @@ def _add_clip_op(track_id: str, clip: Any) -> dict[str, Any]:
 
 
 def add_clip(args: AddClipArgs, ctx: ToolContext) -> Operations:
-    return [_add_clip_op(args.track_id, args)]
+    """One placement; a rect ``crop`` rides the same patch as a ``set_clip_crop``.
+
+    ``crop: null`` (the whole picture) needs no operation here: this mirror writes no automatic
+    reframe crop for it to override. The clip is named explicitly so the crop can address it,
+    with the id shape the TS ``placementClipId`` gives it.
+    """
+    if "crop" not in args.model_fields_set or args.crop is None:
+        return [_add_clip_op(args.track_id, args)]
+    clip_id = f"clip__{args.track_id}_{args.asset_id}_{round(args.start * 1000)}"
+    return [
+        {**_add_clip_op(args.track_id, args), "clipId": clip_id},
+        {"type": "set_clip_crop", "clipId": clip_id, "crop": args.crop.model_dump()},
+    ]
 
 
 def add_clips(args: AddClipsArgs, ctx: ToolContext) -> Operations:
@@ -1035,9 +1048,16 @@ def punch_in(args: PunchInArgs, ctx: ToolContext) -> Operations:
 
 
 def apply_color_grade(args: ApplyColorGradeArgs, ctx: ToolContext) -> Operations:
+    grade_type = args.type or "color_grade"
     effect = {
-        "id": _derive_id("grade", args.clip_id),
-        "type": args.type or "color_grade",
+        # A blur takes the id the Inspector's Blur control writes (``clip-blur.ts``), so a
+        # second call replaces it rather than replacing a grade stored under the grade id.
+        "id": (
+            f"{args.clip_id}__blur"
+            if grade_type == CLIP_BLUR_EFFECT_TYPE
+            else _derive_id("grade", args.clip_id)
+        ),
+        "type": grade_type,
         "params": args.params or {},
         "keyframes": [],
     }

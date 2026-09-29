@@ -1,7 +1,7 @@
 ---
 name: vertical-reframe
 description: Convert aspect ratios (16:9 to 9:16, 1:1, 4:5) shot by shot — look at each source as shot, place a subject-aware crop, or pan the window across a wide shot; platform-safe placement and consistency.
-tools: [get_frame, get_clip, set_clip_crop, reframe_pan]
+tools: [get_frame, get_clip, set_clip_crop, reframe_pan, add_clip, apply_color_grade]
 ---
 
 # Vertical reframe
@@ -63,10 +63,13 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
 - **A window that follows a moving subject:** track a mask on it (masking tools:
   `create_mask` with `track: true`), then `reframe_to_subject { clipId, maskId }`. Without a
   track, pan between the positions you saw and say the framing is a pan, not a track.
-- A blurred-fill background (the whole frame over a blurred, scaled copy of itself) is not
-  something the placement tools build: a scaled picture layer over other picture is refused
-  when placed. The honest fallbacks are a tighter crop, a pan, or `set_clip_crop` with
-  `allowLetterbox: true` to keep the whole frame with bars — say which you used.
+- **Blurred fill** — the whole shot, never upscaled, over a soft copy of itself. Use it when a
+  crop would cut the subject or zoom past about 115%. The shot's placed copy is the background
+  (it arrives cover-cropped): blur it with `apply_color_grade { clipId, type: "blur", params:
+  { amount: 0.06 } }`. Then `add_clip` the same asset with the same start, end and sourceStart
+  and `crop: null`. It lands on a front layer, fitted whole (a 1920×1080 source is 1080×607 in
+  a 1080×1920 frame, scale 0.5625), and its bars show the blur. Each shot is now two clips, so
+  trim or move both. Check one frame with `get_frame { timeSeconds }`.
 
 ## Professional heuristics
 

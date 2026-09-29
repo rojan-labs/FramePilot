@@ -174,6 +174,12 @@ export function stockOpsFromPayload(
  * The Stock PANEL keeps the conservative refusal (`buildAddStockOps` is unchanged): a
  * person clicking **Add** did not ask to stack, and can see the timeline to choose.
  *
+ * `cutawaysOnly`: since ADR 0180's 2026-09-29 amendment the placer layers ANY picture in front
+ * for `add_clip`, see-through or scaled. `add_stock` keeps the cutaway rule, because it takes
+ * no geometry — the clip lands exactly as downloaded — and a cutaway that does not hide the
+ * footage under it leaves that footage showing round its edges. The refusal names the route
+ * that layers it on purpose: the bin, then `add_clip`.
+ *
  * The asset is spliced into the project the placer reads, because it is not in the bin
  * until this patch applies — and without its measured shape every placement would read as
  * `unmeasured` and be refused for want of a fact the payload was carrying all along.
@@ -198,7 +204,7 @@ function liftedStockOps(project: Project, asset: Asset, atSeconds: number): Stoc
   };
   const withAsset: Project = { ...project, assets: [...(project.assets ?? []), asset] };
   try {
-    const placed = createPicturePlacer(withAsset).place(candidate);
+    const placed = createPicturePlacer(withAsset, { cutawaysOnly: true }).place(candidate);
     const clipId = `${placed.trackId}_${asset.id}_clip`;
     return {
       ok: true,

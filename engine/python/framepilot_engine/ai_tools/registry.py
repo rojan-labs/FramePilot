@@ -215,6 +215,11 @@ class AddClipArgs(BaseModel):
     # source end from the timeline span so untrusted model arithmetic cannot violate
     # the clip speed/duration invariant.
     source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+    # The geometry of a layered look (picture-in-picture, a split-screen panel, a blurred-fill
+    # foreground): a rect of the source, or ``null`` for the whole picture fitted inside the
+    # frame. Absent and ``null`` differ, so the handler reads ``model_fields_set``. Mirrors the
+    # TS ``add_clip`` ``crop``.
+    crop: CropRect | None = None
 
 
 class AddClipsArgs(BaseModel):
@@ -596,10 +601,10 @@ class ReframePanArgs(BaseModel):
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
-    # Accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs` refuses it
-    # with the sentence that says where transforms actually come from. Mirrors
-    # `domain-tools/color.ts`.
-    type: Literal["color_grade", "lut", "transform"] | None = None
+    # `transform` is accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs`
+    # refuses it with the sentence that says where transforms actually come from. `blur` is
+    # the whole-clip blur (params.amount). Mirrors `domain-tools/color.ts`.
+    type: Literal["color_grade", "lut", "blur", "transform"] | None = None
     params: dict[str, Any] | None = None
 
 
