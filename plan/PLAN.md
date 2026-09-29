@@ -100,6 +100,22 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `reframe-pan.test.ts` (framePlanAt cover at sampled instants, window = pan × punch, undo),
   `test_ai_tools.py`. Skills (vertical-reframe, keyframe-animation) updated. Not yet measured
   on a live run.
+- [x] **AL11** Honest plan statuses: a `done` item must name the edit that delivered it; the
+  contract says an editor choice exists only in their message or an ask_user answer; a plan that
+  blocks an item is answered with the tool domains the run never loaded (run 8 blocked SFX without
+  loading `sourcing`; run 9 then sourced and placed three effects).
+- [x] **AL12** Review and render: fade to black excused at the engine's 0.10 black level and along an
+  authored ramp; review frames composited from on-screen clips (36.2 s → 11.6 s); one process-wide
+  heavy-build gate, one compile per `measure_color` scope, decoder threads capped for previews.
+- [x] **AL13** Crash: run events stored as their JSON projection (`toJsonValue`) — `measure_color`'s
+  undefined keys ended runs through the stream-event write.
+- [x] **AL14** Tool fixes found by harness runs 4–7: a fitted speed ramp cuts points past its span
+  (TS + Python); a text overlay box always stays in frame; a frame-placed shape mask uses the clip's
+  visible (crop) window, and `rounded_frame` says it keeps only a border; the reframe-coverage check
+  counts a pan's cover zoom as filling the frame; auto-applied narration is no longer "memory".
+- [x] **AL15** Live verification: harness runs 6–9 (Opus 5.5, the 27k brief, a copy of the real
+  project) all COMPLETED end to end (577–801 s, 200–255 ops, plan kept current); run 9 finished
+  every plan item except the export, which is honestly blocked (Export dialog).
 - [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
   the next run in the conversation start without it (the model re-plans). Measure on a real
   long brief (desktop) before deciding whether to persist it in the working state (schema).

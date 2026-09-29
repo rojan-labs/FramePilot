@@ -99,6 +99,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   an error after doing the work. The length is now read by the AI that routes your message, only
   from words that are really in your request, and every length check says which words it came
   from.
+- **Colour measuring no longer stops the run.** A colour measurement's result could end the whole
+  run with "The AI run stopped unexpectedly". It is now stored like any other result.
+- **A fade to black is not reported as black frames.** The self-review now counts a picture that is
+  fading to black as intended, down to the last frame.
+- **Checks after each edit are about three times faster**, and the app uses less memory while the AI
+  looks at frames.
+- **Speed ramps land first time.** A slow-motion ramp written against the clip's length was refused
+  because slow motion uses less footage; the part that would never play is now trimmed off.
+- **Text stays on screen.** A text overlay's box is always kept inside the frame.
+- **Shape masks follow what you see.** A split, gradient or frame mask on a cropped clip is laid out
+  on the visible picture, not on the parts the crop hides.
+- **Pans are not mistaken for black bars.** A clip filled by a slow pan is no longer "fixed" with a
+  crop on top of it.
+- **The AI says what it really did.** It marks a part of your request done only when an edit
+  delivered it, never says you chose something you were not asked, and before giving up on a part it
+  is shown the tools it has not tried yet — sound effects included.
 - **The AI no longer grades itself on requirements it guessed from your wording.** Parts of a
   brief such as a shot count, "every clip reframed", a sticker or arrow, "export an MP4", "remember
   this for next time" and a number of cutaways used to be pulled out by pattern and turned into
