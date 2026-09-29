@@ -294,14 +294,22 @@ export function interpretLoudness(
   if (!parsed.success) {
     return {
       status: 'failed',
-      summary: 'Loudness measurement returned an invalid evidence batch.',
+      summary:
+        'Loudness measurement returned an invalid evidence batch, so nothing was measured. Say ' +
+        'plainly that the mix level is unmeasured, and do not call measure_loudness again in ' +
+        'this run.',
     };
   }
   const result = parsed.data.results.find(
     (candidate) => candidate.requestId === requestId && candidate.kind === 'loudness',
   );
   if (!result || result.kind !== 'loudness') {
-    return { status: 'failed', summary: 'Loudness measurement returned no loudness result.' };
+    return {
+      status: 'failed',
+      summary:
+        'Loudness measurement returned no loudness result, so nothing was measured. Say plainly ' +
+        'that the mix level is unmeasured, and do not call measure_loudness again in this run.',
+    };
   }
   const reading: LoudnessReading = {
     role: window.role,
