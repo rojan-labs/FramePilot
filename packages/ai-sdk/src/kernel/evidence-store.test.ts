@@ -312,9 +312,46 @@ describe('invalidation is scoped to what actually changed', () => {
     const timeline = store.lookup('get_timeline:{}')!;
     store.invalidate(['delete_range']);
     expect(store.expiredHandle(timeline.id)).toEqual({
+      id: timeline.id,
       descriptor: 'timeline',
       source: 'get_timeline',
+      staledBy: 'delete_range',
     });
+  });
+
+  /**
+   * AL29. A colour reading is looked up by CLIP, not by handle, and the tool that finds none
+   * has to say whether it was never taken or taken and retired — and by which edit. Harness
+   * run 11 said "nothing has measured" ten clips measured one step earlier.
+   */
+  it('remembers which clip a retired reading was about, and which tool retired it', () => {
+    const store = new EvidenceStore();
+    const reading = store.put({
+      key: 'measure_color:{"clipId":"shot_a"}',
+      source: 'measure_color',
+      descriptor: 'Measure color driver.mp4',
+      data: { clipId: 'shot_a', projectRevision: 40 },
+    });
+    store.invalidate(['apply_color_grade', 'apply_color_grade'], 'normalize_exposure');
+    expect(store.expiredEntries()).toEqual([
+      {
+        id: reading.id,
+        descriptor: 'Measure color driver.mp4',
+        source: 'measure_color',
+        clipId: 'shot_a',
+        staledBy: 'normalize_exposure',
+      },
+    ]);
+    // Without a tool name, the distinct operation types stand in for it.
+    const again = store.put({
+      key: 'measure_color:{"clipId":"shot_a"}',
+      source: 'measure_color',
+      descriptor: 'Measure color driver.mp4',
+      data: { clipId: 'shot_a', projectRevision: 40 },
+    });
+    expect(again.id).not.toBe(reading.id);
+    store.invalidate(['apply_color_grade', 'apply_color_grade']);
+    expect(store.expiredHandle(again.id)?.staledBy).toBe('apply_color_grade');
   });
 
   it('says nothing about a handle that never existed', () => {

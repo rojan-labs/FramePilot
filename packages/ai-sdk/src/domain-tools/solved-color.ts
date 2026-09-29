@@ -56,6 +56,7 @@ import {
   measurementFor,
   pictureOf,
   skinFor,
+  staleMeasurementFor,
 } from './picture-facts.js';
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,11 @@ interface SkippedClip {
   readonly why: string;
   /** Left alone only because nothing has measured it — grouped into one remedy by the note. */
   readonly unmeasured?: true;
+  /**
+   * Left alone because its reading was retired by an edit since — the tool whose edit did.
+   * Grouped like `unmeasured`, but said differently: the clip WAS measured.
+   */
+  readonly staledBy?: string;
 }
 
 /** What a solved colour call decided, before any operation exists. */
@@ -92,6 +98,30 @@ interface ColorPlan {
 }
 
 const EMPTY_PLAN: ColorPlan = { grades: [], skipped: [], notes: [] };
+
+/**
+ * The skip for a clip with no reading: unmeasured, or measured and since retired.
+ *
+ * The remedy is the same call either way; the sentence is not. See {@link staleMeasurementFor}.
+ */
+function unreadClip(ctx: ToolContext, clipId: string, why: string): SkippedClip {
+  const stale = staleMeasurementFor(ctx, clipId);
+  if (stale !== undefined) {
+    return {
+      clipId,
+      why: `it was measured before ${stale.staledBy} changed the picture — measure_color reads it again`,
+      staledBy: stale.staledBy,
+    };
+  }
+  return { clipId, why, unmeasured: true };
+}
+
+/** `"a", "b"` — or `"a", … or 3 more` past {@link MAX_NAMED_CLIPS}. */
+function namedClips(clipIds: readonly string[]): string {
+  const named = clipIds.slice(0, MAX_NAMED_CLIPS).map((clipId) => `"${clipId}"`);
+  const rest = clipIds.length - named.length;
+  return `${named.join(', ')}${rest > 0 ? ` or ${String(rest)} more` : ''}`;
+}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -217,17 +247,34 @@ export function colorSolveNote(toolName: string, ctx: ToolContext, rawArgs: unkn
   // step dispatch together, so the whole remedy is one round trip; saying so is the point.
   const unmeasured = plan.skipped.filter((skip) => skip.unmeasured === true);
   if (unmeasured.length > 0) {
-    const named = unmeasured.slice(0, MAX_NAMED_CLIPS).map((skip) => `"${skip.clipId}"`);
-    const rest = unmeasured.length - named.length;
     parts.push(
-      `nothing has measured ${named.join(', ')}${rest > 0 ? ` or ${String(rest)} more` : ''}, ` +
+      `nothing has measured ${namedClips(unmeasured.map((skip) => skip.clipId))}, ` +
         `so ${toolName} left ${unmeasured.length === 1 ? 'it' : 'them'} alone — in one step, ` +
         'call measure_color once for each (they run together), then call ' +
         `${toolName} again; do not hand-pick apply_color_grade numbers in its place`,
     );
   }
+  // Measured, then retired by an edit — one sentence per edit that retired them. Saying
+  // "nothing has measured" here (run 11) told the model its own measurements had not
+  // happened; the true sentence also tells it WHY a re-read is needed.
+  const staleBy = new Map<string, string[]>();
   for (const skip of plan.skipped) {
-    if (skip.unmeasured !== true) parts.push(`${skip.clipId}: ${skip.why}`);
+    if (skip.staledBy === undefined) continue;
+    staleBy.set(skip.staledBy, [...(staleBy.get(skip.staledBy) ?? []), skip.clipId]);
+  }
+  for (const [cause, clipIds] of staleBy) {
+    const one = clipIds.length === 1;
+    parts.push(
+      `${namedClips(clipIds)} ${one ? 'was' : 'were'} measured before ${cause} changed the ` +
+        `picture, so ${one ? 'that reading no longer describes it' : 'those readings no longer describe them'} ` +
+        `and ${toolName} left ${one ? 'it' : 'them'} alone — in one step, call measure_color ` +
+        `once for each again (they run together), then call ${toolName} again`,
+    );
+  }
+  for (const skip of plan.skipped) {
+    if (skip.unmeasured !== true && skip.staledBy === undefined) {
+      parts.push(`${skip.clipId}: ${skip.why}`);
+    }
   }
 
   if (plan.grades.length > 0) {
@@ -257,6 +304,16 @@ const matchColorSchema = z
 function planMatchColor(args: z.infer<typeof matchColorSchema>, ctx: ToolContext): ColorPlan {
   const slice = pictureOf(ctx);
   const reference = measurementFor(ctx, slice, args.referenceClipId);
+  const staleReference =
+    reference === undefined ? staleMeasurementFor(ctx, args.referenceClipId) : undefined;
+  if (staleReference !== undefined) {
+    throw new ToolRefusalError(
+      `match_color: "${args.referenceClipId}" was measured before ${staleReference.staledBy} ` +
+        'changed the picture, so that reading no longer describes it and there is no look to ' +
+        'match to. In one step, call measure_color on it (and on each target) again, then ' +
+        'call match_color again.',
+    );
+  }
   if (reference === undefined) {
     throw new ToolRefusalError(
       `match_color: nothing has measured "${args.referenceClipId}", so there is no look to ` +
@@ -287,11 +344,13 @@ function planMatchColor(args: z.infer<typeof matchColorSchema>, ctx: ToolContext
     }
     const target: ResolvedMeasurement | undefined = measurementFor(ctx, slice, clipId);
     if (target === undefined) {
-      skipped.push({
-        clipId,
-        why: 'nothing has measured it, so it was left alone — measure_color reads it',
-        unmeasured: true,
-      });
+      skipped.push(
+        unreadClip(
+          ctx,
+          clipId,
+          'nothing has measured it, so it was left alone — measure_color reads it',
+        ),
+      );
       continue;
     }
     const skin = skinFor(ctx, clipId);
@@ -345,7 +404,7 @@ function planNormalizeExposure(
   for (const clip of clips) {
     const resolved = measurementFor(ctx, slice, clip.id);
     if (resolved === undefined) {
-      skipped.push({ clipId: clip.id, why: 'not measured yet, so it was left alone', unmeasured: true });
+      skipped.push(unreadClip(ctx, clip.id, 'not measured yet, so it was left alone'));
       continue;
     }
     measured.push({ clipId: clip.id, resolved });
@@ -367,9 +426,19 @@ function planNormalizeExposure(
     // slowest route there is.
     const names = clips.slice(0, MAX_NAMED_CLIPS).map((clip) => clip.id);
     const rest = clips.length - names.length;
+    // Readings an edit retired are named as such, not folded into "nothing measured".
+    const retired = skipped.filter((skip) => skip.staledBy !== undefined);
+    const retiredSentence =
+      retired.length === 0
+        ? ''
+        : `${namedClips(retired.map((skip) => skip.clipId))} ${retired.length === 1 ? 'was' : 'were'} ` +
+          `measured before ${[...new Set(retired.map((skip) => skip.staledBy))].join(', ')} ` +
+          'changed the picture, so those readings no longer describe it. ';
     throw new ToolRefusalError(
-      `normalize_exposure: nothing on track "${args.trackId}" has been measured, so there is ` +
+      `normalize_exposure: nothing on track "${args.trackId}" ` +
+        `${retired.length === 0 ? 'has been measured' : 'has a current measurement'}, so there is ` +
         'no brightness to normalise toward. ' +
+        retiredSentence +
         (names.length === 0
           ? `Track "${args.trackId}" has no picture clips to measure.`
           : `In one step, call measure_color once for each of ${names.map((id) => `"${id}"`).join(', ')}` +
@@ -461,11 +530,9 @@ function planApplyLook(args: z.infer<typeof applyLookSchema>, ctx: ToolContext):
   for (const clipId of clipIds) {
     const resolved = measurementFor(ctx, slice, clipId);
     if (resolved === undefined) {
-      skipped.push({
-        clipId,
-        why: 'not measured yet, so the look has no baseline to move from',
-        unmeasured: true,
-      });
+      skipped.push(
+        unreadClip(ctx, clipId, 'not measured yet, so the look has no baseline to move from'),
+      );
       continue;
     }
     const skin = skinFor(ctx, clipId);

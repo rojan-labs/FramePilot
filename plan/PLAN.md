@@ -249,6 +249,28 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   from `text_overlay._basic_features`) now reaches every caption/title measure and draw. The 184
   text-rendering tests pass under both layouts (`DYLD_LIBRARY_PATH=/opt/homebrew/lib` enables
   raqm locally; before the fix it reproduced CI's two failures).
+- [x] **AL29** Harness run 11: colour evidence lifecycle. `measure_color` readings taken at
+  timeline revision 40 were "nothing has measured" to `normalize_exposure`/`apply_look`/
+  `match_color` one step later, and `professional_color` answered `evidence_missing` for handles
+  `ev_12`…`ev_21` it had been given. Three causes. (1) `picture-facts.ts#currentRevision`
+  compared the reading's `timeline.revision` against `ctx.projectRevision`, the desktop's host
+  authority revision (a different counter), so no rendered reading ever matched on desktop; it
+  now reads `project.timeline.revision`, the clock `measure_color` stamps. The orchestrator's
+  `colorSolveNote` was also handed a context without the evidence store, so the note could not
+  see readings the operations used. (2) `normalize_exposure`'s grade legitimately retired every
+  `measure_color` entry (`EvidenceStore.invalidate`), and the colour controller answered a
+  retired handle as missing. Tombstones now keep the reading's clip and the tool that retired it;
+  `professional_color` refuses `evidence_stale` naming both, and the solved tools say "measured
+  before normalize_exposure changed the picture". (3) The receipt printed one file name per clip
+  for clips cut from one file; same-label lines from different clips fold to "(N clips)". Pinned
+  in `color-evidence-lifecycle.test.ts` (7 of 8 failed before, with the run's exact errors) and a
+  real-payload replay of run 11's ten readings (apply_look now grades 10 of 10). Open: a grade
+  retires EVERY colour reading, including shots it did not touch (see AL29a).
+- [ ] **AL29a** Retire a `measure_color` reading only when an applied edit can change the frames
+  it measured. `EvidenceStore.invalidate` drops every timeline-dependent entry on any picture op,
+  so `normalize_exposure` grading three passenger clips retired all ten road-shot readings and
+  the next colour tool asked for ten re-measures. Needs the applied ops (not just types) and
+  the measured frame window, widened for transitions that blend neighbouring clips.
 - [x] **AL30** Harness run 11: a fitted (`keepDuration`) `set_clip_speed_ramp` was refused
   "timeline duration 1.8999999999999986s but its source range (2.6147955361309623s) at its speed
   ramp implies 2.241388502385408s". The fit held the rate at the clip's OLD span (0.98x at 1.9 s)

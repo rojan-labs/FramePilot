@@ -74,6 +74,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   after the clip's current end ("builds fast, drops to 50%") was refused as not fitting its slot,
   because the fit assumed the speed stopped changing where the old footage ended. It now follows
   the whole curve, so the clip plays exactly its slot and the cut around it stays put.
+- **The assistant's colour tools use the measurements it just took.** In the desktop app,
+  matching shots, evening out exposure and applying a look ignored every shot the assistant had
+  just measured and said nothing had measured them, so it left those shots ungraded or graded
+  them from the imported footage instead of from your timeline. When one of its own grades makes
+  an earlier measurement out of date, the assistant now says so and measures again, where before
+  it reported that the measurement did not exist. The summary of a grade across several clips cut
+  from the same file now says how many clips were graded, not the file name once per clip.
 - **The assistant's mixing and grading tools keep working after its own edits in the same step.**
   When one step placed or retimed clips and then used a tool that acts on your selection
   (professional audio, colour, tracking), that tool was refused as "stale" even though your

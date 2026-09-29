@@ -37,6 +37,7 @@ import { shotWords } from '../kernel/context/shot-words.js';
 import {
   ColorMeasurementSchema,
   type ColorMeasurement as EvidenceMeasurement,
+  type ExpiredColorEvidence,
 } from '../color-evidence.js';
 
 // ---------------------------------------------------------------------------
@@ -390,9 +391,27 @@ function measurementFromLedger(clip: PictureClip | undefined): SolverMeasurement
   };
 }
 
-/** The revision a rendered measurement must carry to still describe this timeline. */
-function currentRevision(project: Project, ctx: ToolContext): number {
-  return ctx.projectRevision ?? project.timeline.revision ?? 0;
+/**
+ * The revision a rendered measurement must carry to still describe this timeline.
+ *
+ * `project.timeline.revision` and nothing else, because that is the clock `measure_color`
+ * stamps: the sidecar executor sends the working project's `timeline.revision` and the
+ * engine echoes it back (`sidecar-executor.ts#planSidecarCall`). The colour controller checks
+ * the same field (`color-controller.ts#readMeasurement`).
+ *
+ * This used to prefer `ctx.projectRevision`, which is a different counter: the HOST
+ * AUTHORITY revision the desktop passes to reject stale interaction snapshots, fixed at turn
+ * start. On the desktop the two never agree (harness run 11: readings at timeline revision
+ * 40, host revision in the teens), so every rendered reading was skipped and all three
+ * solved colour tools said "nothing has measured" clips measured one step earlier. The unit
+ * tests passed only because their fixtures set both counters to the same number.
+ *
+ * A grade does not bump `timeline.revision` (only a mapping change does), so this check
+ * alone cannot retire a reading a grade made untrue; the run's evidence store does that
+ * (`EvidenceStore.invalidate`), and {@link staleMeasurementFor} says so when it has.
+ */
+function currentRevision(project: Project): number {
+  return project.timeline.revision ?? 0;
 }
 
 /**
@@ -415,7 +434,7 @@ export function measurementFor(
   slice: PictureSlice,
   clipId: string,
 ): ResolvedMeasurement | undefined {
-  const revision = currentRevision(ctx.project, ctx);
+  const revision = currentRevision(ctx.project);
   for (const entry of ctx.evidence?.entries?.() ?? []) {
     if (entry.source !== 'measure_color') continue;
     const parsed = ColorMeasurementSchema.safeParse(entry.data);
@@ -436,12 +455,38 @@ export function measurementFor(
   return { clipId, measurement: fromLedger, provenance: 'ledger', occlusionFree: false };
 }
 
+/**
+ * The `measure_color` reading of `clipId` the run took and has since RETIRED, when that is
+ * why {@link measurementFor} found no rendered reading. The latest one wins.
+ *
+ * A solved colour tool that finds no reading used to say "nothing has measured" it — true
+ * of a clip nobody measured, false of one measured a step ago whose reading an applied grade
+ * then retired. Harness run 11 got the false sentence for ten clips measured seconds
+ * earlier. The remedy is the same call; the reason is not, and a model told "never measured"
+ * about a clip it measured concludes the tool is broken rather than that its edit moved it.
+ *
+ * Ask only once {@link measurementFor} has found nothing: a clip measured again since keeps
+ * its old tombstone, and its live reading is the answer. `undefined` when no reading of the
+ * clip was ever retired.
+ */
+export function staleMeasurementFor(
+  ctx: ToolContext,
+  clipId: string,
+): ExpiredColorEvidence | undefined {
+  const expired = ctx.evidence?.expiredEntries?.() ?? [];
+  for (let index = expired.length - 1; index >= 0; index -= 1) {
+    const entry = expired[index]!;
+    if (entry.source === 'measure_color' && entry.clipId === clipId) return entry;
+  }
+  return undefined;
+}
+
 /** The skin reading of a clip's rendered measurement, when the run has one. */
 export function skinFor(
   ctx: ToolContext,
   clipId: string,
 ): { red: number; green: number; blue: number; coverage: number } | undefined {
-  const revision = currentRevision(ctx.project, ctx);
+  const revision = currentRevision(ctx.project);
   for (const entry of ctx.evidence?.entries?.() ?? []) {
     if (entry.source !== 'measure_color') continue;
     const parsed = ColorMeasurementSchema.safeParse(entry.data);

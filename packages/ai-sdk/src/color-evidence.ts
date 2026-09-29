@@ -98,4 +98,23 @@ export interface ColorEvidenceReader {
    * already exposes exactly this, so nothing new is stored to support it.
    */
   entries?(): readonly ColorEvidenceEntry[];
+  /**
+   * What a handle was, when the run has since retired it (an applied edit made the reading
+   * untrue). `professional_color` is handed handles; without this it answered a handle the
+   * run itself issued with "No color evidence exists" (harness run 11, `ev_12`…`ev_21`).
+   */
+  expiredHandle?(id: string): ExpiredColorEvidence | undefined;
+  /** Every retired handle, so a tool that looks readings up by clip can say one went stale. */
+  expiredEntries?(): readonly ExpiredColorEvidence[];
+}
+
+/** A retired reading: enough to name it, its clip, and the edit that retired it. */
+export interface ExpiredColorEvidence {
+  readonly id: string;
+  readonly source: string;
+  readonly descriptor: string;
+  /** The clip the reading measured, when it named one. */
+  readonly clipId?: string;
+  /** The tool (else the operation types) whose applied edit retired it. */
+  readonly staledBy: string;
 }

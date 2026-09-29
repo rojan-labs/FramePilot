@@ -1470,7 +1470,7 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
  * stored it for four of its patches, where it told the next run nothing).
  */
 function operationsReason(ops: readonly AnyOperation[], names: ProjectNames): string {
-  const lines = [...new Set(ops.map((op) => operationLine(op, names)))];
+  const lines = [...new Set(receiptLines(ops, names).map((line) => line.text))];
   if (lines.length === 0) return 'Agent step';
   const shown = lines.slice(0, OPERATIONS_REASON_LINES).join('; ');
   const more = lines.length - OPERATIONS_REASON_LINES;
@@ -1575,25 +1575,80 @@ export function captionStyleNote(project: Project, trackId: unknown): string {
  */
 const NOTE_OPERATION_LINES = 8;
 
+/** One receipt line and the operations it stands for. */
+interface ReceiptLine {
+  readonly text: string;
+  readonly ops: readonly AnyOperation[];
+}
+
+/**
+ * Operation lines, with the same line from DIFFERENT clips said once with a clip count.
+ *
+ * A clip is labelled by its source file, so clips cut from one file share a label. Harness
+ * run 11's `normalize_exposure` graded three different clips of `passenger.mp4` and its
+ * receipt read "Applied color grade passenger.mp4" three times — which says one clip was
+ * graded three times. "Applied color grade passenger.mp4 (3 clips)" says what happened.
+ * Two operations on the SAME clip keep their own lines: that really is the clip twice.
+ */
+function receiptLines(ops: readonly AnyOperation[], names?: ProjectNames): ReceiptLine[] {
+  const lines = ops.map((op) => ({ op, text: operationLine(op, names), clipId: clipIdOf(op) }));
+  const clipsByText = new Map<string, Set<string>>();
+  for (const line of lines) {
+    if (line.clipId === undefined) continue;
+    const clips = clipsByText.get(line.text) ?? new Set<string>();
+    clips.add(line.clipId);
+    clipsByText.set(line.text, clips);
+  }
+  const folded = new Map<string, AnyOperation[]>();
+  const receipt: ReceiptLine[] = [];
+  for (const line of lines) {
+    const clipCount = clipsByText.get(line.text)?.size ?? 0;
+    if (clipCount < 2) {
+      receipt.push({ text: line.text, ops: [line.op] });
+      continue;
+    }
+    const group = folded.get(line.text);
+    if (group !== undefined) {
+      group.push(line.op);
+      continue;
+    }
+    const ops: AnyOperation[] = [line.op];
+    folded.set(line.text, ops);
+    receipt.push({ text: `${line.text} (${String(clipCount)} clips)`, ops });
+  }
+  return receipt;
+}
+
+/** The clip an operation targets, when it names exactly one. */
+function clipIdOf(op: AnyOperation): string | undefined {
+  const clipId = (op as { clipId?: unknown }).clipId;
+  return typeof clipId === 'string' ? clipId : undefined;
+}
+
 export function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
   call?: { readonly name: string; readonly arguments: unknown },
 ): string {
-  const lines = ops.map((op) => operationLine(op, names));
+  const lines = receiptLines(ops, names);
   let outcome: string;
   if (lines.length <= NOTE_OPERATION_LINES) {
-    outcome = lines.join('; ');
+    outcome = lines.map((line) => line.text).join('; ');
   } else {
     // The rest by ACTION, so a re-caption reads "Added captions ×694, Deleted range ×700"
     // rather than as a wall of cue times.
     const rest = new Map<string, number>();
-    for (const op of ops.slice(NOTE_OPERATION_LINES)) {
+    const unshown = lines.slice(NOTE_OPERATION_LINES).flatMap((line) => line.ops);
+    for (const op of unshown) {
       const action = describeOperation(op, names).action;
       rest.set(action, (rest.get(action) ?? 0) + 1);
     }
     const tally = [...rest.entries()].map(([action, n]) => `${action} ×${String(n)}`).join(', ');
-    outcome = `${lines.slice(0, NOTE_OPERATION_LINES).join('; ')}; …and ${String(ops.length - NOTE_OPERATION_LINES)} more (${tally})`;
+    const shown = lines
+      .slice(0, NOTE_OPERATION_LINES)
+      .map((line) => line.text)
+      .join('; ');
+    outcome = `${shown}; …and ${String(unshown.length)} more (${tally})`;
   }
   if (!call || outcome === '') return outcome;
   if (ops.some((op) => op.type === call.name)) return outcome;
@@ -5285,7 +5340,10 @@ export class Orchestrator {
         /* v8 ignore stop */
         // The transcript itself was just rewritten, so transcript-derived evidence is
         // genuinely stale — the one case where source-material knowledge does not survive.
-        host.evidence?.invalidate(ops.map((op) => op.type));
+        host.evidence?.invalidate(
+          ops.map((op) => op.type),
+          call.name,
+        );
         return {
           ops,
           note: outcome.summary,
@@ -6019,8 +6077,13 @@ export class Orchestrator {
     // `applyProjectPatch` below are not, and a throw from any of them was being
     // relabelled as the model's bad arguments AND banked as permanent.
     let ops: AnyOperation[];
+    // ONE context for the tool and for the note that explains it. The solved colour tools
+    // find their readings in the run's evidence store; the note (`colorSolveNote`) re-derives
+    // the tool's plan, and it was handed `ctx` WITHOUT the store — so it could only ever see
+    // ledger rows and called every rendered reading "nothing has measured" (AL29).
+    const toolCtx: ToolContext = host.evidence ? { ...ctx, evidence: host.evidence } : ctx;
     try {
-      ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
+      ops = this.operationsFor(call, toolCtx);
     } catch (error) {
       // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
       // invalid args/refusal) — all four are the model's to act on and all four are worth
@@ -6078,8 +6141,8 @@ export class Orchestrator {
         // "nothing to change", reissued the identical call, and ended with no text at all.
         const note =
           `${desc} — nothing to change` +
-          colorSolveNote(call.name, ctx, call.arguments) +
-          transitionsNote(call.name, ctx, call.arguments);
+          colorSolveNote(call.name, toolCtx, call.arguments) +
+          transitionsNote(call.name, toolCtx, call.arguments);
         return { ops, note, summary: note, status: 'warning' };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -6220,8 +6283,8 @@ export class Orchestrator {
         // cannot carry them — and a silence reads as "done exactly", which sends the run
         // back to re-grade or to fill in the transitions it withheld on purpose. Computed
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
-        colorSolveNote(call.name, ctx, call.arguments) +
-        transitionsNote(call.name, ctx, call.arguments) +
+        colorSolveNote(call.name, toolCtx, call.arguments) +
+        transitionsNote(call.name, toolCtx, call.arguments) +
         // How far a zoom magnifies the source, from the export's geometry on the applied
         // state, so a soft upscale is a choice rather than a surprise (magnification-note.ts).
         magnificationNote(call.name, ctx.project, applied, call.arguments) +
@@ -6248,7 +6311,12 @@ export class Orchestrator {
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
       // the footage map every time a cut landed, forcing the run to buy its own
       // reconnaissance again. A ripple delete cannot change the words that were spoken.
-      host.evidence?.invalidate(normalized.map((op) => op.type));
+      // The tool's name rides along so a reading this retires can say WHAT retired it
+      // ("measured before normalize_exposure changed the picture"), not just that it is gone.
+      host.evidence?.invalidate(
+        normalized.map((op) => op.type),
+        call.name,
+      );
       return {
         ops: normalized,
         note,

@@ -481,12 +481,29 @@ function readMeasurement(
   expectedClipId: string | undefined,
 ): ColorMeasurement | Rejection {
   const entry = input.evidence?.byHandle(evidenceId);
-  if (!entry)
+  if (!entry) {
+    // A handle the run ISSUED and then retired is not a handle that never existed. The run
+    // retires every colour reading when an edit lands that could change the picture, and
+    // "No color evidence exists" for one the model was given sent run 11 to try nine more
+    // (`ev_12`…`ev_21`) before it re-measured anything.
+    const expired = input.evidence?.expiredHandle?.(evidenceId);
+    if (expired !== undefined) {
+      const target = expired.clipId === undefined ? '' : ` on "${expired.clipId}"`;
+      return rejected(
+        input.objective,
+        'evidence_stale',
+        `Evidence "${evidenceId}" (${expired.descriptor}) is out of date: ` +
+          `${expired.staledBy} changed the timeline after it was measured, so it no longer ` +
+          `describes the picture. In one step, call measure_color${target} again and pass the ` +
+          'handle it returns.',
+      );
+    }
     return rejected(
       input.objective,
       'evidence_missing',
       `No color evidence exists for handle "${evidenceId}".`,
     );
+  }
   if (entry.source !== 'measure_color') {
     return rejected(
       input.objective,
