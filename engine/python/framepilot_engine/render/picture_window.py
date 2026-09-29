@@ -13,17 +13,24 @@ to the composite at ``t`` — MoviePy composites ``playing_clips(t)`` over the b
 layer order, and skips the rest — so dropping only non-playing layers leaves the frame at
 ``t`` bit-identical, provided every other stage is a function of ``t`` alone. The window is a
 conservative SUPERSET of the playing layers (a clip is kept when any layer it builds could
-still be playing), never an estimate, and the constructs whose frame at ``t`` depends on
-something other than the layers playing at ``t`` are refused here, so the grab falls back to
-the full compile for them:
+still be playing), never an estimate, and the one construct whose frame at ``t`` depends on
+something other than the layers playing at ``t`` is refused here, so the grab falls back to
+the full compile for it:
 
 * **Blend modes.** ``_composite_with_blend_modes`` ignores the FIRST layer's mode and
   round-trips every later layer through float, playing or not; removing a layer changes
   which layer is first and which pixels take the round trip.
-* **Track mattes** (``layer`` masks). ``LayerMatteResolver.frame_at`` answers a source with
-  no layers with an empty matte, and a source whose layers are all idle with MoviePy's own
-  composite of them; the window would turn the second case into the first, and nothing
-  proves the two are equal.
+
+Track mattes (``layer`` masks) ARE windowed. A matte source is a picture clip like any other,
+so it is in the window exactly when one of its layers can be playing, and the compile still
+consumes it as a matte (``layer_matte_sources`` reads the whole project, not the window). What
+the matte is at ``t`` is :func:`~framepilot_engine.render.layer_mattes.composite_alone` of the
+source's layers: only the layers playing at ``t``, drawn on a transparent frame (AL31). A source
+whose layers are all idle is therefore the same transparent frame as a source with none built,
+which is what the window leaves out. They were refused while the matte was MoviePy's composite
+mask of every layer, idle ones included; since AL31 refusing them only made every grab and
+colour measurement of a project with one track matte compile the whole timeline — 40 readers,
+~43 s a frame on the captured travel reel (AL33).
 
 Everything else is windowed: transitions (the under-layer a transition borrows from its
 neighbour is built by, and placed inside, the clip that carries the transition, and the
@@ -93,15 +100,14 @@ def clip_reach(clip: Clip, kind: str) -> tuple[float, float]:
 def whole_timeline_reason(project: Project) -> str | None:
     """Why a frame of ``project`` cannot be composited from a window, or ``None`` if it can.
 
-    See the module note for why each construct depends on layers that are not playing.
+    See the module note for why a blend mode depends on layers that are not playing, and why
+    a track matte does not.
     """
     for track in project.timeline.tracks:
         for clip in track.clips:
             mode = clip.blend_mode
             if mode is not None and mode != "normal":
                 return f"clip {clip.id} uses the {mode} blend mode"
-            if any(mask.enabled and mask.kind == "layer" for mask in clip.masks or []):
-                return f"clip {clip.id} uses a track matte"
     return None
 
 

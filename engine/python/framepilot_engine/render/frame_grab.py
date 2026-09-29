@@ -20,8 +20,8 @@ every clip to show the two or three playing at one instant — 26s cold for a 60
 edit, 24-45s per look in a desktop run. The same compiler is asked for the clips that can be
 playing at that instant (:mod:`framepilot_engine.render.picture_window`), and a layer that is
 not playing contributes nothing to a composited frame, so the frame is the export's to the
-pixel. Projects the window cannot reproduce exactly (blend modes, track mattes) and instants
-where no picture plays still composite everything.
+pixel. Projects the window cannot reproduce exactly (blend modes) and instants where no
+picture plays still composite everything.
 
 WHY it is downscaled and JPEG by default: the frame is sent to a model as base64
 inside a prompt. A 1080x1920 PNG is megabytes of context for a question a

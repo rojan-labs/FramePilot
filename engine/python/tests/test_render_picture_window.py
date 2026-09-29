@@ -263,6 +263,53 @@ def _edit(caption_style: dict[str, Any] | None = None, **video_overrides: Any) -
     )
 
 
+def _matted_edit(source: dict[str, Any], captions: dict[str, Any] | None = None) -> Project:
+    """:func:`_edit` with shot C cut by a track matte reading ``source`` (AL33).
+
+    The matte is a title on the titles track that starts before C and ends inside it, so C
+    has instants where its source plays and instants where every source layer is idle — the
+    case the window used to refuse. It grows while it plays (AL31: the matte follows it).
+    """
+    data = _edit(captions, C={"masks": [{"id": "tm", "kind": "layer", "source": source}]})
+    payload = data.model_dump(mode="json", by_alias=True)
+    # A source-space mask is resolved against the measured media size.
+    for asset in payload["assets"]:
+        if asset["kind"] == "video":
+            asset["media"] = {"width": 160, "height": 96}
+    titles = next(track for track in payload["timeline"]["tracks"] if track["id"] == "titles")
+    titles["clips"].append(
+        _clip(
+            "matte_title",
+            "__text__",
+            "titles",
+            1.9,
+            2.6,
+            effects=[
+                {
+                    "id": "matte_text",
+                    "type": "text",
+                    "params": {"text": "MATTE", "fontSizePercent": 30},
+                    "keyframes": [],
+                }
+            ],
+            keyframes=[
+                {"id": "g0", "time": 0.0, "property": "scale", "value": 0.6},
+                {"id": "g1", "time": 0.7, "property": "scale", "value": 1.4},
+            ],
+        )
+    )
+    return Project.model_validate(payload)
+
+
+#: The matte source, as a clip and as its whole track (the track also holds ``title``).
+MATTE_SOURCES = {
+    "clip": {"kind": "clip", "clipId": "matte_title"},
+    "track": {"kind": "track", "trackId": "titles"},
+}
+#: Instants of :func:`_matted_edit` either side of the matte source's span inside shot C.
+MATTE_TIMES = (0.95, 1.95, 2.0, 2.3, 2.59, 2.6, 2.7, 2.95)
+
+
 def _index(project: Project, base: Path) -> AssetIndex:
     return index_assets([asset.model_dump() for asset in project.assets], base_dir=base)
 
@@ -313,6 +360,45 @@ class TestWindowedFrameIsTheExportFrame:
             close_clip_tree(full)
 
         for t in PARITY_TIMES:
+            window = picture_window_at(project, t, _kinds(index))
+            assert window is not None, t
+            part = compile_timeline(
+                project,
+                index,
+                preset,
+                burn_captions=True,
+                max_decode_dimension=budget,
+                window=window,
+            )
+            try:
+                assert part.duration is None or t < part.duration, t
+                np.testing.assert_array_equal(np.asarray(part.get_frame(t)), reference[t], str(t))
+            finally:
+                close_clip_tree(part)
+
+    @pytest.mark.parametrize("source", sorted(MATTE_SOURCES))
+    def test_a_track_matte_frame_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, source: str
+    ) -> None:
+        """AL33: a shot cut by a track matte is windowed, and its frame is still the export's.
+
+        Both while the matte's source plays (it is in the window and consumed as the matte)
+        and after it ends (it is left out, and the matte is the same empty frame).
+        """
+        project = _matted_edit(MATTE_SOURCES[source])
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        full = compile_timeline(
+            project, index, preset, burn_captions=True, max_decode_dimension=budget
+        )
+        try:
+            reference = {t: np.asarray(full.get_frame(t)).copy() for t in MATTE_TIMES}
+        finally:
+            close_clip_tree(full)
+        # The matte is not a no-op here: C shows only through the title's letters.
+        assert not np.array_equal(reference[2.3], reference[2.7])
+
+        for t in MATTE_TIMES:
             window = picture_window_at(project, t, _kinds(index))
             assert window is not None, t
             part = compile_timeline(
@@ -415,6 +501,18 @@ class TestOnlyTheWindowIsOpened:
 
         assert len(opened.video) == first
         assert FRAME_WINDOW_CACHE.hits == hits + 1
+
+    def test_a_grab_of_a_matted_shot_opens_only_that_shot(
+        self, media_dir: Path, opened: _OpenedReaders
+    ) -> None:
+        """AL33: one track matte in the project no longer opens every clip for every grab."""
+        misses = COMPOSITION_CACHE.misses
+        grab_frame(_matted_edit(MATTE_SOURCES["clip"]), media_dir, 2.3)
+
+        # C (z.mp4) and its title matte (no file); never A, B, D or the music.
+        assert opened.files == {"z.mp4"}
+        assert opened.audio == []
+        assert COMPOSITION_CACHE.misses == misses
 
     def test_the_export_compile_is_untouched(self, media_dir: Path, opened: _OpenedReaders) -> None:
         project = _edit()
@@ -628,6 +726,24 @@ class TestScopeMeasurementWindow:
         whole = acquire_temporal_evidence(_edit(), media_dir, self._scope())
         assert result.model_dump() == whole.model_dump()
 
+    def test_a_scope_of_a_matted_shot_compiles_only_its_window(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch, opened: _OpenedReaders
+    ) -> None:
+        """AL33: ``measure_color`` on a project with a track matte reads its shot, not them all.
+
+        Run 15's six scopes each compiled the whole 65-clip timeline at full resolution
+        because one opener clip carried a track matte; five timed out at 120 s.
+        """
+        compiled, _closed = self._track_compiles(monkeypatch)
+        project = _matted_edit(MATTE_SOURCES["clip"])
+        scope = self._scope()[0].model_copy(update={"start_frame": 64, "end_frame": 87})
+        result = acquire_temporal_evidence(project, media_dir, [scope])
+        assert len(compiled) == 1
+        assert opened.files == {"z.mp4"}
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        whole = acquire_temporal_evidence(project, media_dir, [scope])
+        assert result.model_dump() == whole.model_dump()
+
     def test_scope_composites_are_closed_before_the_batch_returns(
         self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -692,15 +808,14 @@ class TestPictureWindowPlanning:
         assert window is not None
         assert window.clip_ids == {"A", "B", "title", "cue1"}
 
-    def test_a_track_matte_composites_everything(self) -> None:
-        matte = {
-            "id": "m",
-            "kind": "layer",
-            "enabled": True,
-            "source": {"kind": "clip", "clipId": "A"},
-        }
-        project = _edit(C={"masks": [matte]})
-        assert picture_window_at(project, 2.5, KINDS) is None
+    def test_a_track_matte_is_windowed_with_the_source_playing_beside_it(self) -> None:
+        project = _matted_edit({"kind": "clip", "clipId": "matte_title"})
+        # The source plays at 2.3s, so it joins its reader's window ...
+        playing = picture_window_at(project, 2.3, KINDS)
+        assert playing is not None and playing.clip_ids == {"C", "cue2", "matte_title"}
+        # ... and at 2.8s it is idle: an idle source draws the empty matte, so it stays out.
+        idle = picture_window_at(project, 2.8, KINDS)
+        assert idle is not None and idle.clip_ids == {"C", "cue2"}
 
     def test_a_gap_composites_everything(self) -> None:
         project = _edit(D={"start": 3.5, "end": 4.0, "sourceEnd": 1.5})
