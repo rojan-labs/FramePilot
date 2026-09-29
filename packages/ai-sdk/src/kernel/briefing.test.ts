@@ -637,11 +637,11 @@ describe('buildStateBriefing — the model-owned plan (update_plan)', () => {
     { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
   ];
 
-  it('shows the whole plan, one line per item, because each update replaces the whole list', () => {
+  it('shows the whole plan, one line per item, because each update takes the whole list', () => {
     const text = buildStateBriefing(base(), [], plan);
     expect(text).toContain(
       [
-        'YOUR PLAN — keep it current with update_plan (each call replaces the whole list)',
+        'YOUR PLAN — keep it current with update_plan (send every item each call)',
         '[x] Build the 24-shot montage from the shot list',
         '[>] Warm teal-orange grade — shots 1–12 done',
         '[ ] Speed ramps on shots 7 and 19',

@@ -6199,6 +6199,89 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     expect(report).toContain('- Warm grade across every shot — not done');
   });
 
+  // AL44 — harness run 18's last update_plan sent two items over a 24-item plan. The call
+  // replaced the list, so the blocked masking items and the open ones it left out vanished:
+  // the run ended, and "Not done" named only what the last call happened to list.
+  it('keeps the items a later call leaves out: the run continues on them and reports them (run 18)', async () => {
+    const provider = new ScriptedProvider([
+      {
+        text: 'Planning and tightening the intro.',
+        toolCalls: [
+          planCall('p1', [
+            { task: 'Tighten the intro', status: 'in_progress' },
+            {
+              task: 'Masking: text behind the hero word',
+              status: 'blocked',
+              note: 'Cut-out job the editor must start',
+            },
+            { task: 'Sound design', status: 'pending' },
+            { task: 'QA', status: 'pending' },
+          ]),
+          deleteRange('d1', 0, 1),
+        ],
+      },
+      // The run-18 shape: only the items this turn touched.
+      {
+        text: 'Intro and QA done.',
+        toolCalls: [
+          planCall('p2', [
+            { task: 'Tighten the intro', status: 'done', note: 'delete_range 0–1s' },
+            { task: 'QA', status: 'done', note: 'scrubbed every cut' },
+          ]),
+        ],
+      },
+      { text: 'All done.', toolCalls: [] },
+      { text: 'All done.', toolCalls: [] },
+      { text: '', toolCalls: [] },
+      { text: '', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // The second call's answer says what the plan kept, in the words that settle it.
+    expect(provider.requests[2]!.messages.at(-1)!.content).toContain(
+      'Plan saved (1 pending, 2 done, 1 blocked). Kept 2 items your list left out, as they ' +
+        'were: “Masking: text behind the hero word” (blocked), “Sound design” (pending). An ' +
+        'item leaves the plan only as done or blocked — list every item each call. Next: ' +
+        '“Sound design”.',
+    );
+    // The carried open item keeps the run going past the first reply.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: '1 plan item still open — continuing with “Sound design”.',
+      }),
+    );
+    // The checklist is the whole plan, in its original order.
+    const plans = reduceEvents(events).nodes.filter((node) => node.kind === 'plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      steps: [
+        { label: 'Tighten the intro', status: 'completed' },
+        { label: 'Masking: text behind the hero word', status: 'failed' },
+        { label: 'Sound design', status: 'failed' },
+        { label: 'QA', status: 'completed' },
+      ],
+    });
+    // And the report names both the carried blocked item and the carried open one.
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain('- Sound design — not done');
+    expect(report).toContain(
+      '- Masking: text behind the hero word — blocked: Cut-out job the editor must start',
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'warning',
+        text: 'Not everything in the plan was done — still open: “Sound design”.',
+      }),
+    );
+  });
+
   it('is not offered on the read-only question route', () => {
     const orchestrator = new Orchestrator(new ScriptedProvider([{ text: '' }]));
     expect(orchestrator.agentTools('question').map((tool) => tool.name)).not.toContain(

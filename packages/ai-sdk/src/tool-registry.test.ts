@@ -355,8 +355,28 @@ describe('read tools', () => {
         ZodError,
       );
       expect(() =>
-        read({ items: [{ task: 'Grade', status: 'blocked', note: 'x'.repeat(241) }] }),
+        read({ items: [{ task: 'Grade', status: 'blocked', note: 'x'.repeat(481) }] }),
       ).toThrow(ZodError);
+    });
+
+    it('takes a done note that names its edits in full, and says the limit past it (AL44)', () => {
+      // Harness runs 8, 10, 13 and 18 each lost a turn to "items.0.note: Too big: expected
+      // string to have <=240 characters" on a first item's review-pass note.
+      const long = `contact sheets of all 20 sources; ${'x'.repeat(400)}`;
+      expect(long.length).toBeGreaterThan(240);
+      expect(() => read({ items: [{ task: 'Review', status: 'done', note: long }] })).not.toThrow();
+      expect(() =>
+        read({ items: [{ task: 'Review', status: 'done', note: 'x'.repeat(481) }] }),
+      ).toThrow(
+        'A note is at most 480 characters — shorten it to the edit that delivered the item, or why no tool can do it.',
+      );
+    });
+
+    it('tells the model a list that leaves items out keeps them (AL44)', () => {
+      expect(plan.description).toContain(
+        'an earlier item you leave out is kept as it was — an item leaves the plan only as done or blocked',
+      );
+      expect(plan.description).not.toContain('it replaces the last one');
     });
 
     it('is a serial, host-only session read that changes no timeline', () => {

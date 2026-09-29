@@ -163,8 +163,10 @@ import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import {
+  MODEL_PLAN_OVERFLOW_REFUSAL,
   type ModelPlanItem,
   describeToolDomains,
+  mergeModelPlan,
   modelPlanEcho,
   modelPlanObjectiveKey,
   modelPlanSteps,
@@ -2128,6 +2130,13 @@ interface HostCallContext {
    * this file constructs threads the run's ledger.
    */
   readonly loadedToolDomains: Set<ToolDomain>;
+  /**
+   * The model's plan as the run holds it at this call: the conductor's list when the turn
+   * began, updated by each `update_plan` call the turn makes (they are serial). An update is
+   * merged into it rather than replacing it (`kernel/model-plan.ts#mergeModelPlan`, AL44), so
+   * the handler has to know what the plan said. Absent on surfaces that hold no plan.
+   */
+  readonly modelPlan?: { items: readonly ModelPlanItem[] | undefined };
   /**
    * Resolves the model's own questions (P12). Optional on purpose: only a surface with a
    * live editor in front of it can answer, so the non-streaming paths leave it out and
@@ -6005,9 +6014,28 @@ export class Orchestrator {
         // memo, for the same reason as `load_tools` above: the call's whole purpose is to
         // change run state, and "unchanged since you last read it" is not an answer to it.
         // The validated list rides out on the outcome; the conductor owns it from there.
+        //
+        // The call's list is MERGED into the plan, not swapped for it (AL44): an earlier item
+        // it leaves out is kept with its last status, and the echo says which. Harness run 18
+        // sent two items over a 24-item plan and the four blocked ones vanished unreported.
         if (call.name === 'update_plan') {
-          const items = (value as { items: readonly ModelPlanItem[] }).items;
-          const echo = modelPlanEcho(items) + unloadedDomainsNote(items, host.loadedToolDomains);
+          const sent = (value as { items: readonly ModelPlanItem[] }).items;
+          const merged = mergeModelPlan(host.modelPlan?.items, sent);
+          if (merged === undefined) {
+            return {
+              ops: [],
+              note: `${desc} → ${MODEL_PLAN_OVERFLOW_REFUSAL}`,
+              summary: MODEL_PLAN_OVERFLOW_REFUSAL,
+              status: 'failed',
+              data: MODEL_PLAN_OVERFLOW_REFUSAL,
+              deterministicFailure: true,
+            };
+          }
+          const items = merged.items;
+          if (host.modelPlan) host.modelPlan.items = items;
+          const echo =
+            modelPlanEcho(items, merged.carried) +
+            unloadedDomainsNote(items, host.loadedToolDomains);
           return {
             ops: [],
             note: `${desc} → ${echo}`,
@@ -7584,6 +7612,11 @@ export class Orchestrator {
      * request can pick the list up (AL5). Absent ⇒ the event carries the steps only.
      */
     modelPlanObjectiveKey?: string,
+    /**
+     * The model's plan as the conductor holds it when the turn begins, so an `update_plan`
+     * call is merged into it (see `HostCallContext.modelPlan`). Absent ⇒ no plan yet.
+     */
+    priorModelPlan?: readonly ModelPlanItem[],
   ): AsyncGenerator<
     AiEvent,
     {
@@ -7663,6 +7696,7 @@ export class Orchestrator {
       ...(appliedCalls ? { appliedCalls } : {}),
       loadedSkills,
       loadedToolDomains,
+      modelPlan: { items: priorModelPlan },
       ...(askUser ? { askUser } : {}),
       ...(rememberDecision ? { rememberDecision } : {}),
       ...(maskSpotCheck ? { maskSpotCheck } : {}),
@@ -10305,6 +10339,7 @@ export class Orchestrator {
           // bounded question to it, never a second reviewer.
           review.visionReview,
           planObjectiveKey,
+          effect.modelPlan,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it

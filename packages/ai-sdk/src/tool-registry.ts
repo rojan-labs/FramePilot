@@ -235,7 +235,19 @@ const planItemSchema = z
   .object({
     task: z.preprocess(trimmed, z.string().min(1).max(MODEL_PLAN_TASK_CHARS)),
     status: z.enum(MODEL_PLAN_STATUSES),
-    note: z.preprocess(blankToUndefined, z.string().max(MODEL_PLAN_NOTE_CHARS).optional()),
+    // The limit and the fix in one sentence: "Too big: expected string to have <=240
+    // characters" cost harness runs 8, 10, 13 and 18 a turn each without saying what to cut.
+    note: z.preprocess(
+      blankToUndefined,
+      z
+        .string()
+        .max(
+          MODEL_PLAN_NOTE_CHARS,
+          `A note is at most ${String(MODEL_PLAN_NOTE_CHARS)} characters — shorten it to the ` +
+            'edit that delivered the item, or why no tool can do it.',
+        )
+        .optional(),
+    ),
   })
   .strict()
   .refine((item) => item.status !== 'blocked' || item.note !== undefined, {
@@ -471,7 +483,8 @@ const readTools: ToolSpec[] = [
       name: 'update_plan',
       description:
         'Write your plan for this request and keep it current: the FULL list every call ' +
-        '(it replaces the last one), one item per deliverable the request asks for, in the ' +
+        '(an earlier item you leave out is kept as it was — an item leaves the plan only as ' +
+        'done or blocked), one item per deliverable the request asks for, in the ' +
         "request's own terms and order. A section that names several treatments is one " +
         'item per treatment, so blocking one never hides the rest. ' +
         'Status: pending, in_progress, done, or blocked — ' +

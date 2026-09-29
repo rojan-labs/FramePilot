@@ -29,8 +29,17 @@ import { DOMAIN_SUMMARY, LOADABLE_DOMAINS, type ToolDomain } from '../tool-domai
 export const MODEL_PLAN_MAX_ITEMS = 40;
 /** Characters of one item's task: a deliverable named in a line, not a paragraph. */
 export const MODEL_PLAN_TASK_CHARS = 160;
-/** Characters of one item's note — for a blocked item, why no tool can do it. */
-export const MODEL_PLAN_NOTE_CHARS = 240;
+/**
+ * Characters of one item's note — for a done item, the edit that delivered it; for a blocked
+ * item, why no tool can do it.
+ *
+ * 480, up from 240 (AL44). Since a done note has to name its edit, the first item of a big
+ * brief — "review every clip", delivered by a pass over twenty sources — outgrew 240: harness
+ * runs 8, 10, 13 and 18 each lost a turn to `items.0.note: Too big`. 480 characters is about
+ * eighty words, still a note and not a report, and the cost stays bounded: the tool result
+ * never echoes notes, and the briefing repeats only blocked and in-progress ones.
+ */
+export const MODEL_PLAN_NOTE_CHARS = 480;
 
 /** Every status an item can hold, in the order the schema advertises them. */
 export const MODEL_PLAN_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
@@ -99,28 +108,160 @@ const STATUS_WORDS: Readonly<Record<ModelPlanStatus, string>> = {
   blocked: 'blocked',
 };
 
+// ---------------------------------------------------------------------------
+// An update never loses an item silently (AL44)
+// ---------------------------------------------------------------------------
+
+/**
+ * What identifies an item across `update_plan` calls: its task as the model reads it back.
+ *
+ * The label, not the raw text, because the briefing shows the model its plan as labels
+ * (markdown stripped, {@link planItemLabel}); a model that copies "**Mix**" back as "Mix" is
+ * naming the same item. Otherwise exact: no case folding, no fuzzy matching — a rewritten
+ * task is a new item, and the old one is carried until the model settles it.
+ */
+function planItemKey(item: ModelPlanItem): string {
+  return planItemLabel(item);
+}
+
+/** The plan an `update_plan` call leaves, and the earlier items it kept that the call left out. */
+export interface ModelPlanMerge {
+  readonly items: readonly ModelPlanItem[];
+  /** Earlier items the call's list left out, carried with their last status and note. */
+  readonly carried: readonly ModelPlanItem[];
+}
+
+/**
+ * The plan after an `update_plan` call: the call's list, plus every earlier item it left out.
+ *
+ * `update_plan` used to REPLACE the list. Harness run 18 held 24 items — 18 done, 4 masking
+ * items blocked, QA in progress, deliverables pending — and its last call sent two. The plan
+ * became those two, the "Not done" account named one of them, and the four blocked items and
+ * everything the run had delivered vanished from the plan without a word. So an item leaves
+ * the plan only by being settled, never by being omitted:
+ *
+ * - An omitted PENDING, IN-PROGRESS or BLOCKED item is carried with its last status and note.
+ *   Open ones keep the run going, as they did before the call; blocked ones stay in the
+ *   report of what was not done.
+ * - An omitted DONE item is carried too. Dropping it would change nothing the loop decides,
+ *   but it would erase the delivered work from the editor's checklist and from the record a
+ *   run continuing this request starts from (AL5) — which would then plan it again. It gives
+ *   way first when the plan is full ({@link MODEL_PLAN_MAX_ITEMS}): it is settled, and the
+ *   open and blocked items are the ones the account exists for.
+ *
+ * Order: the call's items in the call's order, each carried item where it sat among them —
+ * just before the next earlier item the call still names. A list that only settles its last
+ * two items reads back in the original order.
+ *
+ * Matching is by {@link planItemKey}. An item the call names twice is one item.
+ *
+ * @returns `undefined` when the open and blocked items the call left out do not fit in the
+ *   plan beside the ones it named: the call is refused, and the plan stays as it was.
+ */
+export function mergeModelPlan(
+  prior: readonly ModelPlanItem[] | undefined,
+  next: readonly ModelPlanItem[],
+): ModelPlanMerge | undefined {
+  const named = new Set(next.map(planItemKey));
+  const omitted = (prior ?? []).filter((item) => !named.has(planItemKey(item)));
+  if (omitted.length === 0) return { items: next, carried: [] };
+  const room = MODEL_PLAN_MAX_ITEMS - next.length;
+  const unsettled = omitted.filter((item) => item.status !== 'done');
+  if (unsettled.length > room) return undefined;
+  // The newest done items are kept when not all fit: the plan's tail is nearest the work.
+  const doneRoom = room - unsettled.length;
+  const done = omitted.filter((item) => item.status === 'done');
+  const keptDone = new Set(doneRoom > 0 ? done.slice(-doneRoom) : []);
+  const carried = omitted.filter((item) => item.status !== 'done' || keptDone.has(item));
+  const carriedSet = new Set(carried);
+  // Walk the earlier plan: a carried item goes out as it is met; a named one releases the
+  // call's items up to and including it, so the call's own order is never changed.
+  const items: ModelPlanItem[] = [];
+  let released = 0;
+  const release = (upTo: number): void => {
+    while (released <= upTo && released < next.length) items.push(next[released++]!);
+  };
+  for (const item of prior ?? []) {
+    if (carriedSet.has(item)) {
+      items.push(item);
+      continue;
+    }
+    const key = planItemKey(item);
+    const at = next.findIndex(
+      (candidate, index) => index >= released && planItemKey(candidate) === key,
+    );
+    if (at >= 0) release(at);
+  }
+  release(next.length - 1);
+  return { items, carried };
+}
+
+/**
+ * The refusal for an `update_plan` call whose omissions do not fit ({@link mergeModelPlan}).
+ * Fixed words, so a repeat is one guard key.
+ */
+export const MODEL_PLAN_OVERFLOW_REFUSAL =
+  `Plan not saved: your list leaves out items of your plan that are still open or blocked, ` +
+  `and keeping them beside it would pass ${String(MODEL_PLAN_MAX_ITEMS)} items. Send the ` +
+  'whole plan: every earlier item with its status (mark finished ones done), merging ' +
+  'items that belong together.';
+
+/** How many carried items the echo names before counting the rest. */
+const CARRIED_ITEMS_NAMED = 4;
+
+/**
+ * The echo's account of what a call left out and the plan kept ({@link mergeModelPlan}).
+ * Empty when nothing was carried. Names the open and blocked ones, with their status, in the
+ * words the model must use to settle them; counts the done ones.
+ */
+function carriedItemsNote(carried: readonly ModelPlanItem[]): string {
+  if (carried.length === 0) return '';
+  const unsettled = carried.filter((item) => item.status !== 'done');
+  const done = carried.length - unsettled.length;
+  const named = unsettled
+    .slice(0, CARRIED_ITEMS_NAMED)
+    .map((item) => `“${planItemLabel(item)}” (${STATUS_WORDS[item.status]})`);
+  const rest = unsettled.length - named.length;
+  const list = rest > 0 ? `${named.join(', ')} and ${String(rest)} more` : named.join(', ');
+  const doneText = `${String(done)} done item${done === 1 ? '' : 's'}`;
+  const what = unsettled.length === 0 ? doneText : done > 0 ? `${list}, and ${doneText}` : list;
+  return (
+    ` Kept ${String(carried.length)} item${carried.length === 1 ? '' : 's'} your list left out, ` +
+    `as they were: ${what}. An item leaves the plan only as done or blocked — list every ` +
+    'item each call.'
+  );
+}
+
 /**
  * What `update_plan` answers: the counts and the next open item, never the list back.
  *
  * The model just wrote the list; echoing it would bill it a second time on every call. What
  * it needs from the result is confirmation that the plan landed and what the loop will now
- * hold it to — which item is next, or that nothing is open and a reply ends the run.
+ * hold it to — which item is next, or that nothing is open and a reply ends the run — and,
+ * when its list left earlier items out, which ones the plan kept ({@link mergeModelPlan}).
+ *
+ * @param items - The plan as the call left it (after the merge).
+ * @param carried - The earlier items the call left out and the plan kept.
  */
-export function modelPlanEcho(items: readonly ModelPlanItem[]): string {
+export function modelPlanEcho(
+  items: readonly ModelPlanItem[],
+  carried: readonly ModelPlanItem[] = [],
+): string {
   const tally = modelPlanTally(items);
   const counts = MODEL_PLAN_STATUSES.filter((status) => tally[status] > 0)
     .map((status) => `${String(tally[status])} ${STATUS_WORDS[status]}`)
     .join(', ');
+  const kept = carriedItemsNote(carried);
   const next = nextOpenItem(items);
   if (next === undefined) {
     return (
-      `Plan saved (${counts}). Nothing is pending or in progress, so a reply without a ` +
+      `Plan saved (${counts}).${kept} Nothing is pending or in progress, so a reply without a ` +
       'tool call now ends the run — give your summary.'
     );
   }
   return (
-    `Plan saved (${counts}). Next: “${planItemLabel(next)}”. The run continues while any ` +
-    'item is pending or in progress.'
+    `Plan saved (${counts}).${kept} Next: “${planItemLabel(next)}”. The run continues while ` +
+    'any item is pending or in progress.'
   );
 }
 
@@ -135,8 +276,9 @@ const BRIEFING_MARK: Readonly<Record<ModelPlanStatus, string>> = {
 /**
  * The plan as the RUN STATE briefing shows it: one line per item, every item.
  *
- * Every item, not only the open ones, because `update_plan` replaces the whole list — a
- * model shown half of its plan would send half of it back. Notes ride only where they are
+ * Every item, not only the open ones, because `update_plan` takes the whole list — a model
+ * shown half of its plan would send half of it back, and the half it left out would be
+ * carried and reported back to it ({@link mergeModelPlan}). Notes ride only where they are
  * the point: why an item is blocked, and what an in-progress item is waiting on.
  */
 export function modelPlanBriefingLines(items: readonly ModelPlanItem[]): readonly string[] {

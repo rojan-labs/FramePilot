@@ -372,12 +372,13 @@ export function buildStateBriefing(
     );
   }
 
-  // The model's own plan, whole: `update_plan` replaces the list on every call, so a model
-  // shown part of it would send part of it back. Beside OBJECTIVES because it answers the
-  // same question — what is left — in the model's words rather than the seed's.
+  // The model's own plan, whole: `update_plan` takes the whole list on every call, so a
+  // model shown part of it would send part of it back (and hear the rest was kept, AL44).
+  // Beside OBJECTIVES because it answers the same question — what is left — in the model's
+  // words rather than the seed's.
   if (modelPlan && modelPlan.length > 0) {
     sections.push(
-      `YOUR PLAN — keep it current with update_plan (each call replaces the whole list)\n${modelPlanBriefingLines(
+      `YOUR PLAN — keep it current with update_plan (send every item each call)\n${modelPlanBriefingLines(
         modelPlan,
       ).join('\n')}`,
     );
