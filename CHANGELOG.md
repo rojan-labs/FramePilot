@@ -76,6 +76,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Outlined, letter-spaced captions no longer have stripes through the letters.** In looks such
   as Comic, Punchline and Sticker, each letter's outline was painted over the letter before it in
   the export. Outlines are now drawn first and letters on top, as the preview draws them.
+- **Titles placed behind a person are no longer shrunk more than needed.** When the assistant
+  measured a subject for a title with several words, it could size the title far smaller than
+  the frame allows ("WEEKEND TRIP" at 9 % instead of 13 %). It now sizes it as its title tools do.
 - **A slow final check no longer throws the whole check away.** After an edit the assistant looks
   at sample frames of the result. On a long project with many captions that check could run out of
   time, and everything it had already looked at was discarded, so the edits went unchecked. It now

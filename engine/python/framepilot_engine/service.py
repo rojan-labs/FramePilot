@@ -331,7 +331,7 @@ from framepilot_engine.render.source_sheet import (
     SheetSource,
     grab_source_sheet,
 )
-from framepilot_engine.render.text_overlay import rasterize_text_overlay
+from framepilot_engine.render.text_overlay import title_drawn_size
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
 from framepilot_engine.timeline.models import Asset, Project, ProjectFile, ProjectFileError
@@ -1093,7 +1093,17 @@ def _fit_title_size(
     Measured with the export's own rasterizer (font-aware), so "fits" means the pixels fit,
     not an estimate of them. A title that already fits keeps its size (``shrunk_from`` is
     ``None``); one that would run out of the frame — the 20 % "MOTION" of the captured runs —
-    comes back at the largest size, to a tenth of a percent, that does not.
+    comes back at the largest size, in tenths of a percent, that does not.
+
+    What is measured is what the title visibly draws (:func:`title_drawn_size`), not its
+    raster: a title with typography is drawn on the caption rasterizer's canvas, whose
+    transparent margin made it read up to 330 px too wide, so this sized it smaller than the
+    AI layer's fit (``overlay-fit.ts`` ``largestFittingSizePercent``) does. Like that fit it
+    judges every WORD, since the title tools write a box of the safe width and wrap inside it:
+    the whole text probed on one 100 % line judged a line that the 92 % box would have broken,
+    so "WEEKEND TRIP" asked for at 30 % came back at 9.1 % instead of 13.2 % (and the answer
+    jumped about as the words joined and split). It walks the same tenths that fit walks, so
+    the two land on the same number.
     """
     requested = style.get("fontSizePercent")
     size = (
@@ -1102,21 +1112,23 @@ def _fit_title_size(
         else TITLE_DEFAULT_SIZE_PERCENT
     )
     limit = TITLE_SAFE_WIDTH_FRACTION * width
+    words = list(dict.fromkeys(text.split())) or [text]
 
-    def rendered_width(percent: float) -> int:
+    def fits(percent: float) -> bool:
         probe = {**style, "fontSizePercent": percent, "boxWidthPercent": 100}
-        return int(rasterize_text_overlay(text, probe, width, height).shape[1])
+        return all(title_drawn_size(word, probe, width, height)[0] <= limit for word in words)
 
-    if rendered_width(size) <= limit:
+    if fits(size):
         return (round(size, 1), None)
-    lo, hi = TITLE_MIN_SIZE_PERCENT, size
-    for _ in range(12):
-        mid = (lo + hi) / 2
-        if rendered_width(mid) <= limit:
+    # Largest tenth that fits; below the smallest title size nothing is smaller to try.
+    lo, hi = round(TITLE_MIN_SIZE_PERCENT * 10), math.ceil(size * 10) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if fits(mid / 10):
             lo = mid
         else:
-            hi = mid
-    return (math.floor(lo * 10) / 10, round(size, 1))
+            hi = mid - 1
+    return (lo / 10, round(size, 1))
 
 
 class SubjectLayoutRequest(AnalysisProjectSource):
@@ -6809,9 +6821,13 @@ def create_app(
         text = req.text if req.text is not None and req.text.strip() else None
 
         def box_at(size: float) -> tuple[float, float]:
+            # What the title visibly draws, not its raster: a typed title's canvas has a
+            # transparent margin that is no part of the word the subject must cover.
             assert text is not None
-            raster = rasterize_text_overlay(text, {**style, "fontSizePercent": size}, width, height)
-            return (raster.shape[1] / width, raster.shape[0] / height)
+            drawn_w, drawn_h = title_drawn_size(
+                text, {**style, "fontSizePercent": size}, width, height
+            )
+            return (drawn_w / width, drawn_h / height)
 
         if text is not None:
             fitted = _fit_title_size(text, style, width, height)

@@ -178,6 +178,15 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `punchline`, `sticker` + 4 more): `_draw_token_text` now strokes every letter, then fills. Those
   7 looks change (no golden encodes them); test
   `test_a_tracked_outline_never_cuts_through_the_neighbouring_letter`.
+- [x] **AL24** The engine's title fit (`service._fit_title_size`, used only by
+  `/analyze/subject-layout` → `measure_subject`, whose size the title is then written at) disagreed
+  with `overlay-fit.ts`. (1) It measured the raster: a typed title's caption canvas has a transparent
+  margin (36 px; 164 with a shadow), so a shadowed "MOTION" fitted at 7.8 % vs the TS 10.5 %. Latent
+  for the agent today (`measure_subject`'s style takes no typography). (2) It probed the whole text on
+  a 100 % line against the 92 % width, non-monotonic: plain "WEEKEND TRIP" asked at 30 % → 9.1 % vs
+  13.2 %. Now `text_overlay.title_drawn_size` (max of wrap box and unshadowed ink, as `title_metrics`
+  records) judged per word over tenths, as the TS fit does; the subject-layout text box uses it too.
+  Tests: `test_title_fit.py` (cross-check against `title_metrics` + the TS arithmetic twin).
 - [x] **AL21** #137: `reframe_to_subject { clipId, maskId }` (masking domain, host-measured) bakes
   a subject-following reframe into ordinary x/y/scale keyframes. There is no schema change and
   no live link (MO-14 is still open). The desktop host reads the mask's digest-pinned
