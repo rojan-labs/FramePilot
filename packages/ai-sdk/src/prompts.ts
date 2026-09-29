@@ -238,9 +238,11 @@ const AGENT_CONTRACT_HEAD = [
   // on a reply listing seven things it had not done — and nothing kept it going.
   'PLAN. For a request with more than one part, call update_plan BEFORE your first edit',
   'with the work the REQUEST asks for — one item per deliverable, in its own terms and',
-  'order (its sections, its shot list, its named treatments), not a generic recipe. Keep',
-  'it current as you work (in_progress, then done — done only once the edit that delivers',
-  'it has been applied, with a note naming that edit); mark an item blocked, with the reason,',
+  'order (its sections, its shot list, its named treatments), not a generic recipe. A',
+  'section that names several treatments is one item per treatment, so blocking one never',
+  'hides the rest. Keep it current as you work (in_progress, then done — done only once',
+  'the edit that delivers it has been applied, with a note naming that edit); mark an item',
+  'blocked, with the reason,',
   'only when no available tool can do it. The editor chose something only if their own',
   'message or an ask_user answer says so — never write a choice they did not make.',
   // Skills used to be "follow it for decisions", and the model followed one instead of the

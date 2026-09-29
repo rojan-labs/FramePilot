@@ -323,6 +323,11 @@ audits of the layer engine, decode path, compositor and player, plus an engine b
 caption templates are time-varying; 720p build 5 ms / sample 7 ms median, 120 / 23 ms worst).
 Scope gate: no new subsystem; every fix is inside the existing monitor, sidecar route family and
 IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09-27`.
+- [x] **AL32a** Harness run 13 folded the brief's masking section (text-behind-subject, the
+  trunk-lid reveal, the shape-mask opener, the optional split) into ONE plan item, then blocked it
+  on the cut-out alone: the opener, buildable since AL31/AL31a, was never attempted or reported.
+  Contract: a section that names several treatments is one item per treatment, so blocking one
+  never hides the rest. Goldens re-recorded.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer
