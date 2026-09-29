@@ -101,7 +101,7 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - **Video inside text:** `add_text_layer` above the clip, then `mask_with_layer` on the clip
   (`sourceClipId` = the text, `channel: "alpha"`).
 - **Shape-mask opener:** `add_shape` a `rounded-rect/filled`, `add_keyframes` its `scale`
-  0.4 → 1, then `mask_with_layer` as above with the shape: the matte grows with it.
+  0.4 → 1.15 (past the frame, so the corners leave it), then `mask_with_layer` as above.
 - **Everyone except the host:** `find_mask_targets` returns `needs_face_selection`; the editor
   picks the faces. Face recognition is their choice per project, off by default.
 

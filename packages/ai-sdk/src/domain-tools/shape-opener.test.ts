@@ -50,7 +50,7 @@ describe('the shape-mask opener', () => {
       clipId: shape.id,
       keyframes: [
         { time: 0, property: 'scale', value: 0.4, easing: 'ease-in-out' },
-        { time: 0.47, property: 'scale', value: 1 },
+        { time: 0.47, property: 'scale', value: 1.15 },
       ],
     });
     project = run('mask_with_layer', project, {
@@ -68,7 +68,7 @@ describe('the shape-mask opener', () => {
     ]);
     const grown = clipsOf(project).find((clip) => clip.id === shape.id)!;
     expect(grown.keyframes?.filter((k) => k.property === 'scale').map((k) => k.value)).toEqual([
-      0.4, 1,
+      0.4, 1.15,
     ]);
   });
 });
