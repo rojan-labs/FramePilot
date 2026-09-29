@@ -841,12 +841,25 @@ def _font_ascent_descent(font: _Font) -> tuple[int, int]:
 
 
 def _token_width(token: str, font: _Font, letter_spacing_px: float) -> float:
-    """Token advance width including inter-character letter spacing (negative tightens)."""
+    """Token advance width, every glyph carrying its letter spacing after it (negative tightens).
+
+    The last glyph carries it too. That is CSS ``letter-spacing``, which the preview draws: the
+    spacing follows EVERY character, so a word's inline box (its chip, the centre a ``scale()``
+    turns about, the width a line wraps against) ends one spacing past its last letter, and the
+    space after it is one more tracked glyph (``_tracked_space_width``). A word gap is then
+    ``space + 2 * spacing``, as in the preview. Spacing only BETWEEN a word's own letters drew
+    that gap as a bare space: at 0.25 em no wider than a letter gap, "THE CLIMB" as "THECLIMB".
+    """
     features = basic_layout_features(font)
-    if letter_spacing_px == 0 or len(token) <= 1:
+    if letter_spacing_px == 0:
         return font.getlength(token, features=features)
     advances = sum(font.getlength(ch, features=features) for ch in token)
-    return advances + letter_spacing_px * (len(token) - 1)
+    return advances + letter_spacing_px * len(token)
+
+
+def _tracked_space_width(font: _Font, letter_spacing_px: float) -> float:
+    """The advance between two words: the space glyph plus its own letter spacing (see above)."""
+    return font.getlength(" ", features=basic_layout_features(font)) + letter_spacing_px
 
 
 @dataclass(frozen=True)
@@ -1400,7 +1413,7 @@ def _layout_styled_caption(
         resolved.font_weight,
         resolved.font_style == "italic",
     )
-    space_width = base_font.getlength(" ", features=basic_layout_features(base_font))
+    space_width = _tracked_space_width(base_font, spacing_px)
 
     pad_x = int(font_size * resolved.box_pad_x)
     pad_y = int(font_size * resolved.box_pad_y)

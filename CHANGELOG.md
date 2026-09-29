@@ -70,6 +70,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Spaced-out titles keep the space between their words in the export.** A title or caption
+  with wide letter spacing ("THE CLIMB" at 0.25 em) exported with its words run together
+  ("THECLIMB"), because the export spread out the letters inside each word but not the gap
+  between words. The export now spaces text the way the editor shows it: the gap between
+  words widens along with the letters, and the title's box and centring match the editor's.
+  The assistant's title sizing measures the same widths.
 - **A track matte now grows with its source in the export.** A video or photo used as a track
   matte that grows (or stretches) now opens the clip through a growing window, as the monitor
   already showed. Before, the exported window kept its first size while it moved, so a window

@@ -9,9 +9,17 @@ the desktop monitor, which both call :func:`rasterize_text_overlay`.
 
 from __future__ import annotations
 
+import itertools
+
 import numpy as np
 
-from framepilot_engine.render.captions import MIN_LETTER_SPACING_EM, render_caption_raster
+from framepilot_engine.render.captions import (
+    MIN_LETTER_SPACING_EM,
+    _load_font,
+    basic_layout_features,
+    measure_caption_layout,
+    render_caption_raster,
+)
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_caption_style
 
 W, H = 1080, 1920
@@ -98,11 +106,10 @@ def test_negative_tracking_is_drawn_as_the_preview_draws_it() -> None:
     # renderers (captionPreview.ts clamps the CSS value at the same number).
     clamped = _raster({"typography": {"letterSpacing": MIN_LETTER_SPACING_EM}}, text=word)
     assert np.array_equal(_raster({"typography": {"letterSpacing": -0.5}}, text=word), clamped)
-    # One letter has no gap to tighten.
-    assert np.array_equal(
-        _raster({"typography": {"letterSpacing": -0.1}}, text="I"),
-        _raster({"typography": {}}, text="I"),
-    )
+    # One letter has no gap to tighten: its ink is drawn as it is untracked. (Its box still ends
+    # one tracking past it, as the preview's does — see the box test below.)
+    single = _ink_columns(_raster({"typography": {"letterSpacing": -0.1}}, text="I"))
+    assert abs(single - _ink_columns(_raster({"typography": {}}, text="I"))) <= 1
 
 
 def test_the_chip_colour_is_the_overlays_background_and_its_shape_the_typography() -> None:
@@ -214,3 +221,53 @@ def test_a_tracked_outline_never_cuts_through_the_neighbouring_letter() -> None:
         )
         # The outline only ever eats the letters' anti-aliased rim, never their solid fill.
         assert _white_pixels(outlined) >= _white_pixels(filled) * 0.97, spacing
+
+
+def _ink_runs(image: np.ndarray) -> list[tuple[int, int]]:
+    """``[start, end)`` of each run of columns holding ink, left to right."""
+    inked = np.concatenate(([False], image[..., 3].max(axis=0) > 0, [False]))
+    edges = np.flatnonzero(inked[1:] != inked[:-1])
+    return [(int(edges[i]), int(edges[i + 1])) for i in range(0, len(edges), 2)]
+
+
+def test_tracking_keeps_the_space_between_words_the_preview_draws() -> None:
+    # CSS `letter-spacing` (the preview, `captionPreview.ts`) adds the tracking after EVERY
+    # character, the space included, so two words sit a space plus two trackings apart. The
+    # export added it only between a word's own letters: at 0.25 em a word gap was no wider than
+    # a letter gap, and "THE CLIMB" exported as "THECLIMB" (harness run 12). "H" has even side
+    # bearings, so every gap between two of them is the same but for what sits between.
+    spacing = 0.25
+    size = int(H * 8 / 100)
+    for family, weight in (("Anton", 400), (None, 600)):
+        params: dict[str, object] = {
+            **BASE,
+            "fontFamily": family,
+            "fontWeight": weight,
+            "typography": {"letterSpacing": spacing},
+        }
+        runs = _ink_runs(_raster(params, text="HH HH"))
+        assert len(runs) == 4, (family, runs)
+        gaps = [after[0] - before[1] for before, after in itertools.pairwise(runs)]
+        letter_gap, word_gap = gaps[0], gaps[1]
+        assert abs(gaps[2] - letter_gap) <= 1, (family, gaps)  # sub-pixel placement
+        font = _load_font(family or "Inter", size, weight)
+        space = font.getlength(" ", features=basic_layout_features(font))
+        # Word gap = letter gap + the space's advance + the space's own tracking.
+        assert abs((word_gap - letter_gap) - (space + spacing * size)) <= 2, (family, gaps, space)
+
+
+def test_the_box_carries_the_last_letters_tracking_as_the_preview_does() -> None:
+    # A CSS inline box includes the tracking after its last character (Chromium: "B" at 0.25 em
+    # is its advance + 0.25 em wide), and the preview centres and chips that box. So the export's
+    # box is the tracked advances of every glyph, the last one's included, with the ink sitting
+    # half a tracking left of its centre; the letters themselves do not move apart.
+    word = "HEADING"
+    size = int(H * 8 / 100)
+    font = _load_font("Anton", size, 400)
+    advances = sum(font.getlength(ch, features=basic_layout_features(font)) for ch in word)
+    for spacing in (-0.1, 0.0, 0.25):
+        style = text_overlay_caption_style({**BASE, "typography": {"letterSpacing": spacing}}, H)
+        assert style is not None
+        pad = int(size * 0.35)
+        box = measure_caption_layout(word, W, H, style=style).box_width
+        assert box == int(advances + spacing * size * len(word)) + 2 * pad, spacing

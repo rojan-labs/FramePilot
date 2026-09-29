@@ -164,3 +164,21 @@ traversal guard.
 
 See [writing-tests.md](../guides/writing-tests.md) and
 [ci-cd.md](ci-cd.md) (CI renders + validates the fixture project on every PR).
+
+## Recurring failure mode: text spacing differs between the editor and the export
+
+Symptom: tracked text (a `letterSpacing` title or caption) wraps, centres or spaces its words
+differently in the export than in the editor, e.g. "THE CLIMB" exported as "THECLIMB" (AL32).
+
+Why: the preview draws CSS `letter-spacing`, which adds the spacing after EVERY character: the
+space between words and the last letter of a line included. The export's caption rasterizer
+(`render/captions.py`) builds the same box: `_token_width` gives every glyph its spacing, the
+last one included, and `_tracked_space_width` is the space plus its spacing, so two words sit
+`space + 2 x spacing` apart and a chip ends one spacing past its last letter, as the CSS box
+does. The AI layer's title fit (`overlay-fit.ts` `typedTitleWidthsPx`) reads the same box.
+
+Check: `uv run pytest tests/test_text_overlay_typography.py tests/test_title_metrics.py
+tests/test_title_fit.py`, once plainly and once with `DYLD_LIBRARY_PATH=/opt/homebrew/lib`
+(libraqm on, like Linux CI). If the rule changes on either side, change both renderers and the
+fit together, then regenerate the fit's reference widths with
+`uv run python -m framepilot_engine.render.title_metrics`.

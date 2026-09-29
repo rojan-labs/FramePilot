@@ -297,6 +297,19 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `mask_with_layer` offers "a text overlay for video inside text". Allow `overlay` sources in
   both runtimes (and check the frame plan's `matteOnly` marking and the monitor), with parity
   tests.
+- [x] **AL32** Harness run 12's tracked titles exported without their word spaces ("THE CLIMB"
+  as "THECLIMB", "GOLDEN HOUR", "DAY 01"; default face, 0.25 em). The preview's CSS
+  `letter-spacing` follows EVERY character, the space and a line's last letter included, so a
+  word gap is `space + 2 x spacing` and the box ends one spacing past the last letter (probed in
+  headless Chromium: "B" at 0.25 em is its advance + 25 px at 100 px). The export tracked only
+  between a word's own letters, so its word gap was a bare space: at 0.25 em no wider than a
+  letter gap (narrower in Anton). `captions._token_width` now tracks every glyph and the word
+  space is a tracked glyph (`_tracked_space_width`), so the chip, centring, wrap width, karaoke
+  wipe and `scale()` centre are the preview's box by construction; the ink is unchanged. The AI
+  fit (`overlay-fit.ts` `typedTitleWidthsPx`) and its Python twin read the same box; title
+  metrics regenerated with a tracked two-word reference ("THE CLIMB"). Pinned in
+  `test_text_overlay_typography.py` (word gap = letter gap + space + tracking; box carries the
+  last tracking; both failed before), both Pillow layouts.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

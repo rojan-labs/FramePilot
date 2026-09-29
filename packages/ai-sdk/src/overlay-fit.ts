@@ -33,8 +33,9 @@
  *
  * A `text` effect whose `typography` validates is drawn by `render_caption_raster`
  * (`text_overlay.text_overlay_caption_style`, ADR 0194), and that draws a word at other than
- * its advances: `letterSpacing` (em) is added between every two glyphs (never after the last;
- * a negative value tightens, down to `MIN_TRACKING_EM` — `captions._token_width`), an italic is
+ * its advances: `letterSpacing` (em) follows every glyph, the last one and a space included, as
+ * CSS `letter-spacing` does in the preview (a negative value tightens, down to `MIN_TRACKING_EM` —
+ * `captions._token_width`); the ink spans only the spacing BETWEEN its glyphs. An italic is
  * drawn from the family's italic file, the stroke is `outlineWidth` sixteenths of the size,
  * and the wrap width is the box less the chip's padding on each side (0.35 em unless a chip
  * colour is set and its typography names its own `paddingX`). The harness's "WEEKEND TRIP" in
@@ -249,9 +250,12 @@ function titleFontPx(sizePercent: number, height: number): number {
  * How wide the caption rasterizer draws one `word` of a typed title at `fontPx`.
  *
  * - `wrapPx` — what it wraps against: the tracked advances (floored, as `block_w` is) plus the
- *   chip padding each side. Equal to `measure_caption_layout(...).box_width` for one word.
+ *   chip padding each side. Every glyph carries its tracking, the last one too: the preview's
+ *   inline box ends one tracking past its last letter, and the export's box is that box. Equal to
+ *   `measure_caption_layout(...).box_width` for one line (a space is a tracked glyph like any).
  * - `inkPx` — the stroked ink from the first glyph's left edge to the last one's right edge,
- *   tracking included: what shows past the padding (an italic overhang, a heavy stroke).
+ *   the tracking between them included: what shows past the padding (an italic overhang, a
+ *   heavy stroke).
  *
  * `unknownEm` is what a glyph the metrics do not cover is charged.
  */
@@ -266,7 +270,8 @@ export function typedTitleWidthsPx(
   const glyphs = [...word];
   if (glyphs.length === 0) return { wrapPx: 0, inkPx: 0 };
   const spacingPx = Math.max(MIN_TRACKING_EM, typed.letterSpacing) * fontPx;
-  const gapsPx = glyphs.length > 1 ? spacingPx * (glyphs.length - 1) : 0;
+  const trackedPx = spacingPx * glyphs.length;
+  const gapsPx = spacingPx * (glyphs.length - 1);
   let advance = 0;
   let inkLeft = 0;
   let inkRight = 0;
@@ -284,7 +289,7 @@ export function typedTitleWidthsPx(
       : Math.max(1, Math.round((typed.outlineWidth * fontPx) / OUTLINE_UNITS_PER_EM));
   const padPx = Math.floor(fontPx * typed.paddingX);
   return {
-    wrapPx: Math.floor((advance / 1000) * fontPx + gapsPx) + 2 * padPx,
+    wrapPx: Math.floor((advance / 1000) * fontPx + trackedPx) + 2 * padPx,
     inkPx: ((inkRight - inkLeft) / 1000) * fontPx + gapsPx + 2 * stroke,
   };
 }

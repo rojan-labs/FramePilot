@@ -163,16 +163,19 @@ describe('typed titles are measured as the caption rasterizer draws them', () =>
     const typed = typedTitleOf(style.look.typography, style.look.background)!;
     const font = typedTitleFont({ fontFamily: 'Montserrat', fontWeight: 600 }, typed);
     const untracked = { ...typed, letterSpacing: 0 };
-    // At the harness's 4 % of a 1080×1920 frame (76 px), six gaps of 0.24 em are 109 px.
+    // At the harness's 4 % of a 1080×1920 frame (76 px), seven trackings of 0.24 em are 128 px:
+    // one after every letter, the last included — the preview's CSS box, which the export draws.
     const fontPx = Math.floor((1920 * 4) / 100);
     const tracked = typedTitleWidthsPx('WEEKEND', fontPx, font, typed).wrapPx;
     const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, untracked).wrapPx;
-    expect(tracked - plain).toBeGreaterThanOrEqual(Math.floor(6 * 0.24 * fontPx) - 1);
-    expect(tracked - plain).toBeLessThanOrEqual(Math.ceil(6 * 0.24 * fontPx) + 1);
-    // A single glyph has no gap.
-    expect(typedTitleWidthsPx('I', fontPx, font, typed).wrapPx).toBe(
-      typedTitleWidthsPx('I', fontPx, font, untracked).wrapPx,
-    );
+    expect(tracked - plain).toBeGreaterThanOrEqual(Math.floor(7 * 0.24 * fontPx) - 1);
+    expect(tracked - plain).toBeLessThanOrEqual(Math.ceil(7 * 0.24 * fontPx) + 1);
+    // A single glyph's box still ends one tracking past it; its ink has no gap to widen.
+    const single = typedTitleWidthsPx('I', fontPx, font, typed);
+    const bare = typedTitleWidthsPx('I', fontPx, font, untracked);
+    expect(single.wrapPx - bare.wrapPx).toBeGreaterThanOrEqual(Math.floor(0.24 * fontPx) - 1);
+    expect(single.wrapPx - bare.wrapPx).toBeLessThanOrEqual(Math.ceil(0.24 * fontPx) + 1);
+    expect(single.inkPx).toBe(bare.inkPx);
   });
 
   it('tightens by negative tracking, clamped where both renderers clamp it', () => {
@@ -184,8 +187,9 @@ describe('typed titles are measured as the caption rasterizer draws them', () =>
     const fontPx = 200;
     const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: 0 });
     const tight = typedTitleWidthsPx('WEEKEND', fontPx, font, typed);
-    expect(plain.wrapPx - tight.wrapPx).toBeGreaterThanOrEqual(6 * 0.1 * fontPx - 1);
-    expect(plain.wrapPx - tight.wrapPx).toBeLessThanOrEqual(6 * 0.1 * fontPx + 1);
+    // The box tightens after all seven letters (the preview's CSS box), the ink between six.
+    expect(plain.wrapPx - tight.wrapPx).toBeGreaterThanOrEqual(7 * 0.1 * fontPx - 1);
+    expect(plain.wrapPx - tight.wrapPx).toBeLessThanOrEqual(7 * 0.1 * fontPx + 1);
     expect(plain.inkPx - tight.inkPx).toBeCloseTo(6 * 0.1 * fontPx, 6);
     // Past -0.2 em the letters would run together; both renderers draw -0.2.
     expect(typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.6 })).toEqual(

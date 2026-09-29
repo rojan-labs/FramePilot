@@ -189,8 +189,9 @@ def _typed_predict(
     """``(wrapPx, inkPx)`` for a typed title, by the arithmetic ``overlay-fit.ts`` does.
 
     Kept a line-for-line twin of ``typedTitleWidthsPx`` so this test is the cross-check of the
-    TS fit against the caption rasterizer: tracking is ``letterSpacing * size`` between glyphs
-    (none after the last; negative tightens, clamped at ``MIN_LETTER_SPACING_EM``), an italic
+    TS fit against the caption rasterizer: tracking is ``letterSpacing * size`` after every glyph
+    in the wrap box, the last one and a space included (the preview's CSS box), and between them
+    in the ink (negative tightens, clamped at ``MIN_LETTER_SPACING_EM``), an italic
     draws from the italic rows, the wrap width adds ``paddingX`` each side (0.35 em unless a chip
     names its own), and the stroke is ``outlineWidth`` sixteenths of the size, at least a pixel.
     """
@@ -214,8 +215,9 @@ def _typed_predict(
     row = tables[source[family][bucket]]
     cells = [row[glyphs.index(ch)] for ch in word]
     spacing = max(MIN_LETTER_SPACING_EM, float(typography.get("letterSpacing", 0.0))) * size
-    gaps = spacing * (len(word) - 1) if len(word) > 1 else 0.0
-    advance = sum(cell[0] for cell in cells) / 1000 * size + gaps
+    tracked = spacing * len(word)
+    gaps = spacing * (len(word) - 1)
+    advance = sum(cell[0] for cell in cells) / 1000 * size + tracked
     chip = typography.get("background")
     pad_em = (
         float(chip.get("paddingX", 0.35))

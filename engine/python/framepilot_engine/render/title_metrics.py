@@ -19,8 +19,9 @@ Pillow's basic layout does not apply)::
     drawn = ink * size + 6 * max(1, size // 12)      # text_overlay.render_text_overlay_image
 
 TYPOGRAPHY (2026-09-29, #135). A title carrying caption ``typography`` is drawn by the caption
-rasterizer instead, which spaces its letters (``letterSpacing``, em, added between glyphs and
-never after the last; negative tightens, down to ``captions.MIN_LETTER_SPACING_EM``), may draw
+rasterizer instead, which spaces its letters (``letterSpacing``, em, after every glyph, the last
+one and a space included, as the preview's CSS ``letter-spacing`` does; negative tightens, down to
+``captions.MIN_LETTER_SPACING_EM``), may draw
 from the family's ITALIC file, strokes by ``outlineWidth`` and wraps inside chip padding. So the
 table also carries each italic file's rows (``TITLE_ITALIC_FACES``), and the reference section
 carries widths the caption rasterizer drew (``TITLE_TYPED_REFERENCE_WIDTHS``) for the TS
@@ -102,6 +103,8 @@ TYPED_REFERENCE_CASES: tuple[
     ("Anton", 400, "MOTION", 15.0, 0.12, "normal", 2.5, "#000000cc", 0.1),
     ("Fraunces", 800, "Statement", 8.0, -0.02, "normal", 0.0, None, None),
     ("Inter", 700, "HEADING", 12.0, -0.1, "normal", 2.0, None, None),
+    # Two words on one line: the space between them is a tracked glyph too (harness run 12).
+    ("Inter", 700, "THE CLIMB", 6.0, 0.25, "normal", 1.5, None, None),
 )
 
 
