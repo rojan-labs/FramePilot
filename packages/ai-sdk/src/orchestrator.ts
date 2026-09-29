@@ -130,8 +130,6 @@ import {
   type ToolDomain,
   domainsForSkill,
   DOMAIN_INDEX,
-  DOMAIN_SUMMARY,
-  LOADABLE_DOMAINS,
   domainIndexFor,
   domainMembers,
   toolDomain,
@@ -166,12 +164,14 @@ import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import {
   type ModelPlanItem,
+  describeToolDomains,
   modelPlanEcho,
   modelPlanObjectiveKey,
   modelPlanSteps,
   nextOpenItem,
   planForContinuation,
   planItemLabel,
+  unloadedDomainsForBlocked,
 } from './kernel/model-plan.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { withResolvedAssetId } from './catalogue-asset-id.js';
@@ -621,26 +621,19 @@ const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
 
 /**
- * What a plan that gives up on an item has not yet tried: the tool domains this run never
- * loaded, each with the summary the model chooses domains by. Empty when nothing is blocked
- * or every domain is loaded.
- *
- * A blocked item is right only when no available tool can do it, and the model cannot see a
- * tool it has not loaded. Harness run 8 blocked "SFX design" as "no SFX assets in project"
- * without ever loading `sourcing`, whose summary names sound effects, so `search_music`
- * never came up. Read off run state (which domains were loaded), never off the item's words.
+ * The `update_plan` echo's account of what a blocked item has not yet tried: the tool
+ * domains this run never loaded, each with its summary (`kernel/model-plan.ts`). Empty when
+ * nothing is blocked or every domain is loaded.
  */
-function unloadedDomainsForBlocked(
+function unloadedDomainsNote(
   items: readonly ModelPlanItem[],
   loaded: ReadonlySet<ToolDomain>,
 ): string {
-  if (!items.some((item) => item.status === 'blocked')) return '';
-  const unloaded = LOADABLE_DOMAINS.filter((domain) => !loaded.has(domain));
+  const unloaded = unloadedDomainsForBlocked(items, loaded);
   if (unloaded.length === 0) return '';
-  const listed = unloaded.map((domain) => `${domain} (${DOMAIN_SUMMARY[domain]})`).join('; ');
   return (
-    ` Before leaving an item blocked: you have not loaded ${listed}. Blocked is right only ` +
-    'when none of these can do it — load_tools, then try.'
+    ` Before leaving an item blocked: you have not loaded ${describeToolDomains(unloaded)}. ` +
+    'Blocked is right only when none of these can do it — load_tools, then try.'
   );
 }
 
@@ -6014,8 +6007,7 @@ export class Orchestrator {
         // The validated list rides out on the outcome; the conductor owns it from there.
         if (call.name === 'update_plan') {
           const items = (value as { items: readonly ModelPlanItem[] }).items;
-          const echo =
-            modelPlanEcho(items) + unloadedDomainsForBlocked(items, host.loadedToolDomains);
+          const echo = modelPlanEcho(items) + unloadedDomainsNote(items, host.loadedToolDomains);
           return {
             ops: [],
             note: `${desc} → ${echo}`,
@@ -10159,10 +10151,17 @@ export class Orchestrator {
             shortfall.length === 0 &&
             !(effect.modelPlan && nextOpenItem(effect.modelPlan)) &&
             (yield* awaitLateReviews(emit));
+          // The domains a blocked item never tried (AL39). The reducer holds no tool
+          // surface, so the runtime reads which domains this run loaded and the reducer
+          // decides whether that buys a turn. See `AgentTurnResult.unloadedToolDomains`.
+          const unloadedToolDomains = effect.modelPlan
+            ? unloadedDomainsForBlocked(effect.modelPlan, loadedToolDomains)
+            : [];
           return turnBase(index, emit.seq(), {
             done: true,
             ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
             ...(lateReviewSteering ? { lateReviewSteering: true } : {}),
+            ...(unloadedToolDomains.length > 0 ? { unloadedToolDomains } : {}),
           });
         }
 

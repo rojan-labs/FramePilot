@@ -3407,6 +3407,113 @@ describe('the model-owned plan (update_plan)', () => {
     expect(step.events.filter((event) => event.type === 'notification')).toEqual([]);
   });
 
+  // AL39 — harness run 16: "Sound design and mix — blocked: No SFX in the bin", and the run
+  // ended without ever loading `sourcing`, whose summary names sound effects.
+  describe('a blocked item the run never tried to unblock', () => {
+    const blockedPlan = plan(
+      ['Build the montage', 'done'],
+      ['Sound design and mix', 'blocked', 'No SFX in the bin'],
+    );
+    const ended = () => started({ modelPlan: blockedPlan, cumulativeOps: ops(3), appliedTurns: 1 });
+
+    it('buys one turn naming the domains never loaded and what each covers', () => {
+      const step = onEffectResult(
+        ended(),
+        turn({ done: true, unloadedToolDomains: ['sourcing', 'tracking'] }),
+      );
+      expect(step.state.phase).toBe('executing');
+      expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
+      expect(step.state.blockedItemsRetried).toBe(true);
+      expect(step.state.modelDeclaredDone).toBe(false);
+      const action = step.state.working.nextAction?.action ?? '';
+      expect(action).toContain('“Sound design and mix”');
+      expect(action).toContain('sourcing (find and place stock footage, music and sound effects');
+      expect(action).toContain('tracking (');
+      expect(action).toContain('load_tools');
+      expect(action).toContain('reply without a tool call and the item stays blocked');
+      expect(step.events).toContainEqual(
+        expect.objectContaining({
+          type: 'notification',
+          text: expect.stringContaining('sourcing, tracking'),
+        }),
+      );
+    });
+
+    it('fires at most once: a second reply with no tool call ends the run', () => {
+      const first = onEffectResult(
+        ended(),
+        turn({ done: true, unloadedToolDomains: ['sourcing'] }),
+      );
+      const second = onEffectResult(
+        first.state,
+        turn({ done: true, stepIndex: 2, unloadedToolDomains: ['sourcing'] }),
+      );
+      expect(second.state.phase).toBe('verifying');
+      expect(second.state.modelDeclaredDone).toBe(true);
+    });
+
+    it('does not fire when every domain is loaded', () => {
+      const step = onEffectResult(ended(), turn({ done: true }));
+      expect(step.state.phase).toBe('verifying');
+      expect(step.state.blockedItemsRetried).toBeUndefined();
+    });
+
+    it('does not fire when nothing is blocked, whatever the runtime reports', () => {
+      const s = started({ modelPlan: plan(['Build the montage', 'done']), cumulativeOps: ops(3) });
+      const step = onEffectResult(s, turn({ done: true, unloadedToolDomains: ['sourcing'] }));
+      expect(step.state.phase).toBe('verifying');
+    });
+
+    it('leaves open items to the open-plan continuation', () => {
+      const s = started({
+        modelPlan: plan(
+          ['Grade', 'pending'],
+          ['Sound design and mix', 'blocked', 'No SFX in the bin'],
+        ),
+        cumulativeOps: ops(3),
+        appliedTurns: 1,
+      });
+      const step = onEffectResult(s, turn({ done: true, unloadedToolDomains: ['sourcing'] }));
+      expect(step.state.working.nextAction?.action).toBe('Grade');
+      expect(step.state.blockedItemsRetried).toBeUndefined();
+    });
+
+    it('never fires over the cost budget or when cancelled', () => {
+      const over = started({
+        modelPlan: blockedPlan,
+        cumulativeOps: ops(3),
+        config: { ...started().config, maxUsd: 1 },
+      });
+      const spent = onEffectResult(
+        over,
+        turn({ done: true, runUsd: 2, unloadedToolDomains: ['sourcing'] }),
+      );
+      expect(spent.state.phase).toBe('verifying');
+      expect(spent.state.blockedItemsRetried).toBeUndefined();
+
+      const cancelled = onEffectResult(
+        { ...ended(), cancelled: true },
+        turn({ done: true, unloadedToolDomains: ['sourcing'] }),
+      );
+      expect(cancelled.state.blockedItemsRetried).toBeUndefined();
+      expect(cancelled.state.phase).not.toBe('executing');
+    });
+
+    it('never fires out of steps', () => {
+      const s = started({
+        modelPlan: blockedPlan,
+        stepIndex: 8,
+        config: { ...started().config, maxSteps: 8 },
+      });
+      const step = onEffectResult(
+        s,
+        turn({ done: true, stepIndex: 8, unloadedToolDomains: ['sourcing'] }),
+      );
+      expect(step.state.phase).toBe('verifying');
+      expect(step.state.blockedItemsRetried).toBeUndefined();
+    });
+  });
+
   it('ends on a reply when every item is done', () => {
     const s = started({ modelPlan: plan(['Build the montage', 'done']), cumulativeOps: ops(3) });
     expect(onEffectResult(s, turn({ done: true })).state.phase).toBe('verifying');

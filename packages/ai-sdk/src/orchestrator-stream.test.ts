@@ -6095,10 +6095,25 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
 
-    // Four model calls: the early reply did not end the run, the final one did — and then
-    // the advisory fix turn (AL37): the delete left a picture gap the self-check warns about.
-    expect(provider.requests).toHaveLength(5);
-    expect(isAdvisoryTurn(provider.requests[4]!)).toBe(true);
+    // Four model calls: the early reply did not end the run; the reply on a blocked plan
+    // bought the one blocked-item turn (AL39) because `color` was never loaded, and the same
+    // reply again ended it — then the advisory fix turn (AL37): the delete left a picture gap
+    // the self-check warns about.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
+    // The blocked-item turn names the item, the domains never loaded, and both answers.
+    const retry = provider.requests[4]!.messages.at(-1)!.content;
+    expect(retry).toContain(
+      'DO THIS NOW\nYour plan leaves “Warm grade across every shot” blocked, and this run never loaded these tool domains:',
+    );
+    expect(retry).toContain('color (grade the picture');
+    expect(retry).toContain('reply without a tool call and the item stays blocked.');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('Blocked plan items, with tools never loaded ('),
+      }),
+    );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'notification',

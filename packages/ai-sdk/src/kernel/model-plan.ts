@@ -23,6 +23,7 @@
 import { z } from 'zod/v4';
 import type { AiEvent, PlanStep } from '../events.js';
 import { plainPlanLabel } from '../plan-label.js';
+import { DOMAIN_SUMMARY, LOADABLE_DOMAINS, type ToolDomain } from '../tool-domains.js';
 
 /** Most items one plan may hold — a whole brief, not a transcript of it. */
 export const MODEL_PLAN_MAX_ITEMS = 40;
@@ -187,6 +188,60 @@ export function describeOpenItems(items: readonly ModelPlanItem[]): string {
   const named = open.slice(0, OPEN_ITEMS_NAMED).map((item) => `“${planItemLabel(item)}”`);
   const rest = open.length - named.length;
   return rest > 0 ? `${named.join(', ')} and ${String(rest)} more` : named.join(', ');
+}
+
+/** A tool domain a run can pin with `load_tools` (every domain but `core`). */
+export type LoadableToolDomain = Exclude<ToolDomain, 'core'>;
+
+/**
+ * The tool domains a plan that gives up on an item has not yet tried: every loadable domain
+ * this run never loaded, in `load_tools` index order. Empty when nothing is blocked or every
+ * domain is loaded.
+ *
+ * A blocked item is right only when no available tool can do it, and the model cannot see a
+ * tool it has not loaded. Harness run 8 blocked "SFX design" as "no SFX assets in project"
+ * without ever loading `sourcing`, whose summary names sound effects, so `search_music`
+ * never came up. Read off run state (the plan's statuses and which domains were loaded),
+ * never off an item's words.
+ */
+export function unloadedDomainsForBlocked(
+  items: readonly ModelPlanItem[],
+  loaded: ReadonlySet<ToolDomain>,
+): readonly LoadableToolDomain[] {
+  if (!items.some((item) => item.status === 'blocked')) return [];
+  return LOADABLE_DOMAINS.filter((domain) => !loaded.has(domain));
+}
+
+/** Each domain with the summary the model chooses domains by: `sourcing (…); tracking (…)`. */
+export function describeToolDomains(domains: readonly LoadableToolDomain[]): string {
+  return domains.map((domain) => `${domain} (${DOMAIN_SUMMARY[domain]})`).join('; ');
+}
+
+/**
+ * The one instruction the blocked-item continuation carries (AL39): which items the plan
+ * left blocked, which domains the run never loaded and what each covers, and the two
+ * answers that end it — load and retry, or confirm the item blocked.
+ *
+ * Harness run 16 left "Sound design and mix — blocked: No SFX in the bin" and ended without
+ * loading `sourcing`, though every `update_plan` result had named it. A sentence inside a
+ * tool result did not change what the model did (run 8 had done the same before it existed),
+ * so the conductor now buys one turn that exists only to answer it.
+ */
+export function blockedItemsRetryAction(
+  items: readonly ModelPlanItem[],
+  unloaded: readonly LoadableToolDomain[],
+): string {
+  const blocked = items.filter((item) => item.status === 'blocked');
+  const named = blocked.slice(0, OPEN_ITEMS_NAMED).map((item) => `“${planItemLabel(item)}”`);
+  const rest = blocked.length - named.length;
+  const list = rest > 0 ? `${named.join(', ')} and ${String(rest)} more` : named.join(', ');
+  return (
+    `Your plan leaves ${list} blocked, and this run never loaded these tool domains: ` +
+    `${describeToolDomains(unloaded)}. Blocked is right only when none of them can do the ` +
+    'item. load_tools for any domain that could, set that item back to in_progress with ' +
+    'update_plan and do it; or, if none could, reply without a tool call and the item stays ' +
+    'blocked.'
+  );
 }
 
 // ---------------------------------------------------------------------------

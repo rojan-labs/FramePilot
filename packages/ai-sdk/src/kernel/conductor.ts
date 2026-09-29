@@ -99,8 +99,10 @@ import { referenceDecisions, referenceDirectives } from '../references/directive
 import type { HostPatchRefusal } from './commit-ledger.js';
 import { assessEditCompletion } from '../completion-gate.js';
 import {
+  type LoadableToolDomain,
   type ModelPlanItem,
   type ModelPlanRecord,
+  blockedItemsRetryAction,
   describeOpenItems,
   modelPlanDigest,
   modelPlanObjectiveKey,
@@ -585,6 +587,14 @@ export interface ConductorState {
    */
   readonly modelPlanDoneMark?: string;
   /**
+   * Set once the run has spent its one blocked-item turn (AL39): a reply that ended with
+   * every open item done or blocked, while tool domains the run never loaded were still on
+   * offer. Harness run 16 left "Sound design and mix" blocked on "No SFX in the bin" without
+   * ever loading `sourcing`. The turn is bought at most once per run, so a second reply with
+   * no tool call ends it normally — blocked is still an answer the model may give.
+   */
+  readonly blockedItemsRetried?: boolean;
+  /**
    * {@link modelPlanObjectiveKey} of the request this run works toward, stamped on every plan
    * event the model's list produces so the next run continuing that request can find it
    * (AL5). Set at the start of an agent run; absent only on the idle state.
@@ -1058,6 +1068,16 @@ export interface AgentTurnResult {
    * {@link acceptanceShortfall}.
    */
   readonly lateReviewSteering?: boolean;
+  /**
+   * On a done turn whose plan has a `blocked` item: the tool domains this run never loaded
+   * (`kernel/model-plan.ts#unloadedDomainsForBlocked`). Absent when nothing is blocked or
+   * every domain is loaded.
+   *
+   * The reducer holds no tool surface, so the runtime reads which domains were loaded and
+   * the reducer decides whether that buys the blocked-item turn (AL39), the same division as
+   * {@link acceptanceShortfall}.
+   */
+  readonly unloadedToolDomains?: readonly LoadableToolDomain[];
   /**
    * What the pixels said about the cuts THIS apply is answerable for
    * (`kernel/picture-verification.ts`, VU7).
@@ -2200,6 +2220,41 @@ export function onTurnResult(
       // below may still buy one turn): the editor watched the run keep going and deserves
       // to know why it ended. What is left is named by `finalize` and the report.
       stalledPlanNotice = `Stopping with ${items} still open — nothing landed and the plan did not change since the last time the run said it was done.`;
+    }
+    // AL39 — a plan that ends on BLOCKED items the run never tried to unblock. Harness run
+    // 16 blocked "Sound design and mix" on "No SFX in the bin" and ended without loading
+    // `sourcing`, whose summary names sound effects; every `update_plan` result had said so,
+    // and a sentence in a tool result did not change what the model did. So the run buys ONE
+    // turn whose whole instruction is that question: which domains were never loaded, what
+    // each covers, load and retry or confirm blocked. Read off structured state only — the
+    // plan's statuses and the domains the runtime reports unloaded — never off an item's
+    // words. Once per run; a second reply with no tool call ends it as it always did. Not
+    // when cancelled, over budget or out of steps: the turn could not run.
+    const unloaded = r.unloadedToolDomains ?? [];
+    if (
+      state.modelPlan &&
+      !nextItem &&
+      state.modelPlan.some((item) => item.status === 'blocked') &&
+      unloaded.length > 0 &&
+      state.blockedItemsRetried !== true &&
+      !state.cancelled &&
+      budgetExhausted(state) === undefined &&
+      state.stepIndex < state.config.maxSteps
+    ) {
+      const working = setNextAction(state.working, {
+        stage: state.working.stage,
+        action: blockedItemsRetryAction(state.modelPlan, unloaded),
+      });
+      events.push(
+        em.notification(
+          `Blocked plan items, with tools never loaded (${unloaded.join(', ')}) — one turn to try them.`,
+        ),
+      );
+      return advance(
+        { ...base, working, blockedItemsRetried: true, modelDeclaredDone: false },
+        em,
+        events,
+      );
     }
     const nextIndex = state.planSteps.findIndex((step) => step.status !== 'completed');
     const nextStep = nextIndex >= 0 ? state.planSteps[nextIndex] : undefined;

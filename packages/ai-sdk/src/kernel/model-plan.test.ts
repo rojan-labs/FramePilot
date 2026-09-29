@@ -4,6 +4,7 @@ import { createTurnEmitter } from '../events.js';
 import {
   type ModelPlanItem,
   MAX_PRIOR_MODEL_PLANS,
+  blockedItemsRetryAction,
   MODEL_PLAN_MAX_ITEMS,
   describeOpenItems,
   modelPlanDigest,
@@ -16,7 +17,9 @@ import {
   parseModelPlan,
   parseModelPlanRecords,
   planForContinuation,
+  unloadedDomainsForBlocked,
 } from './model-plan.js';
+import { LOADABLE_DOMAINS, type ToolDomain } from '../tool-domains.js';
 
 const item = (task: string, status: ModelPlanItem['status'], note?: string): ModelPlanItem => ({
   task,
@@ -186,5 +189,39 @@ describe('a plan across a run boundary', () => {
     expect(parsed).toHaveLength(MAX_PRIOR_MODEL_PLANS);
     expect(parsed.at(-1)?.objectiveKey).toBe(`k${String(MAX_PRIOR_MODEL_PLANS + 1)}`);
     expect(parseModelPlanRecords({ objectiveKey: 'k0' })).toEqual([]);
+  });
+});
+
+describe('a blocked item and the domains the run never loaded (AL39)', () => {
+  const blocked: ModelPlanItem[] = [
+    { task: 'Build the montage', status: 'done' },
+    { task: 'Sound design and mix', status: 'blocked', note: 'No SFX in the bin' },
+  ];
+
+  it('lists every loadable domain not loaded, in index order, only when an item is blocked', () => {
+    const loaded = new Set<ToolDomain>(['color', 'captions']);
+    expect(unloadedDomainsForBlocked(blocked, loaded)).toEqual(
+      LOADABLE_DOMAINS.filter((domain) => domain !== 'color' && domain !== 'captions'),
+    );
+    expect(unloadedDomainsForBlocked([{ task: 'Cut', status: 'done' }], new Set())).toEqual([]);
+    expect(unloadedDomainsForBlocked(blocked, new Set<ToolDomain>(LOADABLE_DOMAINS))).toEqual([]);
+  });
+
+  it('names the blocked items, each domain with its summary, and both ways to answer', () => {
+    const action = blockedItemsRetryAction(blocked, ['sourcing']);
+    expect(action).toContain('Your plan leaves “Sound design and mix” blocked');
+    expect(action).toContain('sourcing (find and place stock footage, music and sound effects');
+    expect(action).not.toContain('Build the montage');
+    expect(action).toContain('load_tools');
+    expect(action).toContain('reply without a tool call and the item stays blocked.');
+  });
+
+  it('counts blocked items past the fourth instead of naming them all', () => {
+    const many: ModelPlanItem[] = ['A', 'B', 'C', 'D', 'E', 'F'].map((task) => ({
+      task,
+      status: 'blocked',
+      note: 'why',
+    }));
+    expect(blockedItemsRetryAction(many, ['media'])).toContain('“A”, “B”, “C”, “D” and 2 more');
   });
 });
