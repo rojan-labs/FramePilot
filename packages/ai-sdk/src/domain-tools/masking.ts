@@ -1040,7 +1040,9 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
         'Track matte and text-as-mask: use another clip (sourceClipId, e.g. a text overlay for video ' +
         'inside text) or a whole track (sourceTrackId) as this clip’s mask. channel: alpha (its ' +
         'shape), luma (its brightness) or either inverted. The source is then no longer drawn ' +
-        'on its own. Undo removes it.',
+        'on its own. The matte is the source as drawn at each instant, so its keyframes and ' +
+        'animation move the matte: a rounded rectangle from add_shape that scales up opens the ' +
+        'clip through a growing window. Undo removes it.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },

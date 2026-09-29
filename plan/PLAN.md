@@ -291,12 +291,19 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   Pinned in `test_layer_mattes.py` (scale and scaleX windows failed before; a growing-shape
   guard). The monitor was already right: the frame plan gives `matteOnly` layers per-instant
   geometry and `matteSourceFrame` rasterizes each through its own step.
-- [ ] **AL31a** Text overlays and shapes cannot be track-matte sources. They live on `overlay`
+- [x] **AL31a** Text overlays and shapes cannot be track-matte sources. They live on `overlay`
   lanes (`add_shape`, titles), and both `mask-validation.ts` (`sourceTrack.type !== 'video'`)
   and `layer_mattes.assert_layer_sources` refuse a source on a non-video track, although
   `mask_with_layer` offers "a text overlay for video inside text". Allow `overlay` sources in
   both runtimes (and check the frame plan's `matteOnly` marking and the monitor), with parity
-  tests.
+  tests. Outcome: the rule is now "the source draws a picture", from one shared definition
+  (`DRAWN_CLIP_KINDS` / `PICTURE_LANE_TYPES` in `synthetic-assets`, parity-tested through
+  `clip-kind.json`) used by the validator, the export check, the frame plan and the Mask tab
+  picker (which also only offered video tracks); audio/caption lanes and undrawn clips stay
+  refused. The frame plan and monitor needed no change. Pinned by overlay-lane text and
+  growing-shape renders in `test_layer_mattes.py`, validator, frame-plan and picker tests (all
+  red before); `mask_with_layer` now names the growing-shape opener (no golden moved: the
+  masking domain is not in the golden scenarios).
 - [x] **AL32** Harness run 12's tracked titles exported without their word spaces ("THE CLIMB"
   as "THECLIMB", "GOLDEN HOUR", "DAY 01"; default face, 0.25 em). The preview's CSS
   `letter-spacing` follows EVERY character, the space and a line's last letter included, so a

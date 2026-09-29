@@ -76,6 +76,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   between words. The export now spaces text the way the editor shows it: the gap between
   words widens along with the letters, and the title's box and centring match the editor's.
   The assistant's title sizing measures the same widths.
+- **Titles and shapes can be used as a track matte.** Video inside text, and a shape that
+  grows to reveal a clip, were refused with "reads a track that holds no picture" whenever the
+  title or shape sat on an overlay track, which is where the assistant and the Add panel put
+  them. A text overlay or shape on an overlay track now works as a track matte in the editor,
+  the monitor and the export, and the Mask tab's track matte picker lists them. Audio and
+  caption tracks are still refused, with a message that says what can be used instead. The
+  assistant is also told that a growing rounded rectangle opens a clip through a growing window.
 - **A track matte now grows with its source in the export.** A video or photo used as a track
   matte that grows (or stretches) now opens the clip through a growing window, as the monitor
   already showed. Before, the exported window kept its first size while it moved, so a window
