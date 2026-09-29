@@ -125,11 +125,40 @@ def test_detect_black_builds_expected_argv() -> None:
     assert len(ranges) == 2
     argv = list(captured[0])
     assert "-i" in argv and "/media/clip.mp4" in argv
-    assert (
-        f"blackdetect=d={DEFAULT_MIN_BLACK_SECONDS}"
-        f":pic_th={DEFAULT_PICTURE_THRESHOLD}:pix_th={DEFAULT_PIXEL_THRESHOLD}" in argv
+    assert _video_filter(argv).endswith(
+        f",blackdetect=d={DEFAULT_MIN_BLACK_SECONDS}"
+        f":pic_th={DEFAULT_PICTURE_THRESHOLD}:pix_th={DEFAULT_PIXEL_THRESHOLD}"
     )
     assert "-an" in argv and argv[-3:] == ["-f", "null", "-"]
+
+
+def _video_filter(argv: Sequence[str]) -> str:
+    """The ``-vf`` graph of a captured ffmpeg argv."""
+    items = list(argv)
+    return items[items.index("-vf") + 1]
+
+
+def test_blackdetect_judges_the_brightest_channel_not_luma() -> None:
+    # #154: luma weights blue at 7% under BT.709, so a pure-blue card read as black. The
+    # graph must hand blackdetect max(R, G, B) on a full-range plane, so pix_th=0.10 means
+    # "no channel above 10%" — and the analyzer and QC must build the same graph.
+    captured: list[Sequence[str]] = []
+
+    def runner(argv: Sequence[str]) -> str:
+        captured.append(argv)
+        return ""
+
+    detect_black(Path("/a.mp4"), runner=runner)
+    detect_black_seconds(Path("/b.mp4"), runner=runner)
+    for argv in captured:
+        graph = _video_filter(argv)
+        assert graph.startswith("format=gbrp,extractplanes=r+g+b[r][g][b];")
+        assert graph.count("blend=all_mode=lighten") == 2
+        before_detect = graph.split("blackdetect=")[0]
+        # Pins how pix_th maps: a tv-tagged plane would cut at 16 + 0.1 * 219, not 0.1 * 255.
+        assert before_detect.endswith("setparams=range=pc,")
+    analysis_graph, qc_graph = (_video_filter(argv).split(",blackdetect=")[0] for argv in captured)
+    assert analysis_graph == qc_graph
 
 
 def test_detect_black_honours_custom_thresholds() -> None:
@@ -149,7 +178,7 @@ def test_detect_black_honours_custom_thresholds() -> None:
         )
         == []
     )
-    assert "blackdetect=d=1.0:pic_th=0.9:pix_th=0.2" in list(captured[0])
+    assert _video_filter(captured[0]).endswith(",blackdetect=d=1.0:pic_th=0.9:pix_th=0.2")
 
 
 def test_detect_black_seconds_uses_qc_window() -> None:
@@ -161,7 +190,7 @@ def test_detect_black_seconds_uses_qc_window() -> None:
 
     total = detect_black_seconds(Path("/out.mp4"), runner=runner)
     assert total == pytest.approx(3.25)
-    assert "blackdetect=d=0.05:pic_th=0.98:pix_th=0.10" in list(captured[0])
+    assert _video_filter(captured[0]).endswith(",blackdetect=d=0.05:pic_th=0.98:pix_th=0.10")
 
 
 # --- Freeze: pure parser --------------------------------------------------------
@@ -344,9 +373,7 @@ def test_measure_shot_loudness_uses_one_pass_for_every_shot() -> None:
         calls.append(list(argv))
         return _MOMENTARY_LOG
 
-    result = measure_shot_loudness(
-        Path("clip.mp4"), [(0.0, 2.0), (2.0, 4.0)], runner=runner
-    )
+    result = measure_shot_loudness(Path("clip.mp4"), [(0.0, 2.0), (2.0, 4.0)], runner=runner)
     # Thirty shots must not mean thirty ffmpeg invocations at enrolment time.
     assert len(calls) == 1
     assert "ebur128" in " ".join(calls[0])

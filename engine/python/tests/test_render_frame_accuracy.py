@@ -142,10 +142,7 @@ def _first_frame_of_shot_two(output_path: str, around: int) -> int:
 def _render_one_cut(tmp_project_dir: Path, project_fps: int) -> tuple[str, float]:
     """Export a two-shot timeline cut at a frame of ``project_fps``'s grid."""
     _solid_source(tmp_project_dir / "red.mp4", "red", project_fps)
-    # Not pure blue: BT.709 gives (0, 0, 255) luma 7% (Y=32), under the black QC's 10%, so the
-    # export fails "ends on black" (#154; BT.601 used to lift it to Y=41). Dodger blue is still
-    # blue-dominant, which is all `_is_blue` reads.
-    _solid_source(tmp_project_dir / "blue.mp4", "dodgerblue", project_fps)
+    _solid_source(tmp_project_dir / "blue.mp4", "blue", project_fps)
     # A cut deliberately not on a round second, at a frame the project's grid names exactly.
     cut_seconds = frame_to_seconds(seconds_to_frame(4.7, project_fps), project_fps)
     end_seconds = frame_to_seconds(seconds_to_frame(9.0, project_fps), project_fps)

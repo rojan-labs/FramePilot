@@ -73,7 +73,8 @@ def test_detect_black_seconds_builds_blackdetect_argv() -> None:
         return "black_duration:4.0"
 
     assert detect_black_seconds(Path("/out.mp4"), runner=runner) == pytest.approx(4.0)
-    assert "blackdetect=d=0.05:pic_th=0.98:pix_th=0.10" in captured["argv"]
+    graph = list(captured["argv"])[list(captured["argv"]).index("-vf") + 1]
+    assert graph.endswith(",blackdetect=d=0.05:pic_th=0.98:pix_th=0.10")
 
 
 def test_detect_max_volume_builds_volumedetect_argv() -> None:

@@ -228,6 +228,15 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   a real pure-blue end card (≥0.2 s) now fails the same check; the review's black ratio
   already called it black. Decide whether QC black should also require neutral chroma.
   `color-solver.ts` note 4 ("the export is BT.601") is stale (TS, not touched here).
+- [x] **AL26a** #154 follow-up: black QC and black analysis judge max(R, G, B), not luma, so a
+  pure-blue/red/navy end card is no longer black (`blackdetect_argv`: `format=gbrp`, two
+  `lighten` blends, `setparams=range=pc` so `pix_th=0.10` cuts at code 25/255). Verified on
+  Homebrew 8.1 and bundled 7.1: the conversion honours BT.709 tags (red 255/0/0; forced BT.601
+  gives 233/0/2); real black, near-black 20, fade-to-black and thin white text on black keep
+  their verdict. Cost about 2x on a 63 s 1080p export (1.2-2.1 s → 2.9-3.3 s). New
+  `test_black_brightest_channel.py`; `test_render_frame_accuracy` is back to pure blue. Open:
+  `temporal_evidence._frame_sample` still computes the review `black_ratio` from BT.709 luma
+  ≤ 0.10, so the agent's frame review still calls a pure-blue card black.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

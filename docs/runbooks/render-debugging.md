@@ -43,7 +43,10 @@ outside Electron. Capture the failing project and assets.
    (`inspect-media`).
 6. **Black frames** — black-frame detection tripped? Check clip `start`/`end` vs.
    `sourceStart`/`sourceEnd`, gaps left by `delete_range`, and mask/compositing layer
-   order (text-behind-object).
+   order (text-behind-object). "Black" means every channel is at or under 10% of full scale:
+   `analysis/black.py` feeds `blackdetect` max(R, G, B) (via `format=gbrp`, two `lighten`
+   blends and `setparams=range=pc`), not luma, so a saturated blue or red card is never black
+   (#154). If a coloured frame is flagged, check the graph in `blackdetect_argv` first.
 7. **Audio clipping** — clipping detected? Check `adjust_audio` volumes, music ducking,
    and overlapping audio clips summing too hot.
 8. **Render logs** — read `logs/` in the project folder for the failing job. Failures must
@@ -123,10 +126,17 @@ anything `unknown` means the tags were lost (a `-c:v copy` remux keeps them; a r
 without these arguments does not). ffmpeg 7.1 copies the encoder's colour fields from the
 frames, so the `-color_*` flags alone leave primaries/transfer unknown; the `setparams`
 filter is what sets them.
-Side effect to know: black QC (`blackdetect pix_th=0.10`) reads luma only, and BT.709 luma of
-pure blue (0,0,255) is 7% (Y=32), so an export ending on 0.2 s of a pure-blue card fails "ends
-on black" (BT.601 gave Y=41 and passed). A test fixture that needs "blue" should use a lighter
-blue such as `dodgerblue`.
+Black QC and black analysis judge the brightest channel, not luma. BT.709 luma of pure blue
+(0,0,255) is 7% (Y=32), under `pix_th=0.10`, so plain `blackdetect` failed an export ending on a
+pure-blue card with "ends on black" (navy 0,0,128 too, at Y=24). `blackdetect_argv` now converts
+to RGB through the file's own tags (`format=gbrp`; untagged files take BT.601, which is what
+pre-#154 exports used), takes max(R, G, B) with two `lighten` blends, and tags that plane
+`range=pc` so `pix_th=0.10` cuts at code 25 of 255. Tagged `tv`, blackdetect would cut at
+16 + 0.1 * 219 = code 37 instead. Real black, near-black 20/20/20, fades to black and thin
+white text on black keep their verdict (`tests/test_black_brightest_channel.py`). The pass
+costs about 2x plain `blackdetect` (63 s 1080p export: 1.2-2.1 s before, 2.9-3.3 s after, the
+two blends being the difference). Do not downscale to win that back: it changes the verdict
+on thin text.
 
 ## Recurring failure mode: "applies but doesn't render"
 
