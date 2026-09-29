@@ -146,6 +146,18 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `loop-motion`, `elements`, `critic-elements`, `sticker-placement`, `orchestrator-stream`. Not
   measured on a live run yet. Triage, still open: in run 9 two shapes sat end to end on one lane, so
   each one's In/Out was refused as "a cut on its own layer".
+- [x] **AL20** #135 closed out. (1) The title fit measures what the caption rasterizer draws for
+  an overlay with typography: `letterSpacing` between glyphs, the italic file
+  (`TITLE_ITALIC_FACES`), the `outlineWidth` stroke and the chip padding the wrap keeps
+  (`overlay-fit.ts` `typedTitleWidthsPx`). "WEEKEND TRIP" in `tracked-caps` (0.24 em) draws 22 %
+  wider than its advances and could overflow a box the fit had accepted. Checked against
+  `render_caption_raster` in `test_title_metrics.py` (`TITLE_TYPED_REFERENCE_WIDTHS`).
+  (2) `add_text_layer`/`set_text_style` take per-field typography args (tracking, italic,
+  leading, case, letter opacity, outline, shadow), with a Python mirror and a parity fixture.
+  (3) Per-letter and per-word reveals moved to #152: they need a schema change and per-frame text
+  rasters in the export and on the desktop monitor. Tests: `overlay-fit`, `title-typography`,
+  `text-overlay-styles`, `test_title_metrics.py`, `test_ai_tools.py`. Not measured on a live run
+  yet.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

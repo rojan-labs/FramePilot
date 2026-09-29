@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant sets a brief's exact typography on text.** "+250 tracking", "leading 0.9",
+  italic, "shadow, no outline": each can now be set on its own on a text overlay, over a designed
+  style. Before, the assistant had to pick the nearest style. Italic works in the families that
+  ship one; for any other family the assistant is told to pick one of those.
 - **The assistant can look at all your clips before it cuts.** It can now see up to 12 source
   clips in one look: a numbered contact sheet, each clip uncropped as it was shot, labelled with
   its file name and the moment shown. Before, it saw one clip per look. Told to "look at every
@@ -61,6 +65,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Widely tracked titles stay inside the frame.** When the assistant fitted a title, it ignored
+  letter spacing, italic and chip padding. A spaced-out style such as "Tracked caps" could run
+  off the frame at a size the fit had accepted. The fit now measures the title as it is drawn.
 - **Sticker and shape placement, and loops that fit.** If a loop is too long for its element, the
   assistant is now told how long the clip is, which loops fit it, the slowest period that fits,
   and the longest In and Out. Before, it only heard "pick a faster loop" and kept guessing. A spin

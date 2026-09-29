@@ -257,12 +257,26 @@ applied it. Every other styling arg (`sizePercent`, `color`, `background`, `alig
 it names. `fontFamily` is an enum of the bundled caption fonts; a family named over a style has
 the style's weight held inside the weights that family ships.
 
+Typography args, each written over its one field of `params.typography`
+(`TextOverlayTypographySchema`, #135): `letterSpacing` (em, 0–0.6; the export draws no negative
+tracking), `fontStyle` (`italic` only in a family that ships an italic file, else refused —
+neither renderer synthesises a slant), `lineHeight` (0.7–3), `textTransform`, `textOpacity`
+(0–1), `outlineColor`, `outlineWidth` (sixteenths of the size, 0–8; 0 is no outline) and
+`shadow` (`{color, blur, offsetX, offsetY}` in em, or `"none"` to drop the style's). An overlay
+with no typography yet starts from `PLAIN_TEXT_OVERLAY_TYPOGRAPHY`, as the Inspector's first
+edit does, so one field does not also drop the plain overlay's black stroke. The chip's shape
+comes with a style.
+
 Words that would run out of the frame are fitted, not refused: the box is widened first (up to
 92% of the width, recentred so it stays inside the frame), then the size comes down. The fit
-measures the overlay's own face and, for a capitalising style, the capitals it draws. A style's
-size and box are fitted the same way as explicit ones.
+measures what the renderer draws (`overlay-fit.ts`): the overlay's own face and weight, the case
+a capitalising style draws and, for an overlay with typography (drawn by the caption
+rasterizer), the tracking between glyphs, the italic file, the stroke and the chip padding the
+wrap keeps. `tests/test_title_metrics.py` checks that arithmetic against the rasterizer. A
+style's size and box are fitted the same way as explicit ones. Per-letter and per-word reveals
+do not exist for text overlays yet (#152).
 
-`set_text_style` (`clipId` plus any of `text`, `style` and the same styling args) restyles an
+`set_text_style` (`clipId` plus any of `text`, `style` and the same styling and typography args) restyles an
 overlay already on the timeline in one `set_effect_params`. A `style` is applied the way the
 Text panel's Apply does (`applyTextOverlayStylePatch`): its whole look except `xPercent`,
 `yPercent` and `boxWidthPercent`, so the overlay stays where it was placed. The result is
