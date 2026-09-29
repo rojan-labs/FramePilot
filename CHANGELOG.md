@@ -70,6 +70,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can open a shot through a growing shape.** Asked for a "shape-mask opener"
+  (the hook revealed through an expanding rounded rectangle), it told you no tool could animate a
+  mask. It now builds it: a rounded rectangle that grows, used as the clip's mask.
 - **Text placed near the edge stays on screen.** A left-aligned label the assistant placed
   near the left edge without a set width could lose its first letters off the frame ("AMP"
   for "CAMP"). The assistant now keeps the text's box inside the frame even when it uses the

@@ -334,6 +334,13 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   exported from timeline-schema and the fit keeps THAT box in frame. Also: the TwelveLabs
   single-flight tests released the owner before the waiter joined (CI calls == 2); they now wait
   for the join.
+- [x] **AL32c** Harness run 14: the masking item was still one item and was blocked with "no tool
+  here animates a mask wipe", with masking loaded. The route (add_shape rounded-rect →
+  add_keyframes scale → mask_with_layer alpha) is now a recipe in `masking-and-compositing`
+  (duplicated lines trimmed to stay under the 8,000-char pinned cap) and pinned by
+  `shape-opener.test.ts`. Also: a set_text_style whose named fields already hold those values
+  answers "already has the … you gave, so nothing changed" (run 14 heard "name at least one of
+  … color, background" for a call naming both).
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer

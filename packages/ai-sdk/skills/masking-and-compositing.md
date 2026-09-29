@@ -14,8 +14,7 @@ editor would in the Inspector's Mask tab.
 ## When to use
 
 "Remove the background", "cut her out", "hide the logo", "darken everything but the presenter",
-"desaturate the car", "put the text behind him", "split screen", "a heart around her face",
-"video inside the text".
+"put the text behind him", "split screen", "video inside the text", "open on a growing shape".
 
 ## When not to use
 
@@ -99,14 +98,15 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   and the candidateId.
 - **Sticker outline or shadow on a cut-out person:** cut-out first, then `style_cutout_edge`
   (`preset: "sticker-outline"` for a thick border).
-- **Video inside text:** put the text overlay above the clip (`add_text_layer`), then
-  `mask_with_layer` on the clip with `sourceClipId` = the text overlay and `channel: "alpha"`.
+- **Video inside text:** `add_text_layer` above the clip, then `mask_with_layer` on the clip
+  (`sourceClipId` = the text, `channel: "alpha"`).
+- **Shape-mask opener:** `add_shape` a `rounded-rect/filled`, `add_keyframes` its `scale`
+  0.4 → 1, then `mask_with_layer` as above with the shape: the matte grows with it.
 - **Everyone except the host:** `find_mask_targets` returns `needs_face_selection`; the editor
   picks the faces. Face recognition is their choice per project, off by default.
 
 ## Professional heuristics
 
-- A hard-edged grade shows its outline: effect masks want a soft edge, composites the exact one.
 - Track anything that moves more than a little. A locked-off shot with a still subject needs no
   track, and an untracked shape has no review list.
 - One mask per thing: refine the mask you made rather than stacking a second.
@@ -114,7 +114,7 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 
 ## Decision framework
 
-Target unclear → ask (the picker). Subject moves → track. Exact edge needed (hair, hands, a
+Target unclear → ask (the picker). Exact edge needed (hair, hands, a
 composite) → cutout. Soft-edged treatment (a spotlight, a grade) → shape with `edge: "soft"`.
 
 ## Common mistakes
