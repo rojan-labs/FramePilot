@@ -330,6 +330,33 @@ import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
 
+/**
+ * The tool context for the next call in the same step, once a call has advanced the working
+ * project. The interaction snapshot is re-stamped with it: `toolContext` rebases it once per
+ * step, so without this a second edit in one step (run-10: `adjust_audio` took the timeline
+ * @43 -> @45 before `professional_audio` ran) left every selection-authored tool after it
+ * refusing `stale_context` against a selection that still meant the same clips.
+ *
+ * @param ctx - The context the previous call ran with.
+ * @param project - The project that call produced.
+ * @returns `ctx` on `project`, its interaction rebased when the selection is intact.
+ */
+function advanceToolContext(ctx: ToolContext, project: Project): ToolContext {
+  return {
+    ...ctx,
+    project,
+    ...(ctx.interaction
+      ? {
+          interaction: rebaseEditorInteractionContext(
+            ctx.interaction,
+            project,
+            ctx.projectRevision,
+          ),
+        }
+      : {}),
+  };
+}
+
 export type { EditResult } from './assemble.js';
 
 /**
@@ -6506,7 +6533,7 @@ export class Orchestrator {
       if (callSatisfied === true) satisfied = true;
       if (callAsked === true) askedQuestion = true;
       if (project) {
-        ctx = { ...ctx, project };
+        ctx = advanceToolContext(ctx, project);
         names = projectNames(project);
       }
     }
@@ -6735,7 +6762,7 @@ export class Orchestrator {
           role: toolRole(call.name, getTool(call.name)?.mutates === true),
         });
         if (project) {
-          ctx = { ...ctx, project };
+          ctx = advanceToolContext(ctx, project);
           names = projectNames(project);
         }
       }
@@ -7881,7 +7908,7 @@ export class Orchestrator {
         }
         if (outcome.derivedOpCount) derivedOpCount += outcome.derivedOpCount;
         if (outcome.project) {
-          turnCtx = { ...turnCtx, project: outcome.project };
+          turnCtx = advanceToolContext(turnCtx, outcome.project);
           turnNames = projectNames(outcome.project);
         }
         // The user stopped the run while this call was in flight — don't start
