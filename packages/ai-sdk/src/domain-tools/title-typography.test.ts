@@ -310,7 +310,7 @@ describe('typography args override one field of the typography (#135)', () => {
     const tool = getTool('add_text_layer')!;
     const base = { trackId: 'titles', text: 'Weekend', start: 0, end: 3 };
     for (const bad of [
-      { letterSpacing: -0.1 }, // the export draws no negative tracking
+      { letterSpacing: -0.1 }, // the agent's own tracking is 0 up (graphics.ts TYPOGRAPHY_ARGS)
       { letterSpacing: 0.7 },
       { lineHeight: 0.5 },
       { lineHeight: 3.5 },

@@ -258,9 +258,10 @@ it names. `fontFamily` is an enum of the bundled caption fonts; a family named o
 the style's weight held inside the weights that family ships.
 
 Typography args, each written over its one field of `params.typography`
-(`TextOverlayTypographySchema`, #135): `letterSpacing` (em, 0–0.6; the export draws no negative
-tracking), `fontStyle` (`italic` only in a family that ships an italic file, else refused —
-neither renderer synthesises a slant), `lineHeight` (0.7–3), `textTransform`, `textOpacity`
+(`TextOverlayTypographySchema`, #135): `letterSpacing` (em, 0–0.6; both renderers draw a style's
+negative tracking, down to -0.2, but the agent's own range still starts at 0), `fontStyle`
+(`italic` only in a family that ships an italic file, else refused — neither renderer
+synthesises a slant), `lineHeight` (0.7–3), `textTransform`, `textOpacity`
 (0–1), `outlineColor`, `outlineWidth` (sixteenths of the size, 0–8; 0 is no outline) and
 `shadow` (`{color, blur, offsetX, offsetY}` in em, or `"none"` to drop the style's). An overlay
 with no typography yet starts from `PLAIN_TEXT_OVERLAY_TYPOGRAPHY`, as the Inspector's first

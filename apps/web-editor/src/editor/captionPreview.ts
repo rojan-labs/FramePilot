@@ -241,6 +241,13 @@ export function captionLineScale(resolved: ResolvedCaptionStyle, time: number): 
 export const OUTLINE_WIDTH_UNITS_PER_EM = 16;
 
 /**
+ * The tightest tracking drawn, em. Both renderers draw negative tracking (the "heading" and
+ * "statement" text styles tighten a little); below this the letters run into each other, and
+ * the export clamps here (`captions.py` `MIN_LETTER_SPACING_EM`), so the preview does too.
+ */
+export const MIN_LETTER_SPACING_EM = -0.2;
+
+/**
  * The letters' fill opacity (schema v24): below 1 the caption is drawn
  * see-through — see {@link CaptionPaintLayer}. Absent means solid letters.
  */
@@ -305,7 +312,10 @@ export function captionLineCss(resolved: ResolvedCaptionStyle): CSSProperties {
     // on-screen size and draw different letterforms than the export.
     fontOpticalSizing: 'none',
     color: seeThroughColor(resolved.textColor ?? '#ffffff', captionTextOpacity(resolved)),
-    letterSpacing: resolved.letterSpacing !== undefined ? `${resolved.letterSpacing}em` : undefined,
+    letterSpacing:
+      resolved.letterSpacing !== undefined
+        ? `${String(Math.max(MIN_LETTER_SPACING_EM, resolved.letterSpacing))}em`
+        : undefined,
     textTransform: resolved.textTransform === 'none' ? undefined : resolved.textTransform,
   };
   if (resolved.background !== undefined) {

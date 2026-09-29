@@ -410,6 +410,13 @@ _OUTLINE_UNITS_PER_EM = 16
 # ``GaussianBlur`` takes. Passing it straight through made every export shadow
 # twice as soft as the preview showed.
 _CSS_BLUR_RADIUS_PER_SIGMA = 2.0
+# The tightest tracking drawn, in em (the AI tools' ``MIN_CAPTION_LETTER_SPACING``). Negative
+# tracking is a designed value — the "heading" and "statement" text styles tighten by 0.01 and
+# 0.02 em, the Inspector goes to -0.1 — and the preview draws it (CSS ``letter-spacing``). This
+# renderer used to draw nothing at or below 0, so those styles exported looser than the editor
+# showed them, on the desktop monitor too (it draws this raster). Below -0.2 the letters run into
+# each other, so both renderers clamp there (``captionPreview.ts`` ``MIN_LETTER_SPACING_EM``).
+MIN_LETTER_SPACING_EM = -0.2
 
 _RGBA = tuple[int, int, int, int]
 
@@ -526,7 +533,9 @@ def _resolve_style(style: CaptionStyle) -> _ResolvedStyle:
         font_weight=s.font_weight if s.font_weight is not None else 400,
         font_style=s.font_style or "normal",
         text_transform=s.text_transform or "none",
-        letter_spacing=s.letter_spacing if s.letter_spacing is not None else 0.0,
+        letter_spacing=(
+            max(MIN_LETTER_SPACING_EM, s.letter_spacing) if s.letter_spacing is not None else 0.0
+        ),
         font_scale=s.font_scale if s.font_scale is not None else 1.0,
         text_color=_hex_to_rgba(s.text_color) if s.text_color else (255, 255, 255, 255),
         text_opacity=(min(1.0, max(0.0, s.text_opacity)) if s.text_opacity is not None else 1.0),
@@ -811,8 +820,8 @@ def _font_ascent_descent(font: _Font) -> tuple[int, int]:
 
 
 def _token_width(token: str, font: _Font, letter_spacing_px: float) -> float:
-    """Token advance width including inter-character letter spacing."""
-    if letter_spacing_px <= 0 or len(token) <= 1:
+    """Token advance width including inter-character letter spacing (negative tightens)."""
+    if letter_spacing_px == 0 or len(token) <= 1:
         return font.getlength(token)
     return sum(font.getlength(ch) for ch in token) + letter_spacing_px * (len(token) - 1)
 
@@ -849,7 +858,7 @@ def _draw_token_text(
     see-through coverage mask at the word's opacity.
     """
     x, y = xy
-    if letter_spacing_px <= 0 or len(token) <= 1:
+    if letter_spacing_px == 0 or len(token) <= 1:
         canvas.text(
             (x, y),
             token,

@@ -16,6 +16,7 @@ import pytest
 from PIL import features
 
 from framepilot_engine.render import title_metrics as tm
+from framepilot_engine.render.captions import MIN_LETTER_SPACING_EM
 from framepilot_engine.render.text_overlay import rasterize_text_overlay
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -189,9 +190,9 @@ def _typed_predict(
 
     Kept a line-for-line twin of ``typedTitleWidthsPx`` so this test is the cross-check of the
     TS fit against the caption rasterizer: tracking is ``letterSpacing * size`` between glyphs
-    (none after the last, none at all when not positive), an italic draws from the italic rows,
-    the wrap width adds ``paddingX`` each side (0.35 em unless a chip names its own), and the
-    stroke is ``outlineWidth`` sixteenths of the size, at least a pixel.
+    (none after the last; negative tightens, clamped at ``MIN_LETTER_SPACING_EM``), an italic
+    draws from the italic rows, the wrap width adds ``paddingX`` each side (0.35 em unless a chip
+    names its own), and the stroke is ``outlineWidth`` sixteenths of the size, at least a pixel.
     """
     tables = metrics["tables"]
     faces = metrics["faces"]
@@ -212,8 +213,8 @@ def _typed_predict(
     source = italic_faces if italic and family in italic_faces else faces
     row = tables[source[family][bucket]]
     cells = [row[glyphs.index(ch)] for ch in word]
-    spacing = float(typography.get("letterSpacing", 0.0)) * size
-    gaps = spacing * (len(word) - 1) if spacing > 0 and len(word) > 1 else 0.0
+    spacing = max(MIN_LETTER_SPACING_EM, float(typography.get("letterSpacing", 0.0))) * size
+    gaps = spacing * (len(word) - 1) if len(word) > 1 else 0.0
     advance = sum(cell[0] for cell in cells) / 1000 * size + gaps
     chip = typography.get("background")
     pad_em = (
@@ -265,10 +266,12 @@ def test_the_typed_formula_predicts_the_caption_rasterizer(
     if params["background"] is None:
         assert ink + PIXEL_SLACK >= ink_drawn * (1 - MAX_UNDER_READ), (case, ink, ink_drawn)
         assert ink <= ink_drawn * OVER_READ + PIXEL_SLACK, (case, ink, ink_drawn)
-    # And tracking is really in it: the same word untracked wraps narrower.
+    # And tracking is really in it: the same word untracked wraps narrower when the tracking
+    # widens it, and wider when negative tracking tightens it.
     spacing = case[4]
-    if spacing > 0:
+    if spacing != 0:
         typography = params["typography"]
         assert isinstance(typography, dict)
         untracked = {**params, "typography": {**typography, "letterSpacing": 0}}
-        assert _typed_predict(metrics, untracked, word)[0] < wrap
+        plain = _typed_predict(metrics, untracked, word)[0]
+        assert plain < wrap if spacing > 0 else plain > wrap, (case, plain, wrap)

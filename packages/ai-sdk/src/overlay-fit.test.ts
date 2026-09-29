@@ -169,13 +169,28 @@ describe('typed titles are measured as the caption rasterizer draws them', () =>
     const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, untracked).wrapPx;
     expect(tracked - plain).toBeGreaterThanOrEqual(Math.floor(6 * 0.24 * fontPx) - 1);
     expect(tracked - plain).toBeLessThanOrEqual(Math.ceil(6 * 0.24 * fontPx) + 1);
-    // A single glyph has no gap, and negative tracking is not drawn by the export at all.
+    // A single glyph has no gap.
     expect(typedTitleWidthsPx('I', fontPx, font, typed).wrapPx).toBe(
       typedTitleWidthsPx('I', fontPx, font, untracked).wrapPx,
     );
-    expect(
-      typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.1 }).wrapPx,
-    ).toBe(plain);
+  });
+
+  it('tightens by negative tracking, clamped where both renderers clamp it', () => {
+    // "heading" tightens by 0.01 em and "statement" by 0.02: the export draws that now
+    // (`captions._token_width`), so the fit reads the word narrower, not at its advances.
+    expect(getTextOverlayStyle('statement')!.look.typography.letterSpacing).toBe(-0.02);
+    const typed = typedTitleOf({ letterSpacing: -0.1 }, undefined)!;
+    const font = typedTitleFont({ fontFamily: 'Inter', fontWeight: 800 }, typed);
+    const fontPx = 200;
+    const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: 0 });
+    const tight = typedTitleWidthsPx('WEEKEND', fontPx, font, typed);
+    expect(plain.wrapPx - tight.wrapPx).toBeGreaterThanOrEqual(6 * 0.1 * fontPx - 1);
+    expect(plain.wrapPx - tight.wrapPx).toBeLessThanOrEqual(6 * 0.1 * fontPx + 1);
+    expect(plain.inkPx - tight.inkPx).toBeCloseTo(6 * 0.1 * fontPx, 6);
+    // Past -0.2 em the letters would run together; both renderers draw -0.2.
+    expect(typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.6 })).toEqual(
+      typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.2 }),
+    );
   });
 
   it('reports a tracked word the untracked measure would have let through', () => {

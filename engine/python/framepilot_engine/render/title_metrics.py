@@ -20,10 +20,11 @@ Pillow's basic layout does not apply)::
 
 TYPOGRAPHY (2026-09-29, #135). A title carrying caption ``typography`` is drawn by the caption
 rasterizer instead, which spaces its letters (``letterSpacing``, em, added between glyphs and
-never after the last), may draw from the family's ITALIC file, strokes by ``outlineWidth`` and
-wraps inside chip padding. So the table also carries each italic file's rows
-(``TITLE_ITALIC_FACES``), and the reference section carries widths the caption rasterizer drew
-(``TITLE_TYPED_REFERENCE_WIDTHS``) for the TS arithmetic of a typed title to be checked against.
+never after the last; negative tightens, down to ``captions.MIN_LETTER_SPACING_EM``), may draw
+from the family's ITALIC file, strokes by ``outlineWidth`` and wraps inside chip padding. So the
+table also carries each italic file's rows (``TITLE_ITALIC_FACES``), and the reference section
+carries widths the caption rasterizer drew (``TITLE_TYPED_REFERENCE_WIDTHS``) for the TS
+arithmetic of a typed title to be checked against.
 
 ``python -m framepilot_engine.render.title_metrics`` writes the table to
 ``packages/ai-sdk/src/title-metrics.generated.ts``; ``tests/test_title_metrics.py`` fails when
@@ -85,7 +86,8 @@ REFERENCE_SIZES = (6.0, 15.0)
 #: Typed titles (caption typography) whose widths ride along: ``(family, weight, word, size %,
 #: letterSpacing, fontStyle, outlineWidth, chip colour or None, chip paddingX or None)``. The
 #: first two are the harness's "WEEKEND TRIP" in the ``tracked-caps`` style (Montserrat 600,
-#: 0.24 em, 4 % of a 1080x1920 frame); the rest cover an italic file, a stroke and a chip.
+#: 0.24 em, 4 % of a 1080x1920 frame); the rest cover an italic file, a stroke, a chip and
+#: negative tracking (the "statement" style's -0.02 em, and the Inspector's -0.1 under a stroke).
 TYPED_REFERENCE_CASES: tuple[
     tuple[str, int, str, float, float, str, float, str | None, float | None], ...
 ] = (
@@ -98,6 +100,8 @@ TYPED_REFERENCE_CASES: tuple[
     ("Courier Prime", 400, "fly", 9.0, 0.3, "italic", 0.0, None, None),
     ("Inter", 800, "SUBSCRIBE", 8.0, 0.0, "normal", 0.0, "#000000cc", 0.6),
     ("Anton", 400, "MOTION", 15.0, 0.12, "normal", 2.5, "#000000cc", 0.1),
+    ("Fraunces", 800, "Statement", 8.0, -0.02, "normal", 0.0, None, None),
+    ("Inter", 700, "HEADING", 12.0, -0.1, "normal", 2.0, None, None),
 )
 
 

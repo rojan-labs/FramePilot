@@ -298,7 +298,10 @@ class _TextTypographyArgs(BaseModel):
     """The typography args ``add_text_layer`` and ``set_text_style`` share (TS
     ``TYPOGRAPHY_ARGS``): each overrides one field of the overlay's ``params.typography``.
 
-    Tracking starts at 0 because the export draws no negative tracking; the other bounds are
+    Tracking starts at 0: until 2026-09-29 the export drew no negative tracking. Both renderers
+    draw it now (down to ``captions.MIN_LETTER_SPACING_EM``), and the catalog styles that
+    tighten carry it; opening the agent's own range to the caption tools' -0.2 moves the
+    tool's description, so it is its own change. The other bounds are
     ``TextOverlayTypographySchema``'s where it has them.
     """
 

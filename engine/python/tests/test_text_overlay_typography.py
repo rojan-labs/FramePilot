@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from framepilot_engine.render.captions import render_caption_raster
+from framepilot_engine.render.captions import MIN_LETTER_SPACING_EM, render_caption_raster
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_caption_style
 
 W, H = 1080, 1920
@@ -78,6 +78,31 @@ def test_case_and_letter_spacing_reach_the_layout() -> None:
     # A short word, so the wider tracking cannot wrap it onto a second, narrower line.
     tracked = _raster({"typography": {"letterSpacing": 0.2}}, text="GO")
     assert tracked.shape[1] > _raster({"typography": {}}, text="GO").shape[1]
+
+
+def _ink_columns(image: np.ndarray) -> int:
+    columns = image[..., 3].max(axis=0).nonzero()[0]
+    return int(columns[-1] - columns[0] + 1)
+
+
+def test_negative_tracking_is_drawn_as_the_preview_draws_it() -> None:
+    # The "heading" and "statement" styles tighten by 0.01 / 0.02 em; the preview draws that
+    # (CSS letter-spacing) and the export used to draw it as 0.
+    word = "STATEMENT"
+    size = int(H * 8 / 100)
+    untracked = _ink_columns(_raster({"typography": {}}, text=word))
+    tight = _ink_columns(_raster({"typography": {"letterSpacing": -0.02}}, text=word))
+    # Eight gaps of -0.02 em each, to a pixel of the per-glyph rounding either way.
+    assert abs((untracked - tight) - 8 * 0.02 * size) <= 2, (untracked, tight)
+    # Past the clamp the letters would run into each other: -0.5 draws as -0.2, in both
+    # renderers (captionPreview.ts clamps the CSS value at the same number).
+    clamped = _raster({"typography": {"letterSpacing": MIN_LETTER_SPACING_EM}}, text=word)
+    assert np.array_equal(_raster({"typography": {"letterSpacing": -0.5}}, text=word), clamped)
+    # One letter has no gap to tighten.
+    assert np.array_equal(
+        _raster({"typography": {"letterSpacing": -0.1}}, text="I"),
+        _raster({"typography": {}}, text="I"),
+    )
 
 
 def test_the_chip_colour_is_the_overlays_background_and_its_shape_the_typography() -> None:

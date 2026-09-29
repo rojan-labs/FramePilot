@@ -165,6 +165,15 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   rest as not checked, by frame (`describePartialTemporalReview`, `Partial review:` notice). An
   unchecked moment is never a finding and never a clean review. Late-review wait unchanged. Tests:
   `temporal-evidence-client`, `temporal-review`, `editor-run-adapter`. Not measured on a live run.
+- [x] **AL23** Negative tracking renders in the export. `captions._token_width`/`_draw_token_text`
+  drew nothing at or below 0, so the "heading" (-0.01 em) and "statement" (-0.02) text styles and
+  the Inspector's -10 % exported (and showed on the desktop monitor, which draws the same raster)
+  looser than the browser's CSS `letter-spacing`. Both renderers now draw it, clamped at -0.2 em
+  (`MIN_LETTER_SPACING_EM`, `captions.py` + `captionPreview.ts`); `overlay-fit.ts` tightens with it.
+  Render diff over all 68 caption templates + 60 text styles: exactly `heading` and `statement`
+  change. The agent's own `letterSpacing` arg stays 0-0.6 (widening it moves the tool description;
+  follow-up). Tests: `test_text_overlay_typography.py`, `test_title_metrics.py` (two negative typed
+  reference cases), `overlay-fit`, `captionPreview`.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

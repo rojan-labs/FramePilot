@@ -262,8 +262,9 @@ const MAX_TEXT_OUTLINE_WIDTH = 8;
  * The caption-typography args `add_text_layer` and `set_text_style` take, one per field of a
  * text overlay's `params.typography` (`TextOverlayTypographySchema`), each overriding only that
  * field of the style's typography (#135). Bounds are the schema's where it has them
- * (`lineHeight` 0.7–3, `textOpacity` 0–1); tracking is 0 up, because the export does not draw
- * negative tracking (`captions._token_width` ignores it) and the preview would; the shadow's
+ * (`lineHeight` 0.7–3, `textOpacity` 0–1); tracking is 0 up, as it was when the export drew no
+ * negative tracking — both renderers draw it now (down to -0.2 em) and the catalog styles that
+ * tighten carry it, and opening this range moves the tool description; the shadow's
  * em ranges are the caption tools'. The chip's shape is not here: it comes with a style.
  */
 const TYPOGRAPHY_ARGS = {

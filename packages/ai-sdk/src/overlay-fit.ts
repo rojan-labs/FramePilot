@@ -32,9 +32,9 @@
  * ## A title with caption typography is drawn by the caption rasterizer (#135)
  *
  * A `text` effect whose `typography` validates is drawn by `render_caption_raster`
- * (`text_overlay.text_overlay_caption_style`, ADR 0194), and that draws a word wider than
- * its advances: `letterSpacing` (em) is added between every two glyphs (never after the
- * last, and not at all when it is not positive — `captions._token_width`), an italic is
+ * (`text_overlay.text_overlay_caption_style`, ADR 0194), and that draws a word at other than
+ * its advances: `letterSpacing` (em) is added between every two glyphs (never after the last;
+ * a negative value tightens, down to `MIN_TRACKING_EM` — `captions._token_width`), an italic is
  * drawn from the family's italic file, the stroke is `outlineWidth` sixteenths of the size,
  * and the wrap width is the box less the chip's padding on each side (0.35 em unless a chip
  * colour is set and its typography names its own `paddingX`). The harness's "WEEKEND TRIP" in
@@ -100,7 +100,7 @@ export interface TitleFont {
  * `text_overlay_caption_style` hands them to the caption rasterizer.
  */
 export interface TypedTitle {
-  /** Extra space between glyphs, em. Not positive: none (the rasterizer ignores it). */
+  /** Extra space between glyphs, em; negative tightens (clamped at {@link MIN_TRACKING_EM}). */
   readonly letterSpacing: number;
   /** Stroke width in sixteenths of the font size; 0 is no stroke. */
   readonly outlineWidth: number;
@@ -110,6 +110,11 @@ export interface TypedTitle {
   readonly fontStyle: 'normal' | 'italic';
 }
 
+/**
+ * The tightest tracking either renderer draws, em (`captions.MIN_LETTER_SPACING_EM`,
+ * `captionPreview.ts`): below it the letters run into each other.
+ */
+const MIN_TRACKING_EM = -0.2;
 /** The caption rasterizer's chip padding when none is named (`captions._resolve_style`). */
 const DEFAULT_CHIP_PADDING_EM = 0.35;
 /** `outlineWidth`'s unit: sixteenths of the font size (`captions._OUTLINE_UNITS_PER_EM`). */
@@ -260,8 +265,8 @@ export function typedTitleWidthsPx(
   const row = rowOrDefault(font);
   const glyphs = [...word];
   if (glyphs.length === 0) return { wrapPx: 0, inkPx: 0 };
-  const spacingPx = typed.letterSpacing * fontPx;
-  const gapsPx = spacingPx > 0 && glyphs.length > 1 ? spacingPx * (glyphs.length - 1) : 0;
+  const spacingPx = Math.max(MIN_TRACKING_EM, typed.letterSpacing) * fontPx;
+  const gapsPx = glyphs.length > 1 ? spacingPx * (glyphs.length - 1) : 0;
   let advance = 0;
   let inkLeft = 0;
   let inkRight = 0;

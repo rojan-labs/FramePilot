@@ -1457,5 +1457,7 @@ export const TITLE_TYPED_REFERENCE_WIDTHS: readonly {
   { family: "Playfair Display", weight: 400, word: "jig", size: 15.0, letterSpacing: 0.0, fontStyle: "italic", outlineWidth: 0.0, background: null, paddingX: null, wrapPx: 495, drawnPx: 351 },
   { family: "Courier Prime", weight: 400, word: "fly", size: 9.0, letterSpacing: 0.3, fontStyle: "italic", outlineWidth: 0.0, background: null, paddingX: null, wrapPx: 532, drawnPx: 424 },
   { family: "Inter", weight: 800, word: "SUBSCRIBE", size: 8.0, letterSpacing: 0.0, fontStyle: "normal", outlineWidth: 0.0, background: "#000000cc", paddingX: 0.6, wrapPx: 1050, drawnPx: 1050 },
-  { family: "Anton", weight: 400, word: "MOTION", size: 15.0, letterSpacing: 0.12, fontStyle: "normal", outlineWidth: 2.5, background: "#000000cc", paddingX: 0.1, wrapPx: 1045, drawnPx: 1059 }
+  { family: "Anton", weight: 400, word: "MOTION", size: 15.0, letterSpacing: 0.12, fontStyle: "normal", outlineWidth: 2.5, background: "#000000cc", paddingX: 0.1, wrapPx: 1045, drawnPx: 1059 },
+  { family: "Fraunces", weight: 800, word: "Statement", size: 8.0, letterSpacing: -0.02, fontStyle: "normal", outlineWidth: 0.0, background: null, paddingX: null, wrapPx: 891, drawnPx: 777 },
+  { family: "Inter", weight: 700, word: "HEADING", size: 12.0, letterSpacing: -0.1, fontStyle: "normal", outlineWidth: 2.0, background: null, paddingX: null, wrapPx: 1081, drawnPx: 953 }
 ];
