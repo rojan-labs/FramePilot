@@ -244,12 +244,22 @@ def _apply_crop(source: Any, clip: Clip) -> Any:
         return source
     from moviepy import vfx
 
+    from framepilot_engine.render.lazy_frames import LazySize
+
     width, height = source.size
     x1 = crop.x * width
     y1 = crop.y * height
     x2 = (crop.x + crop.width) * width
     y2 = (crop.y + crop.height) * height
-    return source.with_effects([vfx.Crop(x1=x1, y1=y1, x2=x2, y2=y2)])
+    cropped = source.with_effects([vfx.Crop(x1=x1, y1=y1, x2=x2, y2=y2)])
+    if isinstance(cropped, LazySize):
+        # MoviePy's Crop is `frame[int(y1):int(y2), int(x1):int(x2)]`, a zero bound meaning the
+        # frame's edge: the slice's size, known without rendering frame 0 to measure it.
+        cropped.size = (
+            len(range(int(width))[int(x1 or 0) : int(x2 or width)]),
+            len(range(int(height))[int(y1 or 0) : int(y2 or height)]),
+        )
+    return cropped
 
 
 _SPEED_DURATION_TOLERANCE_SECONDS = 0.05
@@ -908,6 +918,8 @@ def _underlay_layer(
 def _apply_transition_blur(
     source: VideoClip, transition: transitions.Transition | None
 ) -> VideoClip:
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if transition is None or not transitions.affects_blur(transition):
         return source
     width, height = source.size
@@ -923,7 +935,7 @@ def _apply_transition_blur(
         image = Image.fromarray(frame.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius))
         return np.asarray(image)
 
-    return source.transform(blurred, keep_duration=True)
+    return same_size_transform(source, blurred)
 
 
 def _pixel_aspect_ratio(project: Project, clip: Clip) -> float:
@@ -1228,6 +1240,8 @@ def _bind_mattes(
 
 def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
     """Replace edge colour with each matte's foreground estimate before any effect or alpha."""
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if stacks is None:
         return source
     cleaning = [mask for mask in stacks.matte_masks() if mask.decontaminate]
@@ -1246,7 +1260,7 @@ def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | Non
             )
         return picture
 
-    return source.transform(cleaned, keep_duration=True)
+    return same_size_transform(source, cleaned)
 
 
 def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
@@ -1257,6 +1271,8 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
     it is looking for. This is the same order a hardware keyer uses — extract, then suppress —
     and it is why despill is a stage of its own rather than a step inside the qualifier.
     """
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if stacks is None:
         return source
     despilling = stacks.despilling_keys()
@@ -1269,7 +1285,7 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
             picture = despill(picture, str(mask.despill))
         return picture
 
-    return source.transform(cleaned, keep_duration=True)
+    return same_size_transform(source, cleaned)
 
 
 def _refuse_still_only_video_masks(clip: Clip) -> None:
@@ -1389,6 +1405,8 @@ def _apply_edge_styles(
         is the one it would compute (``test_element_layer_export.py``). The entry is held in the
         process's reuse budget. A video's frames differ every frame, so it never compares them.
     """
+    from framepilot_engine.render.lazy_frames import FrameClip, same_size_transform, size_of
+
     styles = clip_edge_styles(clip)
     if not styles or media_size is None:
         return source
@@ -1449,14 +1467,13 @@ def _apply_edge_styles(
     def picture_at(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
         return evaluate(t, get_frame(t))[0]
 
-    styled = source.transform(picture_at, keep_duration=True)
+    styled = same_size_transform(source, picture_at)
 
     def alpha_at(t: float) -> Any:
         return evaluate(t, source.get_frame(t))[1]
 
-    from moviepy import VideoClip as _VideoClip
-
-    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    # The cut-out alpha is drawn on the picture's raster, so it is the picture's size.
+    mask = FrameClip(alpha_at, size=size_of(source), is_mask=True).with_duration(source.duration)
     _log.debug("edge styles on clip %s: %s", clip.id, ",".join(style.kind for style in styles))
     return styled.with_mask(mask)
 
@@ -1535,6 +1552,8 @@ def _attach_mask(
     :param with_stack: ``False`` for layers whose mask stack the export does not draw yet
         (stills and titles, plan/elements EL2a); the stack is then neither computed nor applied.
     """
+    from framepilot_engine.render.lazy_frames import FrameClip
+
     width, height = source.size
     # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
     # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
@@ -1600,9 +1619,8 @@ def _attach_mask(
         geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
     )
     if time_varying:
-        from moviepy import VideoClip as _VideoClip
-
-        mask = _VideoClip(frame_function=combined_alpha_at, is_mask=True).with_duration(
+        # Drawn at (height, width), the picture's size read above.
+        mask = FrameClip(combined_alpha_at, size=(width, height), is_mask=True).with_duration(
             source.duration
         )
     else:
@@ -1616,6 +1634,8 @@ _uses_legacy_transition_path = uses_legacy_transition_path
 
 
 def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -> VideoClip:
+    from framepilot_engine.render.lazy_frames import FrameClip, same_size_transform, size_of
+
     live = live_catalog_transitions(clip, use_legacy)
     if not live:
         return source
@@ -1668,7 +1688,7 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
             return np.asarray(scaled.astype(np.uint8))
         return np.asarray(np.clip(rgb, 0.0, 1.0))
 
-    transformed = source.transform(picture_at, keep_duration=True)
+    transformed = same_size_transform(source, picture_at)
 
     def alpha_at(t: float) -> Any:
         _, alpha = evaluate(t, source.get_frame(t))
@@ -1676,9 +1696,8 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
             alpha = alpha * existing_mask.get_frame(t)
         return alpha
 
-    from moviepy import VideoClip as _VideoClip
-
-    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    # The alpha is the shape of the source's frame, which is the source's size.
+    mask = FrameClip(alpha_at, size=size_of(source), is_mask=True).with_duration(source.duration)
     return transformed.with_mask(mask)
 
 
@@ -1709,6 +1728,10 @@ def _apply_color_grade(
     lut_base_dir: Path,
     stacks: ClipMaskStacks | None = None,
 ) -> VideoClip:
+    from moviepy import ImageClip
+
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     for effect in picture_effects(clip):
         if effect.type == "color_grade":
             grade = color_grade_from_params(effect.params)
@@ -1724,9 +1747,21 @@ def _apply_color_grade(
             apply = partial(apply_lut, lut=lut)
         if stacks is not None and stacks.by_effect.get(effect.id):
             source = _masked_effect(source, stacks, effect.id, apply)
-        else:
+        elif isinstance(source, ImageClip):
+            # A still's grade is computed once, on its one picture (MoviePy's ImageClip path).
             source = source.image_transform(apply)
+        else:
+            source = same_size_transform(source, partial(_image_stage, apply))
     return source
+
+
+def _image_stage(
+    apply: Callable[[np.ndarray], np.ndarray],
+    get_frame: Callable[[float], np.ndarray],
+    t: float,
+) -> np.ndarray:
+    """MoviePy's ``image_transform`` stage: ``apply`` on the frame at ``t``."""
+    return apply(get_frame(t))
 
 
 def _masked_effect(
@@ -1740,6 +1775,8 @@ def _masked_effect(
     The effect runs on the whole frame and is mixed with the untouched frame by the stack's
     alpha at the clip's source instant, so a face blur or sky grade stays glued to the picture.
     """
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     width, height = source.size
     static_alpha = (
         None
@@ -1762,7 +1799,7 @@ def _masked_effect(
         mixed: np.ndarray = mix_by_alpha(frame, effected, alpha)
         return mixed
 
-    return source.transform(masked, keep_duration=True)
+    return same_size_transform(source, masked)
 
 
 def _audio_settings(clip: Clip) -> dict[str, Any]:
@@ -2303,7 +2340,8 @@ def _composite_with_blend_modes(
 
 def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int, int]) -> VideoClip:
     from moviepy import CompositeVideoClip as _CompositeVideoClip
-    from moviepy import VideoClip as _VideoClip
+
+    from framepilot_engine.render.lazy_frames import FrameClip
 
     canvas = _CompositeVideoClip([layer], size=target)
     base_duration = float(base.duration)
@@ -2323,7 +2361,8 @@ def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int,
         out = base_rgb * (1.0 - alpha3) + blended * alpha3
         return cast(np.ndarray, np.clip(out * 255.0, 0, 255).astype(np.uint8))
 
-    result = _VideoClip(frame_function=frame_at).with_duration(new_duration)
+    # The base's frames are the composite's size.
+    result = FrameClip(frame_at, size=target).with_duration(new_duration)
     # `base` and `canvas` (and, through it, `layer`) are only reachable from `frame_at`'s
     # closure, not from any attribute `close_clip_tree` walks — without this, every blend-mode
     # composite would leak the ffmpeg readers underneath it on every close.
@@ -2627,7 +2666,7 @@ def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps:
     each placed by MoviePy's own ``compose_on``, so the geometry is the one the
     plain composite path uses.
     """
-    from moviepy import VideoClip as _VideoClip
+    from framepilot_engine.render.lazy_frames import FrameClip, size_of
 
     base_duration = float(base.duration)
 
@@ -2644,7 +2683,7 @@ def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps:
             frame = _draw_caption_on(frame, caption, t)
         return np.asarray(frame.convert("RGB"), dtype=np.uint8)
 
-    result = _VideoClip(frame_function=frame_at).with_duration(base_duration).with_fps(fps)
+    result = FrameClip(frame_at, size=size_of(base)).with_duration(base_duration).with_fps(fps)
     # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
     result._framepilot_children = [
         base,
@@ -2664,8 +2703,9 @@ def _composite_frosted(
     layer is drawn with MoviePy's own ``compose_on`` (the geometry the plain composite uses) and
     its blend mode; only a timeline with a frosted chip takes this path.
     """
-    from moviepy import VideoClip as _VideoClip
     from PIL import Image
+
+    from framepilot_engine.render.lazy_frames import FrameClip
 
     ends = [float(layer.picture.end) for layer in layers if layer.picture.end is not None]
     duration = max(ends) if ends else 0.0
@@ -2681,7 +2721,7 @@ def _composite_frosted(
             frame = _draw_layer_on(frame, layer.picture, layer.blend_mode, t)
         return np.asarray(frame.convert("RGB"), dtype=np.uint8)
 
-    result = _VideoClip(frame_function=frame_at).with_duration(duration).with_fps(fps)
+    result = FrameClip(frame_at, size=target).with_duration(duration).with_fps(fps)
     # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
     result._framepilot_children = [
         *(layer.picture for layer in layers),

@@ -50,6 +50,8 @@ from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader, ffmpeg_parse_info
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.video.VideoClip import VideoClip
 
+from framepilot_engine.render.lazy_frames import LazySize
+
 #: Frames MoviePy's reader reads through rather than restarting ffmpeg (``get_frame``'s window).
 _SKIP_WINDOW_FRAMES = 100
 
@@ -235,8 +237,12 @@ class ProbedVideoReader(FFMPEG_VideoReader):  # type: ignore[misc]
             self.initialize(t)
 
 
-class ProbedVideoFileClip(VideoFileClip):  # type: ignore[misc]
+class ProbedVideoFileClip(LazySize, VideoFileClip):  # type: ignore[misc]
     """``VideoFileClip`` over a :class:`ProbedVideoReader`: no probe, no frame read, when built.
+
+    Every clip MoviePy derives from it (subclip, speed, grade, placement...) is a copy of this
+    class, so none renders a frame to learn its size either
+    (:mod:`~framepilot_engine.render.lazy_frames`).
 
     :param filename: The source.
     :param infos: Its probe (:func:`probe_video`).
