@@ -270,7 +270,8 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   it measured. `EvidenceStore.invalidate` drops every timeline-dependent entry on any picture op,
   so `normalize_exposure` grading three passenger clips retired all ten road-shot readings and
   the next colour tool asked for ten re-measures. Needs the applied ops (not just types) and
-  the measured frame window, widened for transitions that blend neighbouring clips.
+  the measured frame window, widened for transitions that blend neighbouring clips. Parked:
+  GitHub #158.
 - [x] **AL30** Harness run 11: a fitted (`keepDuration`) `set_clip_speed_ramp` was refused
   "timeline duration 1.8999999999999986s but its source range (2.6147955361309623s) at its speed
   ramp implies 2.241388502385408s". The fit held the rate at the clip's OLD span (0.98x at 1.9 s)
