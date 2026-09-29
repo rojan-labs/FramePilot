@@ -81,10 +81,12 @@
  *    large: ±0.5 temperature moves `satMean` by up to 3.8× on a near-neutral frame, and
  *    the three renders above over-shoot the reference `satMean` by 19-38%. It is a
  *    mean of magnitudes, so the means the ledger keeps cannot predict it exactly.
- * 4. **The export is BT.601, untagged.** The pure-red probe reads Y/U/V 81/90/239
- *    (BT.709 would be 63/102/240). This does not touch the solve — it reads sources and
- *    the float composite — but it means tier-0 facts of an EXPORTED file are in a
- *    different chain from those of its sources.
+ * 4. **The export chain.** Exports encode BT.709 limited range and carry the tags
+ *    (#154); the pure-red probe reads Y/U/V 61.9/103.0/238.8 against 63/102/240, the
+ *    ~1 code left being the bundled ffmpeg's decode. Before #154 they were BT.601 and
+ *    untagged (81/90/239), so tier-0 facts of an EXPORTED file sat in another chain
+ *    from those of its sources. The solve never read exports — it reads sources and the
+ *    float composite — so no figure above changed.
  *
  * So: a solved white balance is now **calibrated against the render**; the tonal stages
  * are still directionally right and approximately scaled. Quote only what the table
