@@ -484,6 +484,37 @@ describe('layerTransitionEligibility', () => {
     expect(verdict.detail).toContain('fromClipId "code" and toClipId "city"');
   });
 
+  it('tells two butt-joined elements they can each keep their own In/Out on separate layers', () => {
+    // Harness run 9: two callouts end to end on one layer; each In/Out was refused with only
+    // the crossfade-between-them remedy.
+    const shapes: Timeline = {
+      tracks: [
+        {
+          id: 'callouts',
+          type: 'overlay',
+          clips: [
+            clip({ id: 'arrow', trackId: 'callouts', start: 2, end: 4, assetId: '__shape__' }),
+            clip({ id: 'circle', trackId: 'callouts', start: 4, end: 6, assetId: '__shape__' }),
+          ],
+        },
+        {
+          id: 'aroll',
+          type: 'video',
+          clips: [clip({ id: 'talk', trackId: 'aroll', start: 0, end: 30, sourceEnd: 30 })],
+        },
+      ],
+    };
+    const verdict = layerTransitionEligibility(shapes, {
+      clipId: 'circle',
+      edge: 'in',
+      kind: 'cross-dissolve',
+      durationSeconds: 0.3,
+    });
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.detail).toContain('move one of them onto another layer (move_clip)');
+  });
+
   it('takes a geometric kind as an exit, which leaves by playing its entrance backwards (EL7)', () => {
     for (const kind of ['zoom', 'slide', 'cross-dissolve']) {
       expect(
