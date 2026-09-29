@@ -539,6 +539,38 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   neighbour's opacity keyframes, mask stack and speed/ramp (it plays the handle at 1x), in both
   export and monitor alike; no frame-plan parity vector has a keyframed neighbour (adding one
   touches PX0-INVENTORY.md and the e2e preview-parity baseline, neither runnable here).
+- [x] **AL41** Harness run 16: at 59.5 s "SEPT 2026" (`text__layer_overlay_5_57144`, 57.13–59.97,
+  Manrope 600 1.6 %, tracked caps, y 48) drew across the second line of "Until next weekend."
+  (`text__text1_56680`, Playfair italic 5.5 %, two lines, y 42), and the self-check said "All
+  checks passed": nothing compared two text overlays with each other (`safe_area` judges each
+  against the frame; the element checks read only stickers and shapes). Fix: critic
+  `text_collision` (warn) beside `safe_area`. Every text overlay on a visible track that has no
+  non-opacity keyframes is laid out as the export draws it, by `overlay-fit.ts`
+  `drawnTextRects`. A typed overlay goes through the caption rasterizer's path: tracked words,
+  greedy wrap inside the box less chip padding, lines stacked at ascent + descent + 2 × stroke
+  with a sixth-of-size gap or `lineHeight`, `paddingY` chip, centred on xPercent/yPercent. Each
+  line's rect is its width by its x-height band, and a filled chip is one rect. A plain overlay
+  is one block of x-height lines, padded if a background fills it. Pairs that share at least a
+  frame and overlap by more than 0.1 em of the smaller size each way are reported. The finding
+  names both ids, their words and the shared span (numbers only inside quotes; the label is
+  constant), plus the remedy: `set_text_style` yPercent, `trim_clip`, or merge and
+  `delete_clip`. Needed the faces' vertical metrics: `title_metrics.py` now writes
+  `TITLE_FACE_LINES`/`TITLE_ITALIC_FACE_LINES` (`[ascent, descent, xHeight]` per file, 1/1000
+  em). This is additive: the glyph tables and reference widths are byte-identical. The full box
+  (line metrics + chip padding) was not used because it flagged the same run's "Weekend"/"TRIP"
+  opener, whose frames show the letters clear. Run 16's final project via the built dist:
+  exactly one warning, that pair ("57.133s–59.967s"); "Weekend"/"TRIP" and the glass-pill
+  lower lines pass. Tests: `critic.test.ts` (run-16 pair warns; stacked title + subtitle passes;
+  back-to-back and sub-frame overlap pass; filled chip and plain pairs; hidden track and
+  keyframed y skipped, opacity-only compared; never a fail), `overlay-fit.test.ts`
+  (`drawnTextRects` against the engine's own layout of three run-16 overlays: line count,
+  widths, chip size), the model-facing gate (names registered tools, no bare digits), and
+  `test_title_metrics.py` (committed line metrics match the fonts, one entry per file holds at
+  every weight, the arithmetic predicts `_layout_styled_caption`'s chip height and each line's
+  x-height band is inked). Open: captions are not compared (their place comes from the track
+  style and template); animated overlays are skipped; a plain overlay's height is a floor, so a
+  plain-title collision can go unreported; weight is bucketed up (Inter 600 read at 700, ~1.4 %
+  wide); not re-run live on run 16's brief.
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

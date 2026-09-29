@@ -315,6 +315,20 @@ wrap keeps. `tests/test_title_metrics.py` checks that arithmetic against the ras
 style's size and box are fitted the same way as explicit ones. Per-letter and per-word reveals
 do not exist for text overlays yet (#152).
 
+Two overlays that draw over each other are reported, not prevented (AL41). The critic's
+`text_collision` advisory lays out every text overlay on a visible track with no position,
+scale or rotation keyframes (`overlay-fit.ts` `drawnTextRects`) the way the export does: wrapped,
+centred on `xPercent`/`yPercent`, and for a typed overlay stacked with the face's own ascent and
+descent (`TITLE_FACE_LINES` in the generated title metrics). It then compares every pair that
+shares the screen for a frame or more. A line counts as drawn from its baseline to the top of
+an "x"; a filled chip counts edge to edge. A subtitle tucked into a title's empty descender
+room therefore passes, and a date set across a word does not. Overlaps smaller than a tenth of
+the smaller size are ignored. The warning names both clips, their words and the span they share,
+and gives the fixes: `set_text_style` a new `yPercent`, `trim_clip` one span, or merge the words
+into one overlay and `delete_clip` the other. Captions are not compared. A plain overlay (no
+typography) is measured from its x-height only, so a collision can go unreported but a
+reported one is real.
+
 `set_text_style` (`clipId` plus any of `text`, `style` and the same styling and typography args) restyles an
 overlay already on the timeline in one `set_effect_params`. A `style` is applied the way the
 Text panel's Apply does (`applyTextOverlayStylePatch`): its whole look except `xPercent`,

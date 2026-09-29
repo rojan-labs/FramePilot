@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The self-check notices text overlays drawn on top of each other.** When two titles are on
+  screen at the same time and their letters overlap, for example a small date set across the
+  last line of a closing title, the review now warns. It names both overlays, what they say and
+  when they overlap, and suggests a fix: move one up or down, shorten one, or put both on one
+  overlay. Before, the review passed such an edit with "All checks passed". A subtitle set close
+  under a title, but clear of its letters, is not flagged.
 - **The assistant can measure loudness.** Ask for "-14 LUFS, true peak at most -1 dBTP" and it
   measures the mix, or only the dialogue, music or effects tracks you labelled. It reports
   integrated loudness, loudness range, true peak and sample peak, how far each is from your
