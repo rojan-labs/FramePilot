@@ -21,12 +21,12 @@ import logging
 import math
 import tempfile
 import wave
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
-from itertools import pairwise
+from itertools import chain, pairwise
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, cast
+from typing import Annotated, Any, ClassVar, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -66,6 +66,11 @@ _log = logging.getLogger(__name__)
 TEMPORAL_EVIDENCE_VERSION: Literal[1] = 1
 MAX_REQUESTS = 64
 MAX_WINDOW_FRAMES = 300
+#: A loudness window is sound only — no frame is rendered — and integrated loudness is a
+#: property of the WHOLE programme (EBU R128 gates relative to the programme's own level),
+#: so it cannot be assembled from 300-frame pieces. Thirty minutes at 60 fps; the audio is
+#: streamed to disk a chunk at a time, so the window's length costs time, not memory.
+MAX_LOUDNESS_WINDOW_FRAMES = 30 * 60 * 60
 MAX_RENDERED_FRAMES = 400
 _FRAME_CHANNELS = 3
 REVIEW_MAX_DIMENSION = 960
@@ -108,6 +113,9 @@ class FrameEvidenceRequest(_RequestBase):
 
 
 class _WindowRequest(_RequestBase):
+    #: The widest window this kind of request may span.
+    max_window_frames: ClassVar[int] = MAX_WINDOW_FRAMES
+
     start_frame: int = Field(ge=0)
     end_frame: int = Field(ge=0)
 
@@ -116,8 +124,8 @@ class _WindowRequest(_RequestBase):
         width = self.end_frame - self.start_frame
         if width <= 0:
             raise ValueError("endFrame must be greater than startFrame")
-        if width > MAX_WINDOW_FRAMES:
-            raise ValueError(f"evidence windows may span at most {MAX_WINDOW_FRAMES} frames")
+        if width > self.max_window_frames:
+            raise ValueError(f"evidence windows may span at most {self.max_window_frames} frames")
         return self
 
 
@@ -192,6 +200,8 @@ class AudioEvidenceRequest(_WindowRequest):
 
 
 class LoudnessEvidenceRequest(_WindowRequest):
+    max_window_frames: ClassVar[int] = MAX_LOUDNESS_WINDOW_FRAMES
+
     kind: Literal["loudness"]
     channels: Literal["mix", "dialogue", "music", "sfx"]
     target_lufs: float = Field(default=-14.0, le=0)
@@ -261,7 +271,13 @@ class AudioSample(_ContractModel):
 class LoudnessSample(_ContractModel):
     integrated_lufs: float
     loudness_range_lu: float | None = None
+    #: ebur128's 4x-oversampled TRUE peak (dBTP) of the window as 16-bit PCM — the samples
+    #: clipped at full scale, as an export writes them.
     true_peak_dbfs: float | None = None
+    #: The highest SAMPLE of the composed mix before any clipping (dBFS). Above 0 means the
+    #: mix is over full scale and an export will clip it — which the true peak, measured
+    #: after the clip, cannot show.
+    sample_peak_dbfs: float | None = None
 
 
 class TemporalRenderSettings(_ContractModel):
@@ -628,14 +644,46 @@ def _window_wav(
     fps: int,
     destination: Path,
     cancelled: CancelCheck | None,
-) -> None:
-    samples = _audio_frames(composition, start_frame / fps, end_frame / fps, cancelled)
-    pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+) -> float:
+    """Write the window's sound to ``destination`` as 16-bit PCM, one chunk at a time.
+
+    Streamed rather than materialised: a loudness window may be a whole programme, and
+    holding thirty minutes of float64 stereo (plus its sample clock) is gigabytes.
+
+    :returns: The highest absolute sample BEFORE the full-scale clip, so a caller can tell
+        an over-full-scale mix from one that merely peaks at 0 dBFS.
+    """
+    audio = composition.audio
+    if audio is None:
+        raise TemporalEvidenceError("The compiled timeline has no audio for audio evidence.")
+    start_seconds = start_frame / fps
+    end_seconds = end_frame / fps
+    count = max(2, math.ceil((end_seconds - start_seconds) * _AUDIO_SAMPLE_RATE))
+    # The same sample clock `_audio_frames` builds with `np.linspace(..., endpoint=False)`.
+    step = (end_seconds - start_seconds) / count
+
+    def blocks() -> Iterator[npt.NDArray[np.float64]]:
+        for offset in range(0, count, _AUDIO_CHUNK_SAMPLES):
+            _check_cancelled(cancelled)
+            indices = np.arange(offset, min(offset + _AUDIO_CHUNK_SAMPLES, count), dtype=np.float64)
+            times: npt.NDArray[np.float64] = start_seconds + indices * step
+            block = np.asarray(audio.get_frame(times), dtype=np.float64)
+            if block.size > 0:
+                yield block if block.ndim > 1 else block[:, np.newaxis]
+
+    chunks = blocks()
+    first = next(chunks, None)
+    if first is None:
+        raise TemporalEvidenceError("The compiled timeline returned no audio samples.")
+    peak = 0.0
     with wave.open(str(destination), "wb") as handle:
-        handle.setnchannels(pcm.shape[1])
+        handle.setnchannels(first.shape[1])
         handle.setsampwidth(2)
         handle.setframerate(_AUDIO_SAMPLE_RATE)
-        handle.writeframes(pcm.tobytes())
+        for block in chain([first], chunks):
+            peak = max(peak, float(np.max(np.abs(block))))
+            handle.writeframes((np.clip(block, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
+    return peak
 
 
 def _loudness_sample(
@@ -646,7 +694,7 @@ def _loudness_sample(
 ) -> LoudnessSample:
     with tempfile.TemporaryDirectory(prefix="fp-loudness-") as directory:
         wav = Path(directory) / "window.wav"
-        _window_wav(composition, request.start_frame, request.end_frame, fps, wav, cancelled)
+        peak = _window_wav(composition, request.start_frame, request.end_frame, fps, wav, cancelled)
         _check_cancelled(cancelled)
         analysis = measure_loudness(wav)
     if analysis is None:
@@ -655,6 +703,7 @@ def _loudness_sample(
         integrated_lufs=analysis.integrated_lufs,
         loudness_range_lu=analysis.loudness_range_lu,
         true_peak_dbfs=analysis.true_peak_dbfs,
+        sample_peak_dbfs=_dbfs(peak),
     )
 
 

@@ -14,11 +14,13 @@ from framepilot_engine.render.compiler import PictureWindowMiss
 from framepilot_engine.timeline.models import Project
 from framepilot_engine.validation import temporal_evidence as evidence_module
 from framepilot_engine.validation.temporal_evidence import (
+    MAX_LOUDNESS_WINDOW_FRAMES,
     AudioEvidenceRequest,
     ComparisonEvidenceRequest,
     FrameEvidenceRequest,
     FrameEvidenceResult,
     FrameSample,
+    LoudnessEvidenceRequest,
     MotionEvidenceRequest,
     RangeEvidenceRequest,
     ScopeEvidenceRequest,
@@ -1127,3 +1129,96 @@ def test_frame_sample_black_ratio_reads_the_brightest_channel(
     pixels = np.full((4, 4, 3), rgb, dtype=np.uint8)
     sample = evidence_module._frame_sample(0, pixels)
     assert sample.black_ratio == (1.0 if black else 0.0)
+
+
+def _long_project(seconds: float) -> Project:
+    """The evidence fixture stretched to ``seconds``: longer than any 300-frame window."""
+    project = _project()
+    clip = project.timeline.tracks[0].clips[0]
+    clip.end = seconds
+    clip.source_end = seconds
+    return project
+
+
+class _SineAudio:
+    """A stereo 997 Hz sine at a fixed peak amplitude — a mix whose level is known."""
+
+    def __init__(self, amplitude: float) -> None:
+        self.amplitude = amplitude
+
+    def get_frame(
+        self, times: np.ndarray[Any, np.dtype[np.float64]]
+    ) -> np.ndarray[Any, np.dtype[np.float64]]:
+        wave = self.amplitude * np.sin(2 * np.pi * 997.0 * times)
+        return np.stack([wave, wave], axis=1)
+
+
+def _loudness(end_frame: int) -> LoudnessEvidenceRequest:
+    return LoudnessEvidenceRequest.model_validate(
+        {
+            **_base("loudness", "loudness"),
+            "startFrame": 0,
+            "endFrame": end_frame,
+            "channels": "mix",
+        }
+    )
+
+
+def test_measures_a_whole_programme_mix_at_its_known_level(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Integrated loudness is a property of the whole programme, not of a 300-frame window.
+
+    A stereo 997 Hz sine at -20 dBFS peak is the EBU reference signal: it reads -20 LUFS
+    (Tech 3341), and its sample peak and true peak both sit at -20 dB. Twenty seconds is
+    600 frames — twice what any picture window may span — measured through the real
+    ffmpeg ebur128 meter.
+    """
+    composition = _FakeComposition()
+    composition.audio = _SineAudio(10 ** (-20 / 20))
+    monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_args, **_kwargs: composition)
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+    project = _long_project(20)
+    [result] = acquire_temporal_evidence(project, tmp_path, [_loudness(600)]).results
+
+    assert result.kind == "loudness"
+    sample = result.sample
+    assert sample.integrated_lufs == pytest.approx(-20.0, abs=0.3)
+    assert sample.true_peak_dbfs == pytest.approx(-20.0, abs=0.3)
+    assert sample.sample_peak_dbfs == pytest.approx(-20.0, abs=0.05)
+    # A steady tone has no dynamics to speak of.
+    assert sample.loudness_range_lu is not None and sample.loudness_range_lu < 1
+
+
+def test_reports_a_mix_over_full_scale_that_the_true_peak_cannot_see(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The meter reads the mix as the export writes it — clipped at full scale.
+
+    So the true peak of an overloaded mix sits at about 0 dBTP however far over it is; only
+    the sample peak, taken before the clip, shows the mix is 6 dB too hot.
+    """
+    composition = _FakeComposition()
+    composition.audio = _SineAudio(2.0)
+    monkeypatch.setattr(evidence_module, "compile_timeline", lambda *_args, **_kwargs: composition)
+    monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
+
+    project = _long_project(4)
+    [result] = acquire_temporal_evidence(project, tmp_path, [_loudness(120)]).results
+
+    assert result.kind == "loudness"
+    assert result.sample.sample_peak_dbfs == pytest.approx(6.02, abs=0.05)
+    assert result.sample.true_peak_dbfs is not None
+    assert result.sample.true_peak_dbfs < 1.0
+
+
+def test_only_a_loudness_window_may_span_more_than_300_frames() -> None:
+    wide = {**_base("loudness", "wide"), "startFrame": 0, "endFrame": 301, "channels": "mix"}
+    assert LoudnessEvidenceRequest.model_validate(wide).end_frame == 301
+    with pytest.raises(ValidationError, match="at most 300 frames"):
+        AudioEvidenceRequest.model_validate({**wide, "kind": "audio"})
+    with pytest.raises(ValidationError, match=f"at most {MAX_LOUDNESS_WINDOW_FRAMES} frames"):
+        LoudnessEvidenceRequest.model_validate({**wide, "endFrame": MAX_LOUDNESS_WINDOW_FRAMES + 1})
