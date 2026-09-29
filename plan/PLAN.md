@@ -234,9 +234,9 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   Homebrew 8.1 and bundled 7.1: the conversion honours BT.709 tags (red 255/0/0; forced BT.601
   gives 233/0/2); real black, near-black 20, fade-to-black and thin white text on black keep
   their verdict. Cost about 2x on a 63 s 1080p export (1.2-2.1 s → 2.9-3.3 s). New
-  `test_black_brightest_channel.py`; `test_render_frame_accuracy` is back to pure blue. Open:
-  `temporal_evidence._frame_sample` still computes the review `black_ratio` from BT.709 luma
-  ≤ 0.10, so the agent's frame review still calls a pure-blue card black.
+  `test_black_brightest_channel.py`; `test_render_frame_accuracy` is back to pure blue. The
+  agent's frame review uses the same rule: `temporal_evidence._frame_sample` computes `black_ratio`
+  from the brightest channel ≤ 0.10, so review no longer calls a pure-blue card black.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

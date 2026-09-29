@@ -1108,3 +1108,22 @@ def test_a_frame_request_may_carry_the_checks_it_will_be_judged_against() -> Non
                 "checks": ["flash_frames"],
             }
         )
+
+
+@pytest.mark.parametrize(
+    ("rgb", "black"),
+    [
+        ((0, 0, 0), True),
+        ((20, 20, 20), True),
+        # BT.709 luma of pure blue is 7%: a luma rule would call this end card black.
+        ((0, 0, 255), False),
+        ((0, 0, 128), False),
+        ((255, 0, 0), False),
+    ],
+)
+def test_frame_sample_black_ratio_reads_the_brightest_channel(
+    rgb: tuple[int, int, int], black: bool
+) -> None:
+    pixels = np.full((4, 4, 3), rgb, dtype=np.uint8)
+    sample = evidence_module._frame_sample(0, pixels)
+    assert sample.black_ratio == (1.0 if black else 0.0)

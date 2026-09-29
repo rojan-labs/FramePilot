@@ -69,7 +69,9 @@ MAX_RENDERED_FRAMES = 400
 _FRAME_CHANNELS = 3
 REVIEW_MAX_DIMENSION = 960
 MAX_RESIDENT_FRAME_BYTES = 512 * 1024 * 1024
-_BLACK_LUMA_THRESHOLD = 0.10
+#: A pixel is black when its BRIGHTEST channel is at most 10%, the render QC's rule
+#: (analysis/black.py). Luma would call a saturated blue card black: BT.709 weights blue 7%.
+_BLACK_VALUE_THRESHOLD = 0.10
 _AUDIO_SAMPLE_RATE = 48_000
 _AUDIO_CHUNK_SAMPLES = 32_768
 _MIN_DBFS = -120.0
@@ -402,7 +404,7 @@ def _frame_sample(frame_index: int, pixels: npt.NDArray[np.uint8]) -> FrameSampl
     return FrameSample(
         frame=frame_index,
         luma=float(np.mean(luma_pixels)),
-        black_ratio=float(np.mean(luma_pixels <= _BLACK_LUMA_THRESHOLD)),
+        black_ratio=float(np.mean(rgb.max(axis=-1) <= _BLACK_VALUE_THRESHOLD)),
         perceptual_hash=str(hash_value),
     )
 
