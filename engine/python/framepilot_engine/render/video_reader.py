@@ -50,6 +50,7 @@ from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader, ffmpeg_parse_info
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.video.VideoClip import VideoClip
 
+from framepilot_engine.render.audio_reads import bound_audio_reads
 from framepilot_engine.render.lazy_frames import LazySize
 
 #: Frames MoviePy's reader reads through rather than restarting ffmpeg (``get_frame``'s window).
@@ -276,7 +277,9 @@ class ProbedVideoFileClip(LazySize, VideoFileClip):  # type: ignore[misc]
         self.filename = filename
         self.frame_function = lambda t: self.reader.get_frame(t)
         if audio and self.reader.infos["audio_found"]:
-            self.audio = AudioFileClip(filename, buffersize=200000, fps=44100, nbytes=2)
+            self.audio = bound_audio_reads(
+                AudioFileClip(filename, buffersize=200000, fps=44100, nbytes=2)
+            )
 
 
 __all__ = ["ProbedVideoFileClip", "ProbedVideoReader", "probe_video", "stored_size"]

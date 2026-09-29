@@ -102,6 +102,7 @@ from framepilot_engine.effects.transform import (
 )
 from framepilot_engine.media.assets import AssetIndex
 from framepilot_engine.render import transition_passes, transitions
+from framepilot_engine.render.audio_reads import bound_audio_reads
 from framepilot_engine.render.blend import apply_blend_mode
 from framepilot_engine.render.caption_templates import layer_caption_style
 from framepilot_engine.render.captions import (
@@ -239,9 +240,32 @@ class CompileError(Exception):
 
 def _subclipped_source(source: Any, clip: Clip) -> Any:
     end = clip.source_end
-    if end is not None and end >= float(source.duration):
-        end = None
-    return source.subclipped(clip.source_start, end)
+    if end is None or end < float(source.duration):
+        return source.subclipped(clip.source_start, end)
+    played = source.subclipped(clip.source_start, None)
+    return _hold_past_end(played, float(end) - float(clip.source_start))
+
+
+def _hold_past_end(played: Any, span: float) -> Any:
+    """``played`` lasting ``span`` seconds: its last frame held and silence past its file.
+
+    AL42: a clip's source out-point can sit a little past its file — a span rounded up to the
+    frame grid on a sub-frame-length asset, or an asset whose probed length is its container's
+    rather than its stream's. Cut to the file, the layer used to end early and the frame(s)
+    after it showed the layer beneath (black on a single track) while the frame plan, and so
+    the preview, held the shot. Held here, the export agrees with them. Sound past the file is
+    silence: every audio reader answers a read past its end with zeros (``audio_reads``).
+    """
+    from moviepy import VideoClip
+
+    if span <= float(played.duration):
+        return played
+    if isinstance(played, VideoClip):
+        # The last whole frame inside the file: a read at or past the end asks the decoder for a
+        # frame it does not have, which MoviePy answers with whatever it read before.
+        last = max(0.0, float(played.duration) - 1.0 / float(played.fps))
+        played = played.time_transform(lambda t: np.minimum(t, last), keep_duration=True)
+    return played.with_duration(span)
 
 
 def _apply_crop(source: Any, clip: Clip) -> Any:
@@ -1925,7 +1949,9 @@ def _stream_audio_processors(source: Any, clip: Clip, params: Mapping[str, Any])
             apply_audio_filter(raw_path, processed_path, filter_str)
             raw_path.unlink(missing_ok=True)
             final_path = processed_path
-        processed = AudioFileClip(str(final_path)).with_duration(float(source.duration))
+        processed = bound_audio_reads(AudioFileClip(str(final_path))).with_duration(
+            float(source.duration)
+        )
         return _attach_owned_resource(processed, workspace)
     except BaseException:
         workspace.close()
@@ -2233,7 +2259,7 @@ def compile_timeline(
                     if track.muted:
                         continue
                     path = _resolve_clip_asset(clip, asset_index)
-                    reader = AudioFileClip(path)
+                    reader = bound_audio_reads(AudioFileClip(path))
                     opened.append(reader)
                     source = _subclipped_source(reader, clip)
                     source = _apply_speed(source, clip)

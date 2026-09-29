@@ -198,6 +198,10 @@ class _FakeSource:
         self.calls.append((start, end))
         return self
 
+    def with_duration(self, duration: float) -> _FakeSource:
+        self.duration = duration
+        return self
+
 
 def _clip_model(source_start: float, source_end: float) -> Clip:
     return Clip.model_validate(
@@ -247,6 +251,9 @@ def test_subclipped_source_clamps_out_point_past_decoded_duration() -> None:
     assert result is source
     # Out-point collapses to None ("to the end") rather than the overflowing value.
     assert source.calls == [(0.0, None)]
+    # AL42: and the layer still lasts the span it was asked for, past the file's end
+    # (silence for sound, the last frame held for picture).
+    assert result.duration == pytest.approx(16.93)
 
 
 def test_subclipped_source_keeps_a_genuinely_shorter_window() -> None:
