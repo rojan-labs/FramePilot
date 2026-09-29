@@ -482,6 +482,38 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   export's held base under a blended layer and its ignored bottom-layer mode are kept (a window
   falls back there) — whether the monitor draws them the same was not checked; the blend burst was
   not run on pre-AL38 code (every request compiles 40 eager readers; single requests measured).
+- [x] **AL39** Harness run 16 (27k brief, Opus 5.5). (1) The run ended on "Sound design and mix
+  — blocked: No SFX in the bin" without ever loading `sourcing`; every `update_plan` result had
+  named it (the run-8 echo), and the text did not work. Now structural: on a no-tool reply whose
+  model plan has nothing pending/in progress, at least one `blocked` item, and loadable domains
+  never loaded (`AgentTurnResult.unloadedToolDomains`, from `kernel/model-plan.ts`
+  `unloadedDomainsForBlocked`, shared with the echo), the conductor continues ONCE
+  (`blockedItemsRetried`) with a DO THIS NOW naming the blocked items, each unloaded domain with its
+  `DOMAIN_SUMMARY`, and both answers (load_tools and retry, or reply without a tool call to leave
+  it blocked). Never when cancelled, over the cost/time budget, or out of steps; a second no-tool
+  reply ends normally. (2) "Masking: text behind subject, shape opener, split-screen, mask reveal
+  — failed: Segmentation Capability Pack not installed": the contract's one-item-per-treatment
+  sentence is now also in the `update_plan` description. (3) Blurred fill refused: the existing
+  bay-aerial clip was framed by `reframe_pan` (x/scale keyframes, no crop), so the duplicate
+  check's crop comparison saw none = none and refused the `crop: null` copy. A clip framed by
+  transform keyframes (all but opacity) is now a different picture from a new copy; a layered copy
+  named on its background's own lane (run 16 named v1) is placed in front
+  (`PictureCandidate.overOwnLane`) instead of colliding; every picture same-frames refusal appends
+  the blurred-fill route (by the call's crop and whether the other copy is placed or booked);
+  `vertical-reframe.md` states background = the clip already cut in, foreground = the `crop: null`
+  copy in front (5,268 chars). The run's `apply_color_grade` blur `amount: 0` was refused by the
+  editor-core op contract alone (renderers, tool input contract, Python mirror and description all
+  take 0 as off); 0 is now valid. There is no tool that removes a clip effect (`remove_effect`
+  deletes effect layers). Tests: 7 conductor cases (fires once, names domains and summaries, not
+  when all loaded / nothing blocked / items open / over budget / cancelled / out of steps), 3
+  model-plan helper cases, the d8d2e445 stream test now asserts the blocked-item turn (6 calls, was
+  5), the update_plan description, 5 run-16 replay cases in `layered-picture-recipes.test.ts` (pan
+  + blur + same-lane `crop: null` copy validates, lands in front, hides nothing, undoes to empty;
+  the refused copy's route is followed and succeeds; whole-picture variant; sound unchanged;
+  amount 0), `pictureOverlapAcross` own-lane case, blur contract accepts 0. Goldens: +26 tokens per
+  request (the description sentence), token figures only; the continuation and the skill change
+  no recorded session. Open: not re-run live on run 16's brief; a zero-amount blur stays listed on
+  the clip (Inspector row at 0%) since nothing removes a clip effect.
 - [x] **AL40** Harness run 16: in a 1080x1920 reel of 16:9 footage, every shot reframed to fill by
   `reframe_pan` (x/y/scale keyframes, no crop), the luma fade into `bay_aerial` showed the outgoing
   `dusk_road` letterboxed (180x320 grab: 219 black rows at 51.98 s, 148 at 52.3 s). Root cause:

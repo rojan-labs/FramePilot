@@ -83,6 +83,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant tries the tools it has not opened before giving up on part of a request.** It
+  could mark an item on its plan as impossible ("no sound effects in the bin") and stop, without
+  ever opening the tools that do it (the sound-effect library). When it now stops with items it
+  gave up on and tool groups it never opened, it gets one more turn that names those groups and
+  what each does: open one and try, or confirm the item cannot be done. It also lists each
+  treatment a section names as its own plan item, so one it cannot do no longer hides the rest.
+- **Blurred-fill backgrounds work on a shot that was already panned.** In a vertical video, the
+  assistant fits a wide shot whole over a blurred copy of itself. On a shot it had panned across,
+  adding the fitted copy was refused as "a second copy that cannot be seen", and the assistant gave
+  the look up. The copy now goes in front of the panned one, even when the assistant names the
+  same track. When a copy really would be hidden, the assistant is told how to build the look
+  instead.
+- **A clip's blur can be taken off.** The assistant was told a blur of 0 turns a blur off, then
+  refused when it tried, and left a barely-there blur on the shot. A blur of 0 is now accepted and
+  draws nothing.
 - **Transitions between reframed shots no longer flash black bars.** When a wide shot was
   zoomed or panned to fill a vertical frame, the shot on the other side of a transition was drawn
   at its original, unzoomed size while the transition played. For the length of a dissolve, luma
