@@ -182,3 +182,24 @@ tests/test_title_fit.py`, once plainly and once with `DYLD_LIBRARY_PATH=/opt/hom
 (libraqm on, like Linux CI). If the rule changes on either side, change both renderers and the
 fit together, then regenerate the fit's reference widths with
 `uv run python -m framepilot_engine.render.title_metrics`.
+
+## Recurring failure mode: black bars only while a transition plays
+
+Symptom: a reel of reframed shots (a wide shot zoomed or panned to fill a vertical frame) shows
+letterbox bars for the length of a dissolve, luma fade, whip pan or light leak, and nowhere else.
+Measure it: rows whose mean luma is under 8 in a small `grab_frame`, sampled every frame across
+the ramp (AL40: 219 of 320 rows at the first frame of a 0.6 s luma fade, 0 once it had resolved).
+
+Why: a transition is stamped on butt-joined clips, so the shot on the other side of the cut is
+borrowed as an under-layer (`frame_plan.transition_underlays`, built by `compiler._underlay_layer`
+and drawn on the monitor from the frame plan's `underlay` layer). An under-layer must be drawn
+exactly as its clip draws itself. Anything it drops (keyframes, until AL40) shows only during the
+ramp, and only when the incoming picture is not yet opaque, which is why a punch-zoom hid it and a
+luma fade did not.
+
+Check: `uv run pytest tests/test_render_transition_underlay_reframe.py tests/test_frame_plan.py`
+and `vitest run src/frame-plan.test.ts` (editor-core) plus `src/preview/engine/layer-raster.test.ts`
+(web-editor, after rebuilding editor-core). The export, the Python plan, the TS plan and the
+monitor's raster step change together: `underlay_clock_offset` / `underlayClipTime` put the
+neighbour's keyframes on its own clip clock across the cut. Still not carried to an under-layer:
+the neighbour's opacity keyframes, mask stack and speed.

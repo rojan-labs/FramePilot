@@ -482,6 +482,31 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   export's held base under a blended layer and its ignored bottom-layer mode are kept (a window
   falls back there) — whether the monitor draws them the same was not checked; the blend burst was
   not run on pre-AL38 code (every request compiles 40 eager readers; single requests measured).
+- [x] **AL40** Harness run 16: in a 1080x1920 reel of 16:9 footage, every shot reframed to fill by
+  `reframe_pan` (x/y/scale keyframes, no crop), the luma fade into `bay_aerial` showed the outgoing
+  `dusk_road` letterboxed (180x320 grab: 219 black rows at 51.98 s, 148 at 52.3 s). Root cause:
+  a transition's under-layer (the neighbour's handle, `transition_underlays`) was placed with its
+  keyframes stripped, `neighbour.model_copy(update={"keyframes": []})`, in the export
+  (`compiler._underlay_layer`) and the frame plan (`frame_plan._underlay_layer`), and the monitor
+  mirrored it (`frame-plan.ts` `underlayLayer` passed `[]`; `layer-raster.ts` forced
+  `keyframes = []` for `underlay`, so it took the static-fit path). Crops were honoured; keyframed
+  reframes were not. The incoming clip itself was always right. Every catalog and legacy kind
+  shares the path; kinds whose incoming is opaque from the first frame (punch-zoom) hid it. Fix:
+  the under-layer reads the neighbour's transform on its own clip clock carried across the cut
+  (`underlay_clock_offset` = window start − neighbour start, twin `underlayClipTime`), so it holds
+  the last keyframe past the out-point and the first before the in-point; `_place_video_clip`
+  takes a `clock_offset` (0.0 for every other layer). Run 16, 187 grabs (every 0.5 s + every frame
+  of the 5 v1 transitions): 41 changed, all inside whip-pan-up/light-leak/luma-fade windows,
+  black rows 170/195/219 → 0; 146 byte-identical, including every sample outside a transition and
+  both punch-zoom windows. Tests: `test_render_transition_underlay_reframe.py` (luma-fade,
+  cross-dissolve, whip-pan-up, light-leak in, luma-fade end-aligned out: 329/480 black rows on
+  pre-fix code → 0; held framing mean diff 64.3 → < 1; frames outside the ramp byte-identical to
+  the cut with no transition), mirrored plan tests in `test_frame_plan.py`/`frame-plan.test.ts`,
+  and `layer-raster.test.ts` (pre-fix monitor: fitted at y 656). Critic: `reframe_coverage` judges
+  clips at their own instants and was right; no change. Open: the under-layer still ignores the
+  neighbour's opacity keyframes, mask stack and speed/ramp (it plays the handle at 1x), in both
+  export and monitor alike; no frame-plan parity vector has a keyframed neighbour (adding one
+  touches PX0-INVENTORY.md and the e2e preview-parity baseline, neither runnable here).
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

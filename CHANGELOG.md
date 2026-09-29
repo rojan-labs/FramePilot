@@ -83,6 +83,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Transitions between reframed shots no longer flash black bars.** When a wide shot was
+  zoomed or panned to fill a vertical frame, the shot on the other side of a transition was drawn
+  at its original, unzoomed size while the transition played. For the length of a dissolve, luma
+  fade, whip pan or light leak, black bars showed above and below it, in the export and on the
+  monitor alike. Both sides of a transition now keep their own framing, holding the zoom and pan
+  they had at the cut. Every frame outside a transition is exactly as it was.
 - **Exports and the assistant's checks do much less wasted work, so the laptop stays cooler.**
   The engine opened every video twice, and each opening decoded a frame on every processor core
   and threw it away. Assembling a picture also computed frames nobody looked at, such as a
