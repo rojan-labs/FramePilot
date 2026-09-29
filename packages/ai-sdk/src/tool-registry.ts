@@ -472,7 +472,9 @@ const readTools: ToolSpec[] = [
       description:
         'Write your plan for this request and keep it current: the FULL list every call ' +
         '(it replaces the last one), one item per deliverable the request asks for, in the ' +
-        "request's own terms and order. Status: pending, in_progress, done, or blocked — " +
+        "request's own terms and order. A section that names several treatments is one " +
+        'item per treatment, so blocking one never hides the rest. ' +
+        'Status: pending, in_progress, done, or blocked — ' +
         'done only once the edit that delivers it has been applied, with a note naming that ' +
         'edit (a part you skipped is not done); blocked only when no available tool can do it, ' +
         'with a note saying why — never cite an editor choice they did not make. The run ' +

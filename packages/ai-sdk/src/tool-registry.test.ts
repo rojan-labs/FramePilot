@@ -308,6 +308,15 @@ describe('read tools', () => {
       });
     });
 
+    it('tells the model at call time to split a section into one item per treatment', () => {
+      // Harness run 16 folded "text behind subject, shape opener, split-screen, mask reveal"
+      // into one Masking item and blocked all four on segmentation, which only one needs.
+      // The contract said so; the description is what the model reads when it writes the list.
+      expect(plan.description).toContain(
+        'A section that names several treatments is one item per treatment, so blocking one never hides the rest.',
+      );
+    });
+
     it('refuses a done item that does not name the edit that delivered it', () => {
       // Harness run 7 marked an SFX layer done with no effect ever placed.
       expect(() => read({ items: [{ task: 'SFX layer', status: 'done' }] })).toThrow(
