@@ -125,6 +125,16 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `ai-stream.ts`) drops `agentOptions.resume`, so the renderer's Resume runs as a fresh run on
   `cp.goal`. The fix needs a bounded `resume` on the IPC contract (ops re-validated on replay),
   which widens the IPC surface, so it needs a maintainer decision.
+- [x] **AL17** #138: `professional_motion` and `professional_color` take `clipIds` (the resolver's
+  `explicit` referent), as `professional_audio` did in 1ccb1fc0 — an agent run has no selection.
+  Ambiguity refusals and the wrong-kind `target` hint name `clipIds`; motion takes one id (a named
+  clip off the playhead: `continue` anchors on its latest keyframe, `animate_to` points at
+  `add_keyframes`); color's match/group take one. Tests: `professional-{motion,color}.test.ts`.
+- [x] **AL18** Honest upscale: `punch_in`/`reframe_pan` results state the clip's peak
+  magnification (output px per source px, `framePlanAt` geometry at project resolution) and say
+  plainly above `SOFT_UPSCALE_THRESHOLD` (1) that the picture is upscaled and soft; nothing is
+  refused. Evidence: harness run 8's soft road shot at 17 s (pan 1.78× × punch). Tests:
+  `magnification-note.test.ts` (incl. through the orchestrator). Not yet measured on a live run.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

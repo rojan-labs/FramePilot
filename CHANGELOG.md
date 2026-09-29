@@ -61,6 +61,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant can see when a zoom makes the picture soft.** A punch-in on a panned wide shot
+  multiplies the pan's zoom, so a 1080p shot in a vertical video could be enlarged to more than
+  twice its own resolution and look soft. After a punch-in or a pan, the assistant now gets the
+  magnification: how many screen pixels wide each source pixel is drawn at the zoom's peak. It
+  is told plainly when the picture is upscaled, so it can pick a smaller zoom. Nothing is
+  refused.
+- **The assistant can animate and colour-grade a clip it names.** Professional motion and
+  colour used to act only on the clip you had selected or the one under the playhead. An
+  assistant working on its own has no selection, so it could not continue a motion or match one
+  shot's colour to another. It can now name the clip.
 - **A punch-in on a panned shot zooms in on the pan instead of adding black bars.** A slow pan
   on a wide shot in a vertical video fills the frame by zooming in. A punch-in used to replace
   that zoom, so the shot shrank back to a letterboxed fit. The assistant had to remove every pan

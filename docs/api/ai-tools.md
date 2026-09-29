@@ -372,6 +372,29 @@ brief removed 22 pans by hand before it could punch in.
 - **Mirror:** `engine/python/framepilot_engine/ai_tools/handlers.py` `punch_in` builds the same
   operations.
 
+### How far a zoom magnifies the source: `magnificationNote`
+
+A zoom's `scale` is relative to the fit, not to the source's pixels. A `reframe_pan` of a
+1920×1080 source into a 1080×1920 frame already draws each source pixel 1.78 output pixels
+wide, and a 1.2 punch on top makes it 2.13. Harness run 8's road shot at 17 s was visibly soft
+for that reason, and nothing in the result said so.
+
+- **Rule:** after `punch_in` or `reframe_pan` lands, the result states the clip's peak
+  magnification: output pixels per source pixel, on the more magnified axis. It uses
+  `framePlanAt` geometry (fit, crop, keyframed scale and stretch) at the project resolution,
+  against the asset's measured display size. The peak is sampled at the clip's edges and at
+  every size keyframe. Between keyframes a named easing stays inside their values, so the
+  peak is at one of them.
+- **Above `SOFT_UPSCALE_THRESHOLD` (1)** the note says plainly that the picture is upscaled
+  and will look soft. For a punch it also says what helps. If the clip was below 1 before the
+  punch, a smaller `toScale` keeps it sharp. If the clip was already above 1 (a pan of a
+  1080p source), no punch is sharp, and a smaller one softens it less. Nothing is refused: a
+  soft push-in can be a deliberate choice.
+- **Silent** when the source was never measured, because there is no honest number to give.
+- **Where:** `packages/ai-sdk/src/domain-tools/magnification-note.ts`, appended to the result
+  note in `orchestrator.ts` beside `verificationNote`. The Python registry returns operations
+  only and has no result notes, so it has nothing to mirror.
+
 ---
 
 ## When a patch is rejected

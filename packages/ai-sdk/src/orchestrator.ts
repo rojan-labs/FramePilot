@@ -49,6 +49,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
+import { magnificationNote } from './domain-tools/magnification-note.js';
 import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
@@ -6191,6 +6192,9 @@ export class Orchestrator {
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
         colorSolveNote(call.name, ctx, call.arguments) +
         transitionsNote(call.name, ctx, call.arguments) +
+        // How far a zoom magnifies the source, from the export's geometry on the applied
+        // state, so a soft upscale is a choice rather than a surprise (magnification-note.ts).
+        magnificationNote(call.name, ctx.project, applied, call.arguments) +
         // The check the model used to spend a step asking for, run on the state the edit
         // produced (`kernel/verification-note.ts`). On the card too: "verified" is the answer.
         verificationNote(call.name, applied);
