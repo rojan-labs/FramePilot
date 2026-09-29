@@ -644,6 +644,57 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   In/Out is not checked against the destination lane's butts (the validator still refuses it).
   Stickers keep the builder's fallback for a named lane they cannot use, because the host has
   already copied the file by then; the result note names the lane they landed on.
+- [x] **AL44** Harness run 18: the model's plan held 24 items (18 done, four masking items
+  blocked, QA in progress, deliverables pending). Its last `update_plan` sent two (QA done,
+  deliverables blocked), and the result was "Plan saved (1 done, 1 blocked)". Cause: the
+  orchestrator's `update_plan` handler (`orchestrator.ts`) handed the call's list to the
+  conductor as the new plan (`withModelPlan`), so the call REPLACED the list. The four blocked
+  items and everything delivered vanished from the checklist, the "Not done" account and the AL5
+  continuation record, and nothing said so. Fix: `mergeModelPlan` (`kernel/model-plan.ts`) folds
+  each call into the plan the run holds. An earlier item the call omits is carried with its last
+  status and note, in its original place, matched by the label the briefing shows (markdown
+  stripped, otherwise exact). Omitted `done` items are carried too (the checklist and the
+  continuation record keep the delivered work) and give way first when the plan would pass 40.
+  A call whose omitted open/blocked items cannot fit is refused with fixed words. The echo names
+  what it kept. `HostCallContext.modelPlan` threads the conductor's plan into the turn, updated
+  per call. The description and the briefing header state the contract. Also: the note cap goes
+  240 → 480 with a refusal that states the limit and the fix, because runs 8, 10, 13 and 18 each
+  lost a turn to "items.0.note: Too big" on a review pass's done note. Tests: `model-plan.test.ts`
+  (run 18's two lists verbatim: all 24 kept, in order, with the echo; an omitted open item stays
+  open; a rewritten plan carries the old wording until settled; a full replacement is taken as
+  sent; markdown-stripped match; exact otherwise; done items give way when full; refusal when
+  open/blocked cannot fit), `orchestrator-stream.test.ts` (through the real loop: the second
+  call's echo, the continuation on the carried open item, the whole checklist, and "Not done"
+  naming the carried blocked and open items; it fails against the previous orchestrator),
+  `tool-registry.test.ts` (480-character note, the refusal text, the description). Goldens
+  regenerated (+18 tool-schema tokens). Open: "Sound design" was marked done in run 18 with no
+  `search_music`/`add_music` call. The done-note rule requires a note, not proof, and nothing
+  checks the note against the tools the run called.
+- [x] **AL45** Harness run 18: `add_clip { trackId: "V1", assetId: "asset_mountain_road", start:
+  18.878, end: 20.3, crop: <0.1055-wide strip> }`, and the same for road_driving (19.342) and
+  ridge_aerial (19.83), were refused as "Clips 'clip__V1_asset_mountain_road_18413' and
+  'clip__V1_asset_mountain_road_18878' overlap on track 'V1'", though `add_clip` promises to put
+  the shot on a layer in front of what it covers. ("Video 2" on the card is V1's display label,
+  not a front layer.) Cause: not AL39 or AL43. `pictureOverlapAcross`
+  (`domain-tools/picture-layers.ts`) skipped the candidate's own lane when it collected what a
+  placement covers, leaving same-track overlap to the validator. Only a same-shot copy
+  (`overOwnLane`, AL39's blurred fill, which is why the run's earlier bay_aerial call landed on
+  `video_cutaway_1`) was let through. At 18.4–20.3 s only V1 held picture, so the placer found no
+  conflict, kept V1, and the validator refused all three. Fix: the named lane's picture counts
+  like any other lane's. The placer passes the lane over (no room, and it cannot be in front of
+  itself) and reuses or opens a front layer. On the named lane the overlap is judged on the frame
+  grid the patch is snapped to, so a placement that only butts its neighbour once snapped stays on
+  the lane. `overOwnLane` and `sameFramesOnLane` are subsumed and removed. Tests:
+  `picture-layers.test.ts` (run 18's V1 and `video_cutaway_1` rebuilt; each of the three calls,
+  applied in turn through dispatch, validator and patch, lands in front of V1 and of the panels
+  before it with its crop; the first reuses `video_cutaway_1`; the whole split screen undoes to the
+  story cut; a snapped butt stays on V1; 7 fail before, validator overlap). Three tests that
+  pinned the old behaviour (`tool-registry.test.ts`, `text-overlay-duplicate.test.ts`, the
+  hidden-lane case) now pin the layered result. Fallout: ai-sdk domain tools, critic, stock,
+  registry and 33 other files that call `add_clip`: 2377 pass. Open: a picture placement that
+  does not overlap its named lane but butts a clip whose transition it would break still stays on
+  that lane and is refused by the validator (the no-conflict path does not ask `trackHasRoomFor`).
+  A picture clip named onto a non-picture lane that is occupied is likewise left to the validator.
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

@@ -359,8 +359,8 @@ The Python twin mirrors `add_text_layer` from the packaged catalog copy
 ### The agent's plan: `update_plan`
 
 `update_plan` is a session tool (like `load_tools`): it changes no timeline and returns no patch.
-The model writes its plan for the request as a list and keeps it current. Each call replaces the
-whole list.
+The model writes its plan for the request as a list and keeps it current. Each call sends the
+whole list, and an earlier item the call leaves out is **kept**, never dropped (AL44).
 
 ```ts
 update_plan({
@@ -374,8 +374,23 @@ update_plan({
 ```
 
 - **Schema:** 1–40 items; `task` 1–160 characters; `status` is `pending`, `in_progress`, `done`
-  or `blocked`; `note` is at most 240 characters and is **required** when `blocked` (why no
-  available tool can do it). Strict: unknown keys are refused.
+  or `blocked`; `note` is at most 480 characters and is **required** when `done` (the edit that
+  delivered it) and when `blocked` (why no available tool can do it). Strict: unknown keys are
+  refused. An over-long note is refused with "A note is at most 480 characters — shorten it to
+  the edit that delivered the item, or why no tool can do it." (240 until AL44: a review pass's
+  done note outgrew it in harness runs 8, 10, 13 and 18.)
+- **Merge, not replace (AL44, `mergeModelPlan`):** an item leaves the plan only as `done` or
+  `blocked`. Every earlier item the call omits is carried with its last status and note, in its
+  original place among the call's items (whose order is the call's). Items match by the label the
+  briefing shows (`plainPlanLabel`: markdown stripped, otherwise exact, no fuzzy matching), so a
+  rewritten task is a new item and the old one is carried until it is settled by its own words.
+  Carried open items keep the run going; carried blocked items stay in the "Not done" report.
+  Omitted `done` items are carried too, so the checklist and the continuation record keep the
+  delivered work; they give way first (oldest first) when the plan would pass 40 items. A call
+  whose omitted open/blocked items cannot fit beside it is refused ("Plan not saved: …") and
+  the plan stays as it was. The echo names what it kept: `Kept N items your list left out, as
+  they were: “…” (blocked), …, and M done items.` Harness run 18 sent two items over a 24-item
+  plan; the list used to become those two, and four blocked masking items vanished unreported.
 - **Surface:** core (always advertised in agent mode, including the action-recovery turn); not
   offered on the read-only question route. `hostUiOnly` and `serialOnly`: the plan lives in a TS
   orchestrator run, so neither the Python sidecar nor the MCP server mirrors it.
@@ -568,6 +583,13 @@ masked layer alike: the program monitor composites every stack exactly as the ex
 (ADR 0180), so picture-in-picture, split-screen panels and a blurred-fill foreground are
 ordinary layered edits (ADR 0180 amendment, 2026-09-29).
 
+That includes the lane the call NAMES (AL45): picture already on it at that moment is picture
+the placement covers, so the lane is passed over and the clip goes on a free lane in front of
+it, or on one opened in the patch. On the named lane the overlap is judged on the frame grid the
+patch is snapped to, so a placement that only butts its neighbour once snapped stays on the lane
+as a sequence edit. Harness run 18 named `V1` for three split-screen panels over V1's own clips
+and all three were refused as a same-track overlap.
+
 `add_clip` takes an optional `crop`, the geometry of a layered look: a rect of the source
 (0..1 fractions), or `null` for the whole picture fitted inside the frame with transparent
 bars. Without it, a fresh placement fills the frame: a portrait project cover-crops a measured
@@ -586,7 +608,7 @@ Recipes, pinned end to end by `domain-tools/layered-picture-recipes.test.ts` and
   `crop: null`, which lands in front fitted whole (scale 0.5625 for a 1920×1080 source in a
   1080×1920 frame, never upscaled). The background may be a `reframe_pan` (keyframes, no crop),
   and the foreground may name the background's own track: it is placed on a layer in front
-  (`PictureCandidate.overOwnLane`) rather than colliding with it.
+  rather than colliding with it.
 - **3-up split (9:16):** three shots, each `crop` `{ x: 0.025391, y: 0, width: 0.949219,
   height: 1 }` (a 1080×640 panel), moved with a `y` keyframe of −640, 0 and +640.
 

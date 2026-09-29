@@ -89,6 +89,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant's plan no longer drops items when it updates part of it.** When the assistant
+  updated its plan with only the items it had just worked on, every other item disappeared,
+  including ones it had marked blocked. The run then ended and its "Not done" list left them
+  out. Items it leaves out of an update are now kept as they were, and it is told which ones
+  were kept. Open items keep the run going and blocked items stay in the "Not done" list. A
+  plan item's note can now be 480 characters instead of 240, so describing a finished review
+  pass no longer costs the assistant a turn.
+- **A shot placed over footage on the same track now goes on a layer in front.** When the
+  assistant put a shot on a track that already had footage at that moment (for example, the
+  panels of a split screen), the edit was refused as an overlap. The shot now goes on a layer in
+  front of the footage, as it already did when the footage was on another track. A shot that
+  only touches its neighbour stays on the track.
 - **The assistant no longer loses a turn to an argument written as text.** When it sent a structured
   setting (a reframe's start and end point) as its JSON text rather than as the object, the tool refused
   it and the assistant had to send it again. The text is now read as the object it spells; anything
