@@ -212,6 +212,22 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   (`ledgerMeasurementFromLight`). Rendered check: `apply_look warmer` +0.10 lands 0.094-0.097
   (was 0.070-0.083). `measure-color-response.mjs` (never run, sidecar-bound) removed. Open, in a
   follow-up issue: luma read as code/255, material clipping, WB→`satMean`, BT.601 exports.
+- [x] **AL26** #154: exports encode BT.709 limited range and carry the tags. `choose_encoder`
+  prepends `BT709_OUTPUT_ARGS` (`scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,
+  setparams=...` + `-colorspace/-color_primaries/-color_trc bt709 -color_range tv`) for every
+  encoder, final and preview; BT.709 at every size, SD included (tagged files decode by their
+  tags; one chain keeps 480p review renders comparable with sources). Probe through
+  `color_response_measure`: bt709-limited, 61.9/103.0/238.8 (was 81/90/239, BT.601); the ~1
+  code left is the bundled ffmpeg 7.1 decode (red → 253), not the encode. New
+  `test_render_colour_encoding.py` (ffprobe tags; PNG red/blue/grey → exact BT.709 codes ±1;
+  tag-honouring decode ±4). No golden changed: render/key/mask/matte goldens read the
+  compositor, not the encoder; `reels_testsrc2` aHash passes unchanged; PX4 compares
+  `grab_frame` (no encode) with the monitor. One fixture changed: `test_render_frame_accuracy`'s
+  pure-blue source is now dodger blue, because BT.709 puts (0,0,255) at luma 7% (Y=32), under
+  the black QC's 10% (BT.601 lifted it to Y=41), so that export failed "ends on black". Open:
+  a real pure-blue end card (≥0.2 s) now fails the same check; the review's black ratio
+  already called it black. Decide whether QC black should also require neutral chroma.
+  `color-solver.ts` note 4 ("the export is BT.601") is stale (TS, not touched here).
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

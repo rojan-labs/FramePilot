@@ -70,6 +70,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Exported colours now match your footage in every player.** Exports were converted to video
+  with an older colour formula (BT.601) and carried no colour labels, so players that assume the
+  modern HD formula (BT.709) showed reds, greens and skin tones slightly shifted. Exports now use
+  BT.709, the formula camera footage uses, and label the file so players decode it correctly.
 - **"Warmer", "cooler" and colour matching now land the amount they promise.** The assistant's
   colour solver priced white balance with a number that assumed the wrong video range. It
   under-corrected warmth by about 18%, and more on footage with little blue in it. It now works

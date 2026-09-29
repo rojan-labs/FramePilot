@@ -108,10 +108,25 @@ It exports 25 grade cells per clip at 480p through `export_video` (one at a time
 1 GB), measures each with `shot_stats.measure_asset`, and first exports a pure-red probe to name
 the encode chain from evidence. Read `temperature_curve_efficiency` first: near 1.0 means the
 renderer does what `render/color.py` says and any miss is the solver's model; below 1.0 is
-clipping. As of 2026-09-29 the export encodes **BT.601 limited, untagged** (probe 81/90/239)
-while camera sources are BT.709 limited, so compare facts of an export and of its sources only
-through the script's re-expression. Media goes into the scratch sandbox; never point `--work`
-at a real project folder.
+clipping. Media goes into the scratch sandbox; never point `--work` at a real project folder.
+
+Exports (final and preview renders alike) encode **BT.709 limited range, tagged**
+(`encoders.BT709_OUTPUT_ARGS`, #154): the probe reads 61.9/103.0/238.8 against BT.709's
+63/102/240 (distance 1.5 codes; BT.601 is 23 away). Before 2026-09-29 they were BT.601
+limited and untagged (probe 81/90/239), so a raw file from that era is in another chain than
+its sources; re-express it as the script does. The leftover ~1-code drift is the DECODE, not
+the encode: the bundled imageio ffmpeg 7.1 (the one MoviePy reads with) turns red 63/102/240
+into R 253, where Homebrew's 8.1 gives 255. An exact-RGB input (a PNG) encodes to 63/102/240
+exactly (`tests/test_render_colour_encoding.py`). If an export's colours look shifted, run
+`ffprobe -show_entries stream=color_space,color_range,color_primaries,color_transfer` first:
+anything `unknown` means the tags were lost (a `-c:v copy` remux keeps them; a re-encode
+without these arguments does not). ffmpeg 7.1 copies the encoder's colour fields from the
+frames, so the `-color_*` flags alone leave primaries/transfer unknown; the `setparams`
+filter is what sets them.
+Side effect to know: black QC (`blackdetect pix_th=0.10`) reads luma only, and BT.709 luma of
+pure blue (0,0,255) is 7% (Y=32), so an export ending on 0.2 s of a pure-blue card fails "ends
+on black" (BT.601 gave Y=41 and passed). A test fixture that needs "blue" should use a lighter
+blue such as `dodgerblue`.
 
 ## Recurring failure mode: "applies but doesn't render"
 
