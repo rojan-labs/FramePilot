@@ -837,7 +837,7 @@
             "type": [
               "number"
             ],
-            "minimum": 0,
+            "minimum": -0.2,
             "maximum": 0.6
           },
           "lineHeight": {
@@ -6529,7 +6529,7 @@
             "type": [
               "number"
             ],
-            "minimum": 0,
+            "minimum": -0.2,
             "maximum": 0.6
           },
           "lineHeight": {
