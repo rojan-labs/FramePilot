@@ -53,6 +53,7 @@ nohup node "$TSX" apps/desktop/scripts/agent-run.ts \
 | `--ask-policy` | `first-option` | How `ask_user` gets answered: `first-option`, `text:<answer>`, or anything else to send a fixed "decide yourself" sentence. |
 | `--port` | `8812` | The harness starts its own sidecar on this port. |
 | `--max-rss-gb` / `--max-swap-growth-gb` | `10` / `1.5` | Watchdog limits. Crossing either kills the whole process tree. |
+| `--min-free-percent` | `10` | Watchdog floor on system free memory (`memory_pressure -Q`). On a Mac that already carries a lot of swap, swap growth over-reports (idle pages move out under file-cache pressure): loosen `--max-swap-growth-gb` and rely on this floor and `--max-rss-gb`. |
 | `--skip-memory-check` | off | Skips the refusal to start when less than 40% of memory is free. |
 
 ## Outputs (in `--out`)

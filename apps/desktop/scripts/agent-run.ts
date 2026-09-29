@@ -53,8 +53,13 @@
  *     `CLAUDE_EFFORT`) are removed from this process before anything spawns, so the
  *     `claude-agent-sdk` provider's `claude` child behaves as it does under the desktop app.
  *
- * A watchdog kills the whole process tree when its RSS passes `--max-rss-gb` (default 10) or
- * system swap grows by more than `--max-swap-growth-gb` (default 1.5).
+ * A watchdog kills the whole process tree when its RSS passes `--max-rss-gb` (default 10),
+ * system swap grows by more than `--max-swap-growth-gb` (default 1.5), or the system's free
+ * memory falls under `--min-free-percent` (default 10). Swap growth alone over-reports on a Mac
+ * that is already swapped: macOS pages idle memory out under the file-cache pressure of the
+ * sidecar reading camera files, and runs 10 and 11 were killed at 6+ GB of growth with their own
+ * tree at 2.7-3.1 GB and 74 % free. The free-memory floor is the direct signal, so the swap bound
+ * can be loosened on such a machine without running blind.
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -110,6 +115,7 @@ const { values: args } = parseArgs({
     'ask-policy': { type: 'string', default: 'first-option' },
     'max-rss-gb': { type: 'string', default: '10' },
     'max-swap-growth-gb': { type: 'string', default: '1.5' },
+    'min-free-percent': { type: 'string', default: '10' },
     'skip-memory-check': { type: 'boolean', default: false },
   },
 });
@@ -132,6 +138,7 @@ const ASK_POLICY = args['ask-policy'] ?? 'first-option';
 const MAX_RSS_BYTES = Number(args['max-rss-gb']) * 1024 ** 3;
 const MAX_SWAP_GROWTH_MB = Number(args['max-swap-growth-gb']) * 1024;
 const MIN_FREE_MEMORY_PERCENT = 40;
+const RUN_MIN_FREE_PERCENT = Number(args['min-free-percent']);
 const WATCHDOG_INTERVAL_MS = 5_000;
 const SIDECAR_BOOT_TIMEOUT_MS = 180_000;
 /** Files are cloned below this size is irrelevant — clonefile costs nothing either way. */
@@ -219,6 +226,11 @@ function startWatchdog(onTrip: (reason: string) => void): NodeJS.Timeout {
         onTrip(`process tree RSS ${(treeRss / 1024 ** 3).toFixed(2)} GB > ${String(args['max-rss-gb'])} GB`);
       } else if (swapGrowth > MAX_SWAP_GROWTH_MB) {
         onTrip(`swap grew ${(swapGrowth / 1024).toFixed(2)} GB > ${String(args['max-swap-growth-gb'])} GB`);
+      } else {
+        const free = freeMemoryPercent();
+        if (free < RUN_MIN_FREE_PERCENT) {
+          onTrip(`system free memory ${String(free)}% < ${String(RUN_MIN_FREE_PERCENT)}%`);
+        }
       }
     } catch (error) {
       say('watchdog sample failed', { error: String(error) });
