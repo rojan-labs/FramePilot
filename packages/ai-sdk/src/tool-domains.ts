@@ -258,6 +258,8 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'remove_background',
     'put_text_behind_subject',
     'track_mask',
+    // #137: a tracked mask's track baked into a clip's x/y/scale keyframes.
+    'reframe_to_subject',
     'refine_mask',
     'get_masks',
     'delete_mask',

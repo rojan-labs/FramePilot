@@ -178,6 +178,18 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `punchline`, `sticker` + 4 more): `_draw_token_text` now strokes every letter, then fills. Those
   7 looks change (no golden encodes them); test
   `test_a_tracked_outline_never_cuts_through_the_neighbouring_letter`.
+- [x] **AL21** #137: `reframe_to_subject { clipId, maskId }` (masking domain, host-measured) bakes
+  a subject-following reframe into ordinary x/y/scale keyframes. There is no schema change and
+  no live link (MO-14 is still open). The desktop host reads the mask's digest-pinned
+  `track.json` and returns the subject's centre (`T(t) · G(t)`) at six samples a second. The
+  orchestrator re-checks the pin and the clip length, then runs `planAutomaticReframe` (cover
+  zoom, clamped and damped pan). The crop and keyframe replacement is `reframe_pan`'s. Refusals:
+  untracked mask (remedy `track_mask`), cut-out, clip already the frame's shape, stale track or
+  trim, subject never seen. Tests: `reframe-to-subject.test.ts` (the subject stays within 2 px
+  of the frame centre through `framePlanAt`, the frame is covered, undo, re-run, through the
+  orchestrator) and desktop `masking-executor.test.ts` (`track_mask` writes the artifact, then
+  `reframe_to_subject` reads it). Unit-verified only: no tracking pack or tracked project was
+  available for a live run.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

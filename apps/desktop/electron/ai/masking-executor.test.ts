@@ -2,9 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { applyProjectPatch } from '@framepilot/editor-core';
 import {
   CreateMaskMeasurementSchema,
   MaskTargetsResultSchema,
+  ReframeToSubjectMeasurementSchema,
   TrackMaskMeasurementSchema,
   maskingOpsFromMeasurement,
   parseCandidateId,
@@ -580,6 +582,81 @@ describe('track_mask', () => {
       ctxOf(project),
     );
     expect(misrouted.summary).toContain('routing_error');
+  });
+});
+
+describe('reframe_to_subject (#137)', () => {
+  const args = { clipId: 'shot', maskId: 'm1' };
+  /** A vertical project over the landscape shot, so there is a window to move. */
+  async function vertical(masks: unknown[]) {
+    const opened = await openProject(2, masks);
+    return { ...opened, project: { ...opened.project, resolution: { width: 1080, height: 1920 } } };
+  }
+
+  it('reads the track track_mask wrote and returns samples the orchestrator turns into keyframes', async () => {
+    const { project, projectPath } = await vertical([
+      { kind: 'ellipse', id: 'm1', cx: 900, cy: 400, rx: 120, ry: 160 },
+    ]);
+    const tracked = await executor(projectPath).run(
+      { name: 'track_mask', arguments: args },
+      ctxOf(project),
+    );
+    const trackEdit = maskingOpsFromMeasurement('track_mask', args, tracked.data, { project });
+    const trackedProject = applyProjectPatch(project, {
+      patchId: 'track' as never,
+      createdBy: 'agent',
+      reason: 'Track mask',
+      operations: trackEdit.operations,
+    });
+
+    const outcome = await executor(projectPath).run(
+      { name: 'reframe_to_subject', arguments: args },
+      ctxOf(trackedProject),
+    );
+    expect(outcome.status).toBe('completed');
+    const measurement = ReframeToSubjectMeasurementSchema.parse(outcome.data);
+    // Two seconds at 24 fps on a six-per-second grid: one sample per four frames.
+    expect(measurement.samples.length).toBeGreaterThanOrEqual(12);
+    expect(measurement.samples.every((sample) => sample.confidence > 0.5)).toBe(true);
+    const edit = maskingOpsFromMeasurement('reframe_to_subject', args, outcome.data, {
+      project: trackedProject,
+    });
+    expect(edit.operations.map((op) => op.type)).toEqual(['add_keyframes']);
+    expect(edit.result?.data).toMatchObject({ kind: 'subject_reframe', axis: 'x' });
+  });
+
+  it('refuses an untracked mask without reading, and a track that is missing on disk', async () => {
+    const { project, projectPath } = await vertical([
+      { kind: 'ellipse', id: 'm1', cx: 900, cy: 400, rx: 120, ry: 160 },
+    ]);
+    const untracked = await executor(projectPath).run(
+      { name: 'reframe_to_subject', arguments: args },
+      ctxOf(project),
+    );
+    expect(untracked.status).toBe('failed');
+    expect(untracked.summary).toContain('track_mask');
+    const pinned = await vertical([
+      {
+        kind: 'ellipse',
+        id: 'm1',
+        cx: 900,
+        cy: 400,
+        rx: 120,
+        ry: 160,
+        tracking: {
+          artifact: { key: sha('d'), sha256: sha('e') },
+          method: 'position',
+          referenceSourceTime: 0,
+        },
+      },
+    ]);
+    const missing = await executor(pinned.projectPath).run(
+      { name: 'reframe_to_subject', arguments: args },
+      ctxOf(pinned.project),
+    );
+    expect(missing.status).toBe('failed');
+    expect(missing.summary).toContain('track_unreadable');
+    expect(missing.summary).toContain('track_mask');
   });
 });
 

@@ -31,6 +31,7 @@ import {
   FindMaskTargetsArgsSchema,
   MASKING_HOST_TOOL_NAMES,
   MAX_CHOSEN_CANDIDATES,
+  REFRAME_TO_SUBJECT_TOOL_NAME,
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
   TrackMaskArgsSchema,
@@ -42,8 +43,10 @@ import {
   createShapeMaskRequest,
   parseCandidateId,
   rankCandidates,
+  reframeToSubjectTarget,
   removeBackgroundRequest,
   resolveMaskTargets,
+  subjectSamplesFromTrack,
   type CreateMaskIntent,
   type CreateShapeMaskIntent,
   type CreateMaskMeasurement,
@@ -64,6 +67,7 @@ import {
 } from '../capability-packs/mask-track-service.js';
 import type { CapabilityPackMatteService, MatteRunOutcome } from '../capability-packs/matte.js';
 import { scheduleMatteJob } from '../capability-packs/matte-ipc.js';
+import { readTrackArtifact, TrackArtifactReadError } from '../capability-packs/track-job.js';
 import { buildTrackingWorkerRequest } from '../capability-packs/tracking-request.js';
 import { withProjectMediaPaths } from '../capability-packs/pack-paths.js';
 import type { CapabilityPackTrackingService } from '../capability-packs/tracking.js';
@@ -153,6 +157,8 @@ export function createMaskingExecutor(options: MaskingExecutorOptions): HostTool
             return await run.createMask(removeBackgroundRequest(call.arguments));
           case CREATE_SHAPE_MASK_TOOL_NAME:
             return await run.shapeMask(createShapeMaskRequest(call.arguments));
+          case REFRAME_TO_SUBJECT_TOOL_NAME:
+            return await run.reframeToSubject(call.arguments);
           default:
             return await run.createMask(createMaskRequest(call.arguments));
         }
@@ -546,6 +552,39 @@ class MaskingRun {
     );
   }
 
+  /**
+   * `reframe_to_subject` (#137): where the tracked subject is across the clip, read off the
+   * mask's pinned track. No pack runs — the track was measured by `track_mask`; this only reads
+   * the verified file, which the orchestrator never can.
+   */
+  public async reframeToSubject(rawArgs: unknown): Promise<HostToolOutcome> {
+    const target = reframeToSubjectTarget(this.project, rawArgs);
+    const projectDir = await this.projectDir();
+    if (projectDir === undefined) this.fail('no_project', 'No project is open.');
+    let artifact: Awaited<ReturnType<typeof readTrackArtifact>>;
+    try {
+      artifact = await readTrackArtifact(projectDir, target.tracking.artifact);
+    } catch (error) {
+      if (error instanceof TrackArtifactReadError) this.fail('track_unreadable', error.message);
+      throw error;
+    }
+    const samples = subjectSamplesFromTrack({
+      clip: target.clip,
+      mask: target.mask,
+      artifact,
+      size: target.size,
+      fps: Number(this.project.fps),
+    });
+    log.action('reframeToSubjectMeasured', { samples: samples.length });
+    return completed(`Read where mask ${target.mask.id} is across ${target.clip.id}`, {
+      kind: 'reframe_to_subject',
+      clipId: target.clip.id,
+      maskId: target.mask.id,
+      artifact: target.tracking.artifact,
+      samples,
+    });
+  }
+
   private async track(
     project: Project,
     clipId: string,
@@ -775,6 +814,8 @@ const FAILURE_GUIDANCE: Readonly<Record<string, string>> = {
     'Nothing can be measured without an open project. Do not call {tool} again — tell the editor to open or save the project.',
   no_main_subject:
     'Call find_mask_targets for this clip and pass the candidateId of the subject the editor means; if it finds none, tell the editor to click the subject in the Inspector’s Remove background.',
+  track_unreadable:
+    'Call track_mask for that mask to measure its track again, then call {tool} once more.',
   routing_error:
     'This is a FramePilot routing bug, not something your arguments can fix. Do not call {tool} again — tell the editor this tool is misrouted in this build.',
 };

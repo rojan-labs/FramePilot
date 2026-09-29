@@ -36,8 +36,12 @@ import {
   TRACK_MASK_TOOL_NAME,
   TrackMaskMeasurementSchema,
   MaskCandidateIdSchema,
+  REFRAME_TO_SUBJECT_TOOL_NAME,
+  ReframeToSubjectArgsSchema,
+  ReframeToSubjectMeasurementSchema,
   type MaskReviewReport,
 } from '../masking/contracts.js';
+import { reframeToSubjectEdit, reframeToSubjectTarget } from '../masking/reframe-to-subject.js';
 import { parseCandidateId } from '../masking/candidate-id.js';
 import { attestMaskGeometry } from '../masking/geometry-provenance.js';
 import { USER_NUMBERS_NOT_TYPED, numbersWereTyped } from '../masking/geometry-provenance.js';
@@ -330,6 +334,7 @@ export function preflightMaskingCall(toolName: string, rawArgs: unknown, ctx: To
   if (toolName === CREATE_MASK_TOOL_NAME) createMaskIntent(rawArgs, ctx);
   else if (toolName === REMOVE_BACKGROUND_TOOL_NAME) removeBackgroundIntent(rawArgs, ctx);
   else if (toolName === CREATE_SHAPE_MASK_TOOL_NAME) createShapeMaskIntent(rawArgs, ctx);
+  else if (toolName === REFRAME_TO_SUBJECT_TOOL_NAME) reframeToSubjectTarget(ctx.project, rawArgs);
 }
 
 /** A host-measured masking result, ready for the orchestrator to assemble. */
@@ -352,6 +357,12 @@ export interface MaskingMeasuredEdit {
     /** The editor picked the candidate or typed the shape: never second-guessed. */
     readonly editorChose: boolean;
   };
+  /**
+   * The result the model reads, for an edit that is not a mask (`reframe_to_subject` keyframes a
+   * clip's transform): replaces the mask review sentence and report, which would describe a
+   * mask this edit never made.
+   */
+  readonly result?: { readonly note: string; readonly data: Readonly<Record<string, unknown>> };
 }
 
 /** Thrown when a host payload does not survive its schema. */
@@ -376,6 +387,18 @@ export function maskingOpsFromMeasurement(
   payload: unknown,
   ctx: ToolContext,
 ): MaskingMeasuredEdit {
+  if (toolName === REFRAME_TO_SUBJECT_TOOL_NAME) {
+    const parsed = ReframeToSubjectMeasurementSchema.safeParse(payload);
+    if (!parsed.success) throw new UnusableMaskingPayloadError();
+    const edit = reframeToSubjectEdit(ctx.project, rawArgs, parsed.data);
+    return {
+      operations: edit.operations,
+      clipId: parsed.data.clipId,
+      maskId: parsed.data.maskId,
+      needsReview: [],
+      result: { note: edit.note, data: edit.data },
+    };
+  }
   if (toolName === TRACK_MASK_TOOL_NAME) {
     const args = TrackMaskArgsSchema.parse(rawArgs);
     const parsed = TrackMaskMeasurementSchema.safeParse(payload);
@@ -870,6 +893,16 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     'Make an existing rectangle, ellipse or path mask follow its subject through the clip, ' +
       'measured by the installed tracking pack. Returns the ranges that need a look.',
     TrackMaskArgsSchema,
+    ['analysis', 'write'],
+  ),
+  hostMeasured(
+    REFRAME_TO_SUBJECT_TOOL_NAME,
+    'Reframe a clip whose shape differs from the frame (16:9 into 9:16) so the window FOLLOWS a ' +
+      'moving subject: reads the measured track of a tracked mask on that clip (maskId from ' +
+      'get_masks; track it first with create_mask track:true or track_mask) and writes smooth ' +
+      'x/y/scale keyframes at the zoom that fills the frame. Replaces the clip crop and any ' +
+      'x/y/scale keyframes; a punch_in afterwards zooms on top. Run it again after re-tracking.',
+    ReframeToSubjectArgsSchema,
     ['analysis', 'write'],
   ),
   mutateTool(

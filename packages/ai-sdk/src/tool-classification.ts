@@ -112,6 +112,8 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   create_mask: { role: 'sourcing', scope: 'timeline_dependent' },
   remove_background: { role: 'sourcing', scope: 'timeline_dependent' },
   track_mask: { role: 'sourcing', scope: 'timeline_dependent' },
+  // #137: reads the mask's track on the host, then keyframes the clip — the track_mask shape.
+  reframe_to_subject: { role: 'sourcing', scope: 'timeline_dependent' },
   refine_mask: { role: 'mutation', scope: 'timeline_dependent' },
   put_text_behind_subject: { role: 'mutation', scope: 'timeline_dependent' },
   delete_mask: { role: 'mutation', scope: 'timeline_dependent' },

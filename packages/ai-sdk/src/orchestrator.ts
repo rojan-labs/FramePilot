@@ -11011,14 +11011,20 @@ async function maskingOutcomeFromMeasurement(
         ? {}
         : { spotCheck: { verdict: looked.verdict, reason: looked.reason, frames: looked.frames } }),
     };
-    const note = `${outcome.summary} ${maskReviewSentence(report)}`;
+    // An edit that made no mask (`reframe_to_subject`) says what it did instead of a review.
+    const note = edit.result?.note ?? `${outcome.summary} ${maskReviewSentence(report)}`;
     return {
       ops: operations,
       note,
       summary: outcome.summary,
       status: 'completed',
       project: reviewOps.length === 0 ? masked : applyProjectPatch(ctx.project, final.patch),
-      data: { kind: 'mask_review', tool: call.name, clipId: edit.clipId, ...report },
+      data: edit.result?.data ?? {
+        kind: 'mask_review',
+        tool: call.name,
+        clipId: edit.clipId,
+        ...report,
+      },
     };
   } catch (cause) {
     if (cause instanceof UnusableMaskingPayloadError) {
@@ -11073,6 +11079,7 @@ const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
   remove_background: 'Remove background',
   track_mask: 'Track mask',
   create_shape_mask: 'Create shape mask',
+  reframe_to_subject: 'Reframe to follow the subject',
 };
 
 /**

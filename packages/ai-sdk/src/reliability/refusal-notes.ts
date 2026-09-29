@@ -152,6 +152,13 @@ const UNUSABLE_HOST_PAYLOAD: Readonly<Record<string, UnusablePayloadCopy>> = {
       'Do not call it again for this clip — repeating it measures the same shot the same ' +
       'way. Tell the editor the mask could not be made and that the clip is unchanged.',
   },
+  reframe_to_subject: {
+    what: 'the masking host returned a subject track FramePilot could not read, so the clip was not reframed',
+    instead:
+      'Do not call it again for this clip — repeating it reads the same track the same way. ' +
+      'Tell the editor the reframe could not be made and that the clip is unchanged; reframe_pan ' +
+      'places the window by eye instead.',
+  },
   track_subject_automatically: {
     what:
       'the tracking host returned a measurement FramePilot could not read, so the mask was ' +

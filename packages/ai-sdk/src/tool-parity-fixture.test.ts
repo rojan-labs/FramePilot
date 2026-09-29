@@ -84,6 +84,8 @@ describe('tool-parity fixture', () => {
         'create_mask',
         'remove_background',
         'track_mask',
+        // #137: reads a track file only the desktop host can read.
+        'reframe_to_subject',
         'refine_mask',
         'put_text_behind_subject',
         'get_masks',

@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can keep a moving subject in a vertical frame.** On desktop, once a subject
+  has a tracked mask ("track the runner"), the assistant can reframe a 16:9 shot for 9:16 so
+  the window follows them smoothly. It writes ordinary position and zoom keyframes, so you can
+  undo or adjust them in one step. Run it again after re-tracking. Before, it could only pan
+  between two spots it had guessed.
 - **The assistant sets a brief's exact typography on text.** "+250 tracking", "leading 0.9",
   italic, "shadow, no outline": each can now be set on its own on a text overlay, over a designed
   style. Before, the assistant had to pick the nearest style. Italic works in the families that

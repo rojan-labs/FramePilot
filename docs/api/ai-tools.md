@@ -424,6 +424,43 @@ for that reason, and nothing in the result said so.
   note in `orchestrator.ts` beside `verificationNote`. The Python registry returns operations
   only and has no result notes, so it has nothing to mirror.
 
+### A reframe that follows a tracked subject: `reframe_to_subject`
+
+`reframe_to_subject { clipId, maskId }` (masking domain, issue #137) moves a wide clip's window
+in a narrower frame so that it follows a subject. The subject is marked by a tracked mask
+(`create_mask` with `track: true`, or `track_mask`). The tool **bakes** the track into keyframes;
+it does not link to it. A live link from a clip transform to a track needs a schema field
+(MO-14), and nobody has approved one. So this adds no schema change. The result is ordinary
+`x`/`y`/`scale` keyframes that validate, undo in one step, and render like any keyframed clip.
+
+- **Host-measured**, like `track_mask`. The track is a digest-pinned file
+  (`<project>/.framepilot-derived/tracks/<key>/track.json`) that only the desktop host reads.
+  The host (`masking-executor.ts` → `subjectSamplesFromTrack`) reads it back through
+  `readTrackArtifact`, which checks the digest. It then returns the subject's centre (the mask's
+  geometry moved by the track, `T(t) · G(t)`) on a six-per-second grid of clip frames. Each
+  sample is the mean of the confidently tracked frames around it, stamped at their mean frame.
+  Frames outside the tracked range, or below `DEFAULT_TRACK_POLICY.minimumConfidence`, count
+  as unseen (confidence 0).
+- **Orchestrator** (`reframeToSubjectEdit`). It re-checks the measurement: same mask, the same
+  pinned track (a re-track since then is refused), and no sample past the clip's length (a trim
+  since then is refused). It then runs editor-core `planAutomaticReframe`, which computes the
+  cover zoom and the clamped pan from the render compiler's placement formula, damped to
+  24 px per frame. Keyframes are linear. A property that never changes (the cover `scale`, and
+  `y` for a 16:9 → 9:16 reframe) gets one keyframe.
+- **Ops:** the same tail as `reframe_pan`. `set_clip_crop { crop: null }` if the clip had a
+  crop, `remove_keyframes` for the x/y/scale it owns, then `add_keyframes`. A second run after
+  re-tracking replaces the first.
+- **Result:** the number of pan keyframes, the span followed, the cover zoom, and the range the
+  window centre travels as a percentage of the source. It says when the frame holds outside the
+  span the track saw, and when damping slowed some steps. Data is `kind: "subject_reframe"`.
+- **Refusals (preflight, before the host reads anything):** a mask that is not tracked (the
+  remedy is `track_mask`), a cut-out (use a tracked shape mask), and a clip that already has the
+  frame's shape (use `punch_in`). An unknown clip or mask names `get_clips` / `get_masks`. A
+  track that is missing or changed on disk refuses with `track_unreadable` (track again).
+- **Masking kill switch:** the tool is in `MASKING_TOOLS`, so `FRAMEPILOT_AI_MASKING=off` (the
+  packaged default) withholds it. In the browser build it is unroutable, like every other
+  host-measured masking tool. The Python registry excludes `hostUiOnly` tools.
+
 ---
 
 ## When a patch is rejected

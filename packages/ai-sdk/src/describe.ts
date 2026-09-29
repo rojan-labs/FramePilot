@@ -96,6 +96,7 @@ const TOOL_VERBS: Record<string, string> = {
   add_keyframes: 'Animating',
   punch_in: 'Punching in on',
   reframe_pan: 'Reframing with a pan on',
+  reframe_to_subject: 'Reframing to follow the subject on',
   apply_color_grade: 'Color-grading',
   adjust_audio: 'Adjusting audio on',
   add_transition: 'Adding a transition to',

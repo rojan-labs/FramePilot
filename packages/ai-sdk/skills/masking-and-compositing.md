@@ -1,7 +1,7 @@
 ---
 name: masking-and-compositing
 description: Masks and cut-outs on request — remove a background, blur a face, hide or isolate a subject, grade part of the picture, split screen, gradients, heart/star shapes, video in text, text behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
-tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, measure_subject, put_text_behind_subject, follow_subject, get_masks, delete_mask]
+tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, measure_subject, put_text_behind_subject, follow_subject, reframe_to_subject, get_masks, delete_mask]
 ---
 
 # Masking and compositing
@@ -69,7 +69,8 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - `put_text_behind_subject` (clipId, text, start, end, style): needs the cut-out first;
   `start`–`end` is the moment, not the shot. Unless the editor chose a font, a heavy condensed
   `fontFamily` (Anton, Bebas Neue) reads best. A second text overlay on the shot shares its layer.
-- `follow_subject` makes one mask reuse another mask's measured track. The source must be tracked.
+- `follow_subject`: a mask reuses another's track. `reframe_to_subject`: a wide clip's window
+  follows one.
 - `get_masks` lists a clip's masks with ids; `delete_mask` removes one.
 
 ## Recipes

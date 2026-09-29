@@ -44,6 +44,7 @@ describe('unusableHostPayload', () => {
       'create_mask',
       'remove_background',
       'track_mask',
+      'reframe_to_subject',
       'track_subject_automatically',
     ]);
     for (const { tool, note } of entries) expect(note).toBe(unusableHostPayload(tool));

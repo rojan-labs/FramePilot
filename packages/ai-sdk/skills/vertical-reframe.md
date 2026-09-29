@@ -60,8 +60,9 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
   keyframes, so pan FIRST. A `punch_in` afterwards multiplies the pan's zoom — it pushes in on
   top of the pan while the window keeps moving, and never drops below the zoom that fills the
   frame, so a slow pan with a punch on the same shot is two calls.
-- A subject that moves unpredictably cannot be followed automatically yet: pan between the
-  positions you saw at the start and end, and say that the framing is a pan, not a track.
+- **A window that follows a moving subject:** track a mask on it (masking tools:
+  `create_mask` with `track: true`), then `reframe_to_subject { clipId, maskId }`. Without a
+  track, pan between the positions you saw and say the framing is a pan, not a track.
 - A blurred-fill background (the whole frame over a blurred, scaled copy of itself) is not
   something the placement tools build: a scaled picture layer over other picture is refused
   when placed. The honest fallbacks are a tighter crop, a pan, or `set_clip_crop` with

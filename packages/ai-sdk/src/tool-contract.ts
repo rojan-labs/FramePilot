@@ -137,6 +137,15 @@ export const TOOL_CONTRACT_DECLARATIONS: Readonly<Record<string, ToolContract>> 
     stateDependency: 'asset_content',
     cacheScope: 'none',
   },
+  // #137: reads the mask's pinned track, which a re-track replaces, and keyframes the clip.
+  reframe_to_subject: {
+    executionPlane: 'host',
+    effectClass: 'mutation',
+    permissions: ['analysis', 'write'],
+    concurrency: 'serial',
+    stateDependency: 'project_revision',
+    cacheScope: 'none',
+  },
   // `add_music`/`add_stock` are sourcing tools whose NAMES read as analysis and whose
   // registry kind IS `analysis` — they are reached through `search_music`/`search_stock`
   // — but each one downloads a third-party file into the project and places a clip via a
