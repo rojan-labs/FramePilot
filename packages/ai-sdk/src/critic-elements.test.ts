@@ -9,6 +9,7 @@ import {
   applyProjectPatch,
   buildAddShapeOps,
   buildAddStickerOps,
+  elementRectAt,
   type Operation,
   type Patch,
 } from '@framepilot/editor-core';
@@ -160,6 +161,37 @@ describe('element checks', () => {
     // A solid shape hides what it covers, so over a face it is still worth a word.
     const block = shaped('rounded-rect/filled', { x: 50, y: 45, width: 30, height: 30 });
     expect(find(block, 'element_faces', { subjects: [face] }).status).toBe('warn');
+  });
+
+  it('judge a shape by its drawn rect, never as a text overlay with 0–1 coordinates (#150)', () => {
+    // Harness runs 7–9 of #148 each ended "Outside the 10% safe area" for two shapes, one of
+    // them centred at (47, 46): `safe_area` read a shape's percent x/y as fractions of the frame.
+    const vertical = { width: 1080, height: 1920 };
+    let project = base(vertical);
+    const ids: string[] = [];
+    for (const place of [
+      { x: 72, y: 22, width: 7, height: 7 },
+      { x: 47, y: 46, width: 44, height: 52 },
+    ]) {
+      const placed = buildAddShapeOps(
+        project.timeline,
+        { ...presetShapeParams('rounded-rect/highlight')!, ...place } as never,
+        ids.length * 3,
+        ids.length * 3 + 2,
+      );
+      project = applyProjectPatch(project, patchOf(placed.operations));
+      ids.push(placed.clipId);
+    }
+    const textCheck = find(project, 'safe_area');
+    expect(textCheck.status).not.toBe('warn');
+    for (const id of ids) expect(textCheck.detail).not.toContain(id);
+    // The frame plan agrees the small box sits inside the 10% margin the old warning named.
+    const rect = elementRectAt(project, ids[0]!, 0.5)!;
+    expect(rect.x).toBeGreaterThanOrEqual(0.1);
+    expect(rect.y).toBeGreaterThanOrEqual(0.1);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(0.9);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(0.9);
+    expect(find(project, 'element_safe_area').status).toBe('pass');
   });
 
   it('warn when more than three elements are on screen at once', () => {

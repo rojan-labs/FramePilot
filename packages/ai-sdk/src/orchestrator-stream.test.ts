@@ -3962,6 +3962,26 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(fedBack).toMatch(/from 2\.0s to 4\.0s/);
     });
 
+    it('tells the model when the sticker sits outside the safe area the review checks (#150)', async () => {
+      const edgeCall = {
+        ...stickerCall,
+        arguments: { elementId: 'fire', start: 2, end: 4, xPercent: 97, yPercent: 5 },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'a sticker in the corner', toolCalls: [edgeCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      await drain(
+        new Orchestrator(provider, { executor: host({ asset: stickerAsset }) }).streamAgent(
+          input,
+          opts(),
+        ),
+      );
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/outside the 10% safe area the review checks/);
+      expect(fedBack).toMatch(/use xPercent \d+–\d+ and yPercent \d+–\d+/);
+    });
+
     it('fails closed when the host hands back nothing placeable', async () => {
       const provider = new ScriptedProvider([
         { text: 'a sticker', toolCalls: [stickerCall] },

@@ -13,6 +13,8 @@ import {
   LOOP_PRESET_INFO,
   clearLoopOperations,
   clipLoop,
+  loopFitsForDuration,
+  loopMinimumSeconds,
   planLoopMotion,
   type LoopPreset,
 } from './loop-motion.js';
@@ -196,7 +198,74 @@ describe('planLoopMotion', () => {
       FRAME,
     );
     expect(tiny).toMatchObject({ ok: false, reason: 'clip_too_short' });
-    if (!tiny.ok) expect(tiny.detail).not.toMatch(/\d/);
+  });
+
+  describe('a clip too short for its loop hears what fits it (#150)', () => {
+    /** The detail of a too-short refusal, or a failed test. */
+    function refusal(clip: Clip, request: Parameters<typeof planLoopMotion>[1]): string {
+      const plan = planLoopMotion(clip, request, FRAME);
+      if (plan.ok || plan.reason !== 'clip_too_short') throw new Error('expected clip_too_short');
+      return plan.detail;
+    }
+
+    it('states the clip length, what the loop needs, and the period that would fit', () => {
+      // 0.3 s: a float at its 2 s default needs a quarter cycle, 0.5 s.
+      const clip = sticker({ end: 2.3, sourceEnd: 0.3 });
+      const detail = refusal(clip, { preset: 'float' });
+      expect(detail).toContain('This clip is 0.3 s long');
+      expect(detail).toContain('a float at 2 s per cycle needs at least 0.5 s to move');
+      expect(detail).toContain('A float fits here at a period of 1.2 s or less');
+      expect(detail).toContain('In and Out take up to 0.15 s each here');
+      // The stated period is the arithmetic, not a guess: it plans.
+      expect(planLoopMotion(clip, { preset: 'float', periodSeconds: 1.2 }, FRAME).ok).toBe(true);
+    });
+
+    it('lists exactly the other loops that move on the clip, each at a period that plans', () => {
+      const clip = sticker({ end: 2.3, sourceEnd: 0.3 });
+      const detail = refusal(clip, { preset: 'bounce', periodSeconds: 2 });
+      for (const fit of loopFitsForDuration(0.3)) {
+        if (fit.preset === 'bounce' || fit.longestPeriodSeconds === null) continue;
+        expect(detail).toContain(fit.preset);
+        const plan = planLoopMotion(
+          clip,
+          { preset: fit.preset, periodSeconds: Math.floor(fit.longestPeriodSeconds * 100) / 100 },
+          FRAME,
+        );
+        expect(plan.ok).toBe(true);
+      }
+      expect(detail).toContain('spin (any period)');
+    });
+
+    it('says when no period of the loop fits, and the least clip its fastest needs', () => {
+      // bounce's fastest period is 0.2 s and a hop changes half-way: 0.1 s at the least.
+      const clip = sticker({ end: 2.05, sourceEnd: 0.05 });
+      const detail = refusal(clip, { preset: 'bounce' });
+      expect(detail).toContain('No bounce fits: even its fastest period (0.2 s) needs 0.1 s.');
+      expect(detail).not.toContain('blink (');
+      expect(detail).toContain('pulse (period up to 0.2 s)');
+    });
+
+    it('agrees with planLoopMotion for every preset at its default period', () => {
+      for (const length of [0.05, 0.12, 0.3, 0.45, 0.6, 1, 2.2]) {
+        const clip = sticker({ end: 2 + length, sourceEnd: length });
+        for (const fit of loopFitsForDuration(length)) {
+          const plan = planLoopMotion(clip, { preset: fit.preset }, FRAME);
+          expect(plan.ok, `${fit.preset} on ${String(length)} s`).toBe(fit.fitsAtDefault);
+          expect(loopMinimumSeconds(fit.preset) <= length + 1e-9).toBe(fit.fitsAtDefault);
+        }
+      }
+    });
+
+    it('turns a spin on a clip shorter than its period: two keyframes still move it', () => {
+      // Harness run 9 (#150): a 2.4 s-per-turn spin on a 2.2 s shape was refused as "too short
+      // to move", though a spin is two keyframes across whatever span it has.
+      const clip = sticker({ end: 4.2, sourceEnd: 2.2 });
+      const plan = planLoopMotion(clip, { preset: 'spin', periodSeconds: 2.4, amount: 20 }, FRAME);
+      if (!plan.ok) throw new Error(plan.detail);
+      const spun = apply(clip, plan.operations);
+      expect(at(spun, 'rotation', 2.2)).toBeCloseTo((20 * 2.2) / 2.4);
+      expect(loopMinimumSeconds('spin', 10)).toBe(0);
+    });
   });
 
   it('holds period and amount to each preset’s range', () => {

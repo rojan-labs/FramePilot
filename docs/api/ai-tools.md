@@ -145,6 +145,20 @@ adds `element_faces`, `element_safe_area`, `element_busy_frame` and `sticker_sha
 carry, not a check read out of the request's words (ADR 0196 amendment, issue #136). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
 `search_elements` returns shapes only with a `note`.
 
+Placement and loops (issue #150). `add_shape` and `set_shape_style` move a box shape just far
+enough that what it draws (outline and stroke, by `shapeBounds`) is inside the frame; an axis the
+shape is larger than, and a line's or arrow's ends, stay as asked. Shapes are not held to the 10%
+safe margin: a callout sits on its target, which is why `element_safe_area` exempts them.
+`add_sticker` moves a sticker that would be partly off the frame in the same way. When the
+placed sticker is outside the Critic's `SAFE_AREA_INSET`, its result says so and gives the
+`xPercent`/`yPercent` ranges that keep this sticker inside. The text `safe_area` check no longer
+reads shape params, whose x/y are percentages. It had been reading them as 0–1 fractions, so it
+flagged every positioned shape. `set_element_animation` refuses a loop its clip is too short to
+move with numbers computed from the loop table: the clip's length, the least the requested loop
+needs, the slowest period of that loop that fits, the other loops that fit and their periods, and
+the longest In/Out. It never substitutes a different loop. A spin moves on a clip of any length,
+because it is two keyframes across the clip.
+
 `get_project_state` returns the media bin as a **tally**, not a listing:
 
 ```jsonc

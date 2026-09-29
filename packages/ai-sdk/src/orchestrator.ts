@@ -5458,7 +5458,8 @@ export class Orchestrator {
           ops,
           note:
             `${outcome.summary} Placed as clip "${placed.clipId}" on ${placed.trackId} from ` +
-            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.`,
+            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.` +
+            (placed.safeAreaNote === undefined ? '' : ` ${placed.safeAreaNote}`),
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),

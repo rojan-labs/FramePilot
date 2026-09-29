@@ -135,6 +135,17 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   plainly above `SOFT_UPSCALE_THRESHOLD` (1) that the picture is upscaled and soft; nothing is
   refused. Evidence: harness run 8's soft road shot at 17 s (pan 1.78× × punch). Tests:
   `magnification-note.test.ts` (incl. through the orchestrator). Not yet measured on a live run.
+- [x] **AL19** #150: element placement and loops. `set_element_animation`'s too-short refusal
+  gives the loop table's own arithmetic (clip length, what the loop needs, the slowest period that
+  fits, the other loops that fit, the longest In/Out) and a spin moves on any clip length (runs 7–9
+  each refused a spin whose period was longer than its 2.2–2.4 s shape). The "Outside the 10% safe
+  area" warnings on 2 shapes per run were false: the text `safe_area` check read a shape's percent
+  x/y as fractions, so it flagged one centred at (47, 46). Shapes are left to `element_safe_area`
+  now. `add_shape`/`set_shape_style` boxes and `add_sticker` art are kept inside the frame, and a
+  sticker placed outside the safe area gets a result that names the centre ranges that fit. Tests:
+  `loop-motion`, `elements`, `critic-elements`, `sticker-placement`, `orchestrator-stream`. Not
+  measured on a live run yet. Triage, still open: in run 9 two shapes sat end to end on one lane, so
+  each one's In/Out was refused as "a cut on its own layer".
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

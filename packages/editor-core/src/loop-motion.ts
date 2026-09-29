@@ -196,6 +196,87 @@ const WAVES: Readonly<Record<Exclude<LoopPreset, 'spin'>, readonly WavePoint[]>>
   blink: BLINK,
 };
 
+/**
+ * The share of one cycle a loop needs on screen before it moves at all: the time to its
+ * waveform's second point. A sine (pulse, float, wiggle) reaches its first peak a quarter of the
+ * way in; a hop or a blink changes half-way. A spin is two keyframes across whatever span the
+ * clip has, so any clip turns it — refusing a spin shorter than its period (as this once did)
+ * refused a loop that moves: harness runs 7-9 of #148 hit that wall on every run (#150).
+ */
+function movingShare(preset: LoopPreset): number {
+  return preset === 'spin' ? 0 : (WAVES[preset][1]?.phase ?? 1);
+}
+
+/**
+ * The shortest clip `preset` moves on at `periodSeconds` (held to the preset's range; its
+ * default when absent). Zero for a spin, which moves on any clip.
+ */
+export function loopMinimumSeconds(preset: LoopPreset, periodSeconds?: number): number {
+  const info = LOOP_PRESET_INFO[preset];
+  return clamp(periodSeconds ?? info.period.default, info.period) * movingShare(preset);
+}
+
+/** How a loop preset fits a clip of a given length. */
+export interface LoopFit {
+  readonly preset: LoopPreset;
+  /** Does the preset move at its own default period? */
+  readonly fitsAtDefault: boolean;
+  /** The slowest period that still moves on this clip, or `null` when even the fastest cannot. */
+  readonly longestPeriodSeconds: number | null;
+}
+
+/**
+ * Which loops move on a clip `durationSeconds` long, from the same arithmetic
+ * {@link planLoopMotion} refuses by — so a refusal can say what WOULD fit instead of leaving the
+ * agent to guess one preset at a time.
+ */
+export function loopFitsForDuration(durationSeconds: number): readonly LoopFit[] {
+  return LOOP_PRESETS.map((preset) => {
+    const { period } = LOOP_PRESET_INFO[preset];
+    const share = movingShare(preset);
+    const longest = share === 0 ? period.max : Math.min(period.max, durationSeconds / share);
+    return {
+      preset,
+      fitsAtDefault: durationSeconds >= loopMinimumSeconds(preset) - TIME_EPSILON,
+      longestPeriodSeconds: longest >= period.min - TIME_EPSILON ? longest : null,
+    };
+  });
+}
+
+/** Hundredths, rounded DOWN: a stated upper bound must itself fit. */
+const floorSeconds = (value: number): string => String(Math.floor(value * 100 + 1e-6) / 100);
+/** Hundredths, rounded UP: a stated lower bound must itself suffice. */
+const ceilSeconds = (value: number): string => String(Math.ceil(value * 100 - 1e-6) / 100);
+
+/**
+ * The refusal for a loop its clip is too short to move: the clip's length, what the requested
+ * loop needs, the period at which that loop WOULD fit, the other loops that fit, and how long an
+ * In or Out can be here. Every number is computed from the loop table, none guessed.
+ */
+function loopTooShortDetail(preset: LoopPreset, period: number, duration: number): string {
+  const info = LOOP_PRESET_INFO[preset];
+  const fits = loopFitsForDuration(duration);
+  const own = fits.find((fit) => fit.preset === preset)?.longestPeriodSeconds ?? null;
+  const remedy =
+    own === null
+      ? `No ${preset} fits: even its fastest period (${info.period.min} s) needs ` +
+        `${ceilSeconds(loopMinimumSeconds(preset, info.period.min))} s.`
+      : `A ${preset} fits here at a period of ${floorSeconds(own)} s or less.`;
+  const others = fits
+    .filter((fit) => fit.preset !== preset && fit.longestPeriodSeconds !== null)
+    .map((fit) =>
+      fit.preset === 'spin'
+        ? 'spin (any period)'
+        : `${fit.preset} (period up to ${floorSeconds(fit.longestPeriodSeconds ?? 0)} s)`,
+    );
+  return (
+    `This clip is ${floorSeconds(duration)} s long, and a ${preset} at ${String(period)} s per ` +
+    `cycle needs at least ${ceilSeconds(loopMinimumSeconds(preset, period))} s to move. ${remedy} ` +
+    (others.length > 0 ? `Other loops that fit this clip: ${others.join(', ')}. ` : '') +
+    `Or make the clip longer. In and Out take up to ${floorSeconds(duration / 2)} s each here.`
+  );
+}
+
 /** The property's value at the clip's start, from what is not a loop. */
 function baseValue(clip: Clip, property: ClipKeyframeProperty): number {
   const loop = clip.keyframes
@@ -249,13 +330,11 @@ export function planLoopMotion(
     };
   }
   const wave = request.preset === 'spin' ? null : WAVES[request.preset];
-  const step = wave === null ? period : period * (wave[1]?.phase ?? 1);
-  if (duration < step - TIME_EPSILON) {
+  if (duration < loopMinimumSeconds(request.preset, period) - TIME_EPSILON) {
     return {
       ok: false,
       reason: 'clip_too_short',
-      detail:
-        'This clip is too short for that loop to move. Make the clip longer, or pick a faster loop.',
+      detail: loopTooShortDetail(request.preset, period, duration),
     };
   }
   const base = baseValue(clip, property);

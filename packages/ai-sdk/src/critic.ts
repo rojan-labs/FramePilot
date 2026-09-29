@@ -217,8 +217,11 @@ const PLATFORM_CHROME: Partial<Record<TargetPlatform, readonly FrameRect[]>> = {
   ],
 };
 
-/** Safe-area inset (fraction of frame) overlays/captions should stay within. */
-const SAFE_AREA_INSET = 0.1;
+/**
+ * Safe-area inset (fraction of frame) overlays/captions should stay within. Exported so a tool
+ * that places an element can say so at placement, by the same margin this review applies.
+ */
+export const SAFE_AREA_INSET = 0.1;
 
 /** Platforms whose deliverable is vertical 9:16 (portrait). */
 const VERTICAL_PLATFORMS: ReadonlySet<TargetPlatform> = new Set(['reels', 'tiktok', 'shorts']);
@@ -1209,6 +1212,11 @@ function checkSafeArea(
   const unwrappable: string[] = [];
   let positioned = 0;
   for (const clip of overlayClips) {
+    // A shape is an element, judged by `element_safe_area` from the frame plan's own rect. Its
+    // params are x/y in PERCENT, which `overlayCentre` read as the legacy 0–1 keys: every
+    // positioned shape, even one centred at (47, 46), came out "outside the safe area" in all
+    // three #148 harness runs (#150).
+    if (syntheticClipKind(clip.assetId) === 'shape') continue;
     for (const effect of clip.effects) {
       // Fit is independent of position, so it is judged before the centre test bails out
       // on a default-placed overlay. `overflowingWords` has no opinion unless the size and

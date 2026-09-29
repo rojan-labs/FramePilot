@@ -6,13 +6,18 @@
  * `elements` domain.
  */
 import { describe, expect, it } from 'vitest';
-import { applyProjectPatch, buildAddShapeOps, type AnyOperation } from '@framepilot/editor-core';
+import {
+  applyProjectPatch,
+  buildAddShapeOps,
+  elementRectAt,
+  type AnyOperation,
+} from '@framepilot/editor-core';
 import { presetShapeParams, type Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
 import { ToolRefusalError } from '../tool-refusal.js';
-import { shapeColour } from './elements.js';
+import { shapeBoxInFrame, shapeColour } from './elements.js';
 
 const project = (): Project =>
   makeProject({
@@ -339,6 +344,78 @@ describe('a sticker already in the bin, through add_clip and move_clip', () => {
   });
 });
 
+describe('a shape box stays inside the frame (#150)', () => {
+  const vertical = (): Project => ({ ...project(), resolution: { width: 1080, height: 1920 } });
+  const clipIdOf = (on: Project): string =>
+    on.timeline.tracks.flatMap((track) => track.clips).find((c) => c.assetId === '__shape__')!.id;
+
+  it('moves a box placed partly off the frame just far enough in, by the frame plan', () => {
+    const on = apply(
+      vertical(),
+      run(
+        'add_shape',
+        {
+          shape: 'rounded-rect/highlight',
+          start: 0,
+          end: 2,
+          box: { x: 97, y: 2, width: 20, height: 10 },
+        },
+        vertical(),
+      ),
+    );
+    // It is moved no further than the frame: its drawing now touches the right and top edges.
+    const rect = elementRectAt(on, clipIdOf(on), 1)!;
+    const px = (share: number, frame: number) => share * frame;
+    expect(px(rect.x + rect.width, 1080)).toBeLessThanOrEqual(1080 + 1e-6);
+    expect(px(rect.x + rect.width, 1080)).toBeGreaterThan(1080 - 2);
+    expect(px(rect.y, 1920)).toBeGreaterThanOrEqual(-1e-6);
+    expect(px(rect.y, 1920)).toBeLessThan(2);
+    expect(rect.x).toBeGreaterThan(0);
+    const params = shapeParamsOf(on)!;
+    expect(params.width).toBe(20);
+    expect(params.height).toBe(10);
+  });
+
+  it('leaves a box already in frame, an axis the box is bigger than, and a line, as asked', () => {
+    const tall = { width: 1080, height: 1920 };
+    const box = {
+      ...presetShapeParams('rounded-rect/highlight')!,
+      x: 72,
+      y: 22,
+      width: 7,
+      height: 7,
+    };
+    expect(shapeBoxInFrame(box, tall)).toEqual(box);
+    // A frame wider than the picture keeps its centre on that axis; the other is still held.
+    const wide = shapeBoxInFrame(
+      { ...box, x: 40, y: 99, width: 200, height: 20 },
+      { width: 1920, height: 1080 },
+    );
+    expect(wide.x).toBe(40);
+    expect(wide.y).toBeLessThan(90);
+    // An arrow's ends are its target and where it comes from: never moved.
+    const arrow = { ...presetShapeParams('line-arrow/red')!, x1: -20, y1: 50, x2: 30, y2: 50 };
+    expect(shapeBoxInFrame(arrow, tall)).toEqual(arrow);
+  });
+
+  it('keeps a box moved by set_shape_style in frame too', () => {
+    const on = apply(
+      vertical(),
+      run('add_shape', { shape: 'rounded-rect/highlight', start: 0, end: 2 }, vertical()),
+    );
+    const ops = run(
+      'set_shape_style',
+      { clipId: clipIdOf(on), box: { x: 1, y: 99, width: 10, height: 10 } },
+      on,
+    );
+    const moved = apply(on, ops);
+    const rect = elementRectAt(moved, clipIdOf(moved), 1)!;
+    expect(rect.x).toBeGreaterThanOrEqual(-1e-6);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(1 + 1e-6);
+    expect(shapeParamsOf(moved)).toMatchObject({ width: 10, height: 10 });
+  });
+});
+
 describe('set_shape_style', () => {
   const withShape = (): Project =>
     apply(
@@ -423,6 +500,62 @@ describe('set_element_animation (EL7)', () => {
     expect(() =>
       run('set_element_animation', { clipId: shape(on).id, in: { kind: 'teleport' } }, on),
     ).toThrow();
+  });
+});
+
+describe('set_element_animation on a clip too short for its loop (#150)', () => {
+  const shortShape = (): Project =>
+    apply(
+      project(),
+      run('add_shape', { shape: 'rounded-rect/highlight', start: 40.2, end: 40.5 }, project()),
+    );
+  const clipId = (on: Project): string =>
+    on.timeline.tracks.flatMap((track) => track.clips).find((c) => c.assetId === '__shape__')!.id;
+
+  it('refuses with the loops and periods that fit, and the period it names then plans', () => {
+    const on = shortShape();
+    let refusal: unknown;
+    try {
+      run(
+        'set_element_animation',
+        { clipId: clipId(on), loop: { preset: 'float', period: 3 } },
+        on,
+      );
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(ToolRefusalError);
+    const detail = (refusal as Error).message;
+    expect(detail).toContain('This clip is 0.3 s long');
+    expect(detail).toContain('needs at least 0.75 s to move');
+    expect(detail).toContain('A float fits here at a period of 1.2 s or less');
+    expect(detail).toContain('spin (any period)');
+    expect(detail).toContain('In and Out take up to 0.15 s each here');
+    // No other loop was substituted: the named one, at the named period, is what lands.
+    const ops = run(
+      'set_element_animation',
+      { clipId: clipId(on), loop: { preset: 'float', period: 1.2 } },
+      on,
+    );
+    const looped = on.timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId(on))!;
+    expect(looped).toBeDefined();
+    const keys = ops.flatMap((op) => (op.type === 'add_keyframes' ? op.keyframes : []));
+    expect(keys.every((k) => k.id.startsWith('loop__float__1200__'))).toBe(true);
+  });
+
+  it('spins a shape shorter than one turn — the wall runs 7–9 hit', () => {
+    const on = shortShape();
+    const ops = run(
+      'set_element_animation',
+      {
+        clipId: clipId(on),
+        in: { kind: 'pop' },
+        loop: { preset: 'spin', period: 2.4, amount: 20 },
+      },
+      on,
+    );
+    expect(ops.some((op) => op.type === 'add_keyframes')).toBe(true);
+    expect(ops.some((op) => op.type === 'add_layer_transition')).toBe(true);
   });
 });
 

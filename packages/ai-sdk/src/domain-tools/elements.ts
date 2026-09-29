@@ -17,6 +17,7 @@ import {
   buildAddShapeOps,
   planElementAnimation,
   setShapeParamsOp,
+  shapeBounds,
   shapeClipParams,
   type AnimationEdge,
   type AnimationKind,
@@ -32,6 +33,7 @@ import {
   presetShapeParams,
   resolveShapePresetId,
   searchShapes,
+  shapeDescriptor,
   shapeParamsProblem,
   type ShapeDescriptor,
 } from '@framepilot/timeline-schema';
@@ -121,6 +123,40 @@ const styleArgs = {
     .optional()
     .describe('the shape’s own knobs by name, as search_elements lists them'),
 };
+
+/**
+ * A box shape's params with its centre moved just enough that what it draws — outline, stroke
+ * and all, as `shapeBounds` rasterises it — lies inside the frame, the way `add_text_layer`
+ * keeps its text box in frame (#150). An axis the drawing is bigger than is left where it was
+ * asked (a frame larger than the picture is meant to be), and so is a line or an arrow: its
+ * ends are the target it points at and where it comes from, and may start off the frame.
+ *
+ * Only the frame is enforced, not the 10% safe margin: a callout sits where its target is, so
+ * a box around a toolbar button at the top edge belongs there (the critic's
+ * `element_safe_area` exempts shapes for the same reason).
+ */
+export function shapeBoxInFrame(
+  params: Readonly<Record<string, unknown>>,
+  resolution: { readonly width: number; readonly height: number },
+): Record<string, unknown> {
+  const descriptor = typeof params.shape === 'string' ? shapeDescriptor(params.shape) : undefined;
+  if (descriptor?.frame !== 'box' || typeof params.x !== 'number' || typeof params.y !== 'number') {
+    return { ...params };
+  }
+  const bounds = shapeBounds(params, resolution.width, resolution.height);
+  if (bounds === null) return { ...params };
+  // Pixels to move so [start, start + size] lies inside [0, frame]; 0 when it already does or
+  // cannot. `shapeBounds` floors and ceils to whole pixels, so the move is exact.
+  const into = (start: number, size: number, frame: number): number =>
+    size > frame ? 0 : start < 0 ? -start : Math.min(0, frame - (start + size));
+  const dx = into(bounds.x, bounds.width, resolution.width);
+  const dy = into(bounds.y, bounds.height, resolution.height);
+  return {
+    ...params,
+    x: params.x + (dx / resolution.width) * 100,
+    y: params.y + (dy / resolution.height) * 100,
+  };
+}
 
 /** The param changes a tool call's style, box and ends ask for; refuses a colour it cannot read. */
 function styleChanges(args: { readonly [key: string]: unknown }): Record<string, unknown> {
@@ -387,7 +423,10 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
           `That shape is not in the catalogue. Find one with search_elements, or use a staple: ${FEATURED_IDS}.`,
         );
       }
-      const params = { ...presetShapeParams(presetId)!, ...styleChanges(a) };
+      const params = shapeBoxInFrame(
+        { ...presetShapeParams(presetId)!, ...styleChanges(a) },
+        ctx.project.resolution,
+      );
       const problem = shapeParamsProblem(params);
       if (problem !== null) throw new ToolRefusalError(problem);
       const placed = buildAddShapeOps(ctx.project.timeline, params, a.start, a.end, a.trackId);
@@ -439,6 +478,11 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       const params = shapeClipParams(clip)!;
       const problem = shapeParamsProblem({ ...params, ...changes });
       if (problem !== null) throw new ToolRefusalError(problem);
+      if (a.box !== undefined) {
+        // A box the call moves or resizes is kept in frame like a new one.
+        const placed = shapeBoxInFrame({ ...params, ...changes }, ctx.project.resolution);
+        Object.assign(changes, { x: placed.x, y: placed.y });
+      }
       return [setShapeParamsOp(a.clipId, changes)];
     },
   ),

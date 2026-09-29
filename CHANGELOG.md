@@ -61,6 +61,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Sticker and shape placement, and loops that fit.** If a loop is too long for its element, the
+  assistant is now told how long the clip is, which loops fit it, the slowest period that fits,
+  and the longest In and Out. Before, it only heard "pick a faster loop" and kept guessing. A spin
+  now works on an element shorter than one turn. Shapes and stickers are kept inside the frame.
+  The assistant hears when a sticker sits outside the platform safe area, with the positions that
+  would fit. The review no longer flags every positioned shape as outside the safe area. That
+  warning came from a units mix-up (#150).
 - **The assistant can see when a zoom makes the picture soft.** A punch-in on a panned wide shot
   multiplies the pan's zoom, so a 1080p shot in a vertical video could be enlarged to more than
   twice its own resolution and look soft. After a punch-in or a pan, the assistant now gets the
