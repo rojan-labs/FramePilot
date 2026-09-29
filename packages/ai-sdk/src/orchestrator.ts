@@ -124,6 +124,7 @@ import type {
   ResumeEffect,
   RunTurnEffect,
   RunVerifyEffect,
+  VerifyCheck,
 } from './kernel/conductor.js';
 import {
   type ToolDomain,
@@ -4811,6 +4812,12 @@ export class Orchestrator {
      * the whole list on every call. Absent before the model writes one.
      */
     modelPlan?: readonly ModelPlanItem[],
+    /**
+     * The self-check advisories an advisory fix turn exists to hear (AL37). They are not in
+     * the briefing's VERIFIED section — that lists failures, and these are not — so the fix
+     * block states them itself. Absent on every other turn.
+     */
+    advisories?: readonly VerifyCheck[],
   ): {
     readonly messages: AiMessage[];
     /**
@@ -4903,7 +4910,7 @@ export class Orchestrator {
     const steeringBlock = agentSteeringBlock(steeringMessage);
     const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
     // P4.3: a run in the `repair` stage is on a bounded verification fix turn.
-    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair');
+    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair', advisories);
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
@@ -9961,6 +9968,7 @@ export class Orchestrator {
             pendingFrames,
             agentOptions,
             effect.modelPlan,
+            effect.advisories,
           );
         const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(

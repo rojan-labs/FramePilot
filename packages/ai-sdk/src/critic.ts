@@ -1900,18 +1900,34 @@ function checkJumpCut(project: Project, fps: number): CriticCheck {
       `No cut joins one shot to itself (${boundaries.length} cut(s) checked).`,
     );
   }
+  // Each cut names both clips and where each reads the source, because the fix depends on
+  // which of two things the cut is. Run `88c8b27d`: a speed ramp fitted to its slot stopped
+  // reading summit-view at 2.287 s while the next clip resumed at 2.5 s — a skip nobody
+  // meant, whose fix is to make the source continuous. The old remedy ("extend one side past
+  // the match") pointed the other way, at making a deliberate jump more visible.
   const where = offenders
     .slice(0, 4)
-    .map((b) => `frame ${secondsToFrame(b.at, fps)} (${round(b.at)}s)`)
+    .map((b) => {
+      const from = byId.get(b.fromClipId)!;
+      const to = byId.get(b.toClipId)!;
+      return (
+        `frame ${secondsToFrame(b.at, fps)} (${round(b.at)}s: "${b.fromClipId}" stops at source ` +
+        `${round(from.sourceEnd)}s, "${b.toClipId}" resumes at ${round(to.sourceStart)}s)`
+      );
+    })
     .join(', ');
   return check(
     'jump_cut',
     'No jump cuts',
     'warn',
     `${offenders.length} cut(s) join the same shot to itself within ${JUMP_CUT_SOURCE_FRAMES} ` +
-      `source frames — at ${where}${offenders.length > 4 ? ', …' : ''}. Cover one with a ` +
-      'cutaway (add_stock), or extend one side past the match (trim_clip) so the framing ' +
-      'has visibly changed across the cut.',
+      `source frames — at ${where}${offenders.length > 4 ? ', …' : ''}. If nothing was meant ` +
+      'to be removed there (a ramp or trim that stopped short), make the source continuous: ' +
+      'the incoming clip resumes where the outgoing one stops (delete_clip it and add_clip ' +
+      'the same span with that sourceStart; a speed ramp sets how much source its clip ' +
+      "reads, so take the ramped side's source end as given). If material was cut out on " +
+      'purpose (a pause, a fluff), cover the cut with a cutaway (add_stock), or trim one side ' +
+      '(trim_clip) until the framing visibly changes.',
   );
 }
 

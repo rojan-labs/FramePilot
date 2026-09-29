@@ -345,6 +345,11 @@ const deleteRange = (id: string, start: number, end: number) => ({
   arguments: { trackId: 'video_1', start, end },
 });
 
+/** Is this the advisory fix turn (AL37) — the one that states the self-check's advice? */
+function isAdvisoryTurn(request: AiCompletionRequest): boolean {
+  return JSON.stringify(request.messages).includes('SELF-CHECK ADVICE');
+}
+
 async function drain(stream: AsyncGenerator<AiEvent>): Promise<AiEvent[]> {
   const out: AiEvent[] = [];
   for await (const event of stream) out.push(event);
@@ -1167,7 +1172,10 @@ describe('streamAgent', () => {
       ],
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
-    expect(provider.calls).toBe(2);
+    // AL37: deleting a range from the only picture track leaves black the self-check warns
+    // about ("Picture covers the programme"), and a run that delivered work and ends with an
+    // advisory spends its one fix turn hearing it — one more model call, the last one.
+    expect(provider.calls).toBe(3);
     expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
       false,
     );
@@ -2389,7 +2397,10 @@ describe('streamAgent', () => {
     // (the guard folds the result, it does not withhold the call), so the question is
     // whether the run got a fifth turn. Under the old signature it did not — the fold
     // terminated it and the model was never asked again.
-    expect(provider.requests).toHaveLength(5);
+    // AL37: the sixth is the advisory fix turn — the self-check passed with advice, and a
+    // run that delivered work hears it once before it ends.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
     expect(
       events.some(
         (e) => e.type === 'notification' && e.text.includes('already made against this same'),
@@ -2635,7 +2646,11 @@ describe('streamAgent robustness (parity with agent())', () => {
       }),
     );
 
-    expect(provider.requests).toHaveLength(5);
+    // AL37: deleting a range from the only picture track leaves black the self-check warns
+    // about ("Picture covers the programme"), and a run that delivered work and ends with an
+    // advisory spends its one fix turn hearing it — one more model call, the last one.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
     expect(
       events.some(
         (event) => event.type === 'notification' && event.text.includes('unfinished work'),
@@ -4626,7 +4641,9 @@ describe('streamAgent usage (C1)', () => {
     );
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
     const usage = usageOf(events);
-    expect(usage?.tokens).toBe(160); // (100 + 20) + (30 + 10)
+    // (100 + 20) + (30 + 10), plus the advisory fix turn (AL37) — a real model call, so it is
+    // billed; the scripted provider answers it with its last reply, (30 + 10) again.
+    expect(usage?.tokens).toBe(200);
     expect(usage?.usd).toBeGreaterThan(0);
   });
 
@@ -6078,8 +6095,10 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
 
-    // Four model calls: the early reply did not end the run, the final one did.
-    expect(provider.requests).toHaveLength(4);
+    // Four model calls: the early reply did not end the run, the final one did — and then
+    // the advisory fix turn (AL37): the delete left a picture gap the self-check warns about.
+    expect(provider.requests).toHaveLength(5);
+    expect(isAdvisoryTurn(provider.requests[4]!)).toBe(true);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'notification',
@@ -6137,7 +6156,9 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
 
     // One continuation, then the second identical reply settles it — progress, not a latch.
-    expect(provider.requests).toHaveLength(3);
+    // The fourth call is the advisory fix turn (AL37), which only reports afterwards.
+    expect(provider.requests).toHaveLength(4);
+    expect(isAdvisoryTurn(provider.requests[3]!)).toBe(true);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'notification',

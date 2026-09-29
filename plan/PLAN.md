@@ -402,6 +402,28 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   LUFS / −15.1 dBTP, equal to ffmpeg ebur128 on the file, and −34.9 / −21.1 after a −6 dB
   `adjust_audio`. Goldens +21 tokens/request (domain index + skill index). Not measured: a live
   agent run on the brief.
+- [x] **AL37** Desktop run 88c8b27d: the self-check's "No jump cuts: 1 cut(s) join the same shot to
+  itself … at frame 1360" (a real five-frame skip: a keepDuration ramp segment of summit-view read
+  source 0→2.287 s, its sibling resumed at 2.5 s) arrived as a notification AFTER the model's
+  final reply. `onVerifyResult` only bought a fix turn for FAILED checks. Now a run that delivered
+  work and passes with WARNED checks spends the run's one fix turn (`verifyFixTurns`,
+  `MAX_VERIFY_FIX_TURNS`) hearing them: `verifyAdvisories` on the state, `advisories` on the
+  run_turn effect, a SELF-CHECK ADVICE block (fix a real one, leave an intended one and say why).
+  Not recorded as failed verifications, so a left advisory still settles `completed`; a reply
+  with no tool call goes straight to verify (plan/shortfall continuations skipped); the next
+  verify only reports. Never bought when cancelled, over the cost/time budget, at the per-run op
+  cap, or after the fix turn was spent. The jump-cut detail now names both clips and their source
+  in/out, and gives the continuous-source fix (re-place the incoming clip at the outgoing clip's
+  source end; a ramp's source end is given) for an unintended skip, the cutaway/trim fix for a
+  deliberate cut. Tests: 6 conductor cases (opens without FAIL rows, plain reply ends the run even
+  with open plan items (mutation-checked), left advisory → `completed`, no second turn, fix lands,
+  each guard), prompt block, critic wording. Deliberately updated: 4 streamAgent goldens and 6
+  golden/parity sessions gain one call (all "Picture covers the programme" from a delete_range on
+  the only picture track; every terminal status unchanged, `completed`); 12 call-count
+  assertions (orchestrator-stream, editor-run-adapter, output-room, run-quality, langchain token
+  accounting 340→510 tokens) now also assert the extra call carries the advice. Open: a failed-
+  check fix turn does not also carry the run's advisories; recorded `--replay` sessions that
+  ended with advice will ask the model one more time.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer

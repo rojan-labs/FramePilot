@@ -534,6 +534,19 @@ export interface ConductorState {
    */
   readonly verifyFixTurns: number;
   /**
+   * The self-check advisories the current verification fix turn was bought for (AL37), or
+   * `undefined` when no advisory fix turn is running.
+   *
+   * A run that delivered work and passed its self-check with WARNED checks used to complete
+   * with them announced after the model's final reply, so nobody could act on them: desktop
+   * run `88c8b27d` ended with a real five-frame skip in a speed-ramped shot reported as a
+   * notification under a finished run. Such a run now spends its one fix turn
+   * ({@link MAX_VERIFY_FIX_TURNS}) hearing them. They are carried here, not recorded as failed
+   * verifications: an advisory the model leaves because it is intended must not turn a
+   * completed run into a failed one.
+   */
+  readonly verifyAdvisories?: readonly VerifyCheck[] | undefined;
+  /**
    * What the run has spent so far, folded from each turn's {@link AgentTurnResult.runUsd}
    * / {@link AgentTurnResult.runElapsedMs} so the pure reducer can hold the run to its
    * budget without a clock or a price table of its own. Always present; 0 until a turn
@@ -706,6 +719,11 @@ export interface RunTurnEffect {
    * the handler knows not to draw the drafted ledger over it. Omitted until one exists.
    */
   readonly modelPlan?: readonly ModelPlanItem[];
+  /**
+   * The self-check advisories this turn exists to hear ({@link ConductorState.verifyAdvisories}),
+   * so the handler can put them in front of the model. Omitted on every other turn.
+   */
+  readonly advisories?: readonly VerifyCheck[];
 }
 
 /** Run the Critic self-check (+ one bounded repair pass) over the working copy. */
@@ -1077,6 +1095,12 @@ export interface AgentTurnResult {
 }
 
 /** The distilled outcome of a {@link RunVerifyEffect} (self-check + one repair pass). */
+/** One self-check finding, as the verify effect reports it. */
+export interface VerifyCheck {
+  readonly label: string;
+  readonly detail: string;
+}
+
 export interface VerifyResult {
   readonly kind: 'verify';
   readonly ok: boolean;
@@ -1274,6 +1298,7 @@ function runTurnEffect(state: ConductorState, stepIndex: number): RunTurnEffect 
     ...(state.actionRecoveryPending ? { actionRecovery: true } : {}),
     ...(state.seenFailureKeys.length > 0 ? { seenFailureKeys: state.seenFailureKeys } : {}),
     ...(state.modelPlan ? { modelPlan: state.modelPlan } : {}),
+    ...(state.verifyAdvisories ? { advisories: state.verifyAdvisories } : {}),
     stage: state.working.stage,
     working: state.working,
   };
@@ -2125,6 +2150,13 @@ export function onTurnResult(
   // still returns no action, `actionRecoveryPending` makes the second declaration settle
   // through verification rather than looping forever.
   if (r.done) {
+    // An advisory fix turn (AL37) ends on a reply with no tool call: the model either fixed
+    // what it heard or is leaving it on purpose, and both are the end of the run. Nothing
+    // below may re-open work — the plan and the request already settled once, and this turn
+    // was bought only for the advisories.
+    if (state.verifyAdvisories !== undefined) {
+      return toVerify({ ...base, modelDeclaredDone: true }, em, events);
+    }
     // The review of the last edit, first. It landed while the model was saying it had
     // finished, and it is the only account of that edit's pixels the run will ever get;
     // the finding is already queued on the steering channel, so the next turn reads it.
@@ -3045,6 +3077,51 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       };
     }
   }
+  // AL37 — the advisory fix turn. A run that passed its self-check with WARNED checks used to
+  // complete with them announced after the model's last word, where nothing could act on
+  // them (run `88c8b27d`: a five-frame skip inside a speed-ramped shot). It now spends the
+  // run's one fix turn — the same budget, the same guards — hearing them. Unlike a failed
+  // check, an advisory is NOT recorded as a failed verification: the model may leave one
+  // that is intended, and the run must still complete. The next verify only reports.
+  const advisable =
+    !fixable &&
+    deliveredWork &&
+    r.ok &&
+    r.failedChecks.length === 0 &&
+    r.warnedChecks.length > 0 &&
+    !state.cancelled &&
+    budgetExhausted(state) === undefined &&
+    // The per-run operation cap is a budget too: a run stopped at it has no room left for
+    // the fix the advice might call for, so the advice is only reported.
+    state.cumulativeOps.length - state.derivedOpTotal < state.config.maxOpsPerRun &&
+    state.verifyFixTurns < MAX_VERIFY_FIX_TURNS &&
+    canAdvance(working.stage, 'repair');
+  if (advisable) {
+    const entered = advanceStage(working, 'repair', state.stepIndex);
+    if (entered.stage === 'repair') {
+      const stepIndex = state.stepIndex + 1;
+      const next: ConductorState = {
+        ...state,
+        working: entered,
+        phase: 'executing',
+        stepIndex,
+        verifyFixTurns: state.verifyFixTurns + 1,
+        verifyAdvisories: r.warnedChecks,
+        cumulativeOps: [...state.cumulativeOps, ...r.repairOps],
+        seq: em.seq(),
+      };
+      return {
+        state: next,
+        effects: [runTurnEffect(next, stepIndex)],
+        events: [
+          ...events,
+          em.notification(
+            `One turn to act on the self-check's advice, or leave it if intended: ${r.warnedChecks.map((c) => c.label).join(', ')}.`,
+          ),
+        ],
+      };
+    }
+  }
   for (const [index, objective] of working.objectives.entries()) {
     // One objective per drafted step, and a step completes only by an applied patch on
     // its own turn — so a plan whose steps collapse into one turn (or list reads and
@@ -3114,9 +3191,13 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       ),
     );
   }
+  // The advisory fix turn, if one ran, is over: from here its advice is only reported.
+  // Dropped rather than set to `undefined`, so a run that never had one settles to the
+  // exact state it always did.
+  const { verifyAdvisories: _spent, ...settled } = state;
   return finalize(
     {
-      ...state,
+      ...settled,
       working,
       integrityFailed: state.integrityFailed || failed,
       cumulativeOps: [...state.cumulativeOps, ...r.repairOps],

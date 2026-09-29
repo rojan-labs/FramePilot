@@ -1698,6 +1698,14 @@
       "reason": "self_check"
     },
     {
+      "id": "turn_parity:notice:16",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "One turn to act on the self-check's advice, or leave it if intended: Picture covers the programme."
+    },
+    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -1711,7 +1719,602 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 16,
+        "version": 15,
+        "objective": {
+          "request": "tighten the intro and the outro",
+          "outcome": "tighten the intro and the outro",
+          "provisional": true,
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+            }
+          ]
+        },
+        "stage": "repair",
+        "completedStages": [
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan",
+          "apply",
+          "enhance",
+          "verify"
+        ],
+        "stageEnteredAtTurn": 3,
+        "facts": [
+          {
+            "id": "fact_2",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 3 clips — video_1 [video] 3 clips 2–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 2,
+            "stage": "apply"
+          }
+        ],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "tighten the intro and the outro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "tighten the intro and the outro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_parity_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
+            "objectiveId": "objective_1"
+          },
+          {
+            "id": "op_2",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 2,
+            "attempts": 1,
+            "planId": "plan_turn_parity_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
+            "projectRevisionBefore": 1,
+            "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 2,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 2,
+          "verify": 0
+        }
+      }
+    },
+    {
+      "id": "turn_parity:status:16",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "generating"
+    },
+    {
+      "id": "turn_parity:reasoning:4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": false
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 14715,
+      "contextWindow": 1000000,
+      "estimated": true,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-4",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 150,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 59,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 51,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "retrieved_evidence",
+            "label": "media bin",
+            "tokenEstimate": 15,
+            "included": true
+          },
+          {
+            "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 2374,
+            "included": true
+          },
+          {
+            "id": "s8",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s9",
+            "type": "system",
+            "label": "agent contract",
+            "tokenEstimate": 2570,
+            "included": true
+          },
+          {
+            "id": "s10",
+            "type": "system",
+            "label": "run briefing",
+            "tokenEstimate": 393,
+            "included": true
+          },
+          {
+            "id": "s11",
+            "type": "system",
+            "label": "turn steering",
+            "tokenEstimate": 174,
+            "included": true
+          },
+          {
+            "id": "s12",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 65,
+            "included": true
+          },
+          {
+            "id": "s13",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 8818,
+            "included": true,
+            "cacheSide": "cached_prefix"
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 14715,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 857285,
+          "toolSchemaTokensRebilled": 0,
+          "calculationSource": "local_estimate"
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "repair",
+          "projectRevision": 2,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 1,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1,
+          "nextAction": "Continue repair: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
+        },
+        "reasoningEffort": "medium"
+      }
+    },
+    {
+      "id": "turn_parity:delta:17",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_delta",
+      "parentId": "turn_parity:assistant:seg-4",
+      "chunk": "done"
+    },
+    {
+      "id": "turn_parity:reasoning:4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "reasoning",
+      "summaries": [],
+      "done": true
+    },
+    {
+      "id": "turn_parity:context-usage",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "context_usage",
+      "usedTokens": 100,
+      "contextWindow": 1000000,
+      "estimated": false,
+      "manifest": {
+        "requestId": "turn_parity:assistant:seg-4",
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "sections": [
+          {
+            "id": "s1",
+            "type": "system",
+            "label": "system contract",
+            "tokenEstimate": 150,
+            "included": true
+          },
+          {
+            "id": "s2",
+            "type": "system",
+            "label": "project header",
+            "tokenEstimate": 59,
+            "included": true
+          },
+          {
+            "id": "s3",
+            "type": "retrieved_evidence",
+            "label": "timeline summary",
+            "tokenEstimate": 51,
+            "included": true
+          },
+          {
+            "id": "s4",
+            "type": "retrieved_evidence",
+            "label": "media bin",
+            "tokenEstimate": 15,
+            "included": true
+          },
+          {
+            "id": "s5",
+            "type": "retrieved_evidence",
+            "label": "source media",
+            "tokenEstimate": 23,
+            "included": true
+          },
+          {
+            "id": "s6",
+            "type": "retrieved_evidence",
+            "label": "transcript slice",
+            "tokenEstimate": 11,
+            "included": true
+          },
+          {
+            "id": "s7",
+            "type": "skill",
+            "label": "skills manifest",
+            "tokenEstimate": 2374,
+            "included": true
+          },
+          {
+            "id": "s8",
+            "type": "latest_user_message",
+            "label": "user request",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s9",
+            "type": "system",
+            "label": "agent contract",
+            "tokenEstimate": 2570,
+            "included": true
+          },
+          {
+            "id": "s10",
+            "type": "system",
+            "label": "run briefing",
+            "tokenEstimate": 393,
+            "included": true
+          },
+          {
+            "id": "s11",
+            "type": "system",
+            "label": "turn steering",
+            "tokenEstimate": 174,
+            "included": true
+          },
+          {
+            "id": "s12",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 65,
+            "included": true
+          },
+          {
+            "id": "s13",
+            "type": "tool_schemas",
+            "label": "tool definitions",
+            "tokenEstimate": 8818,
+            "included": true,
+            "cacheSide": "cached_prefix"
+          }
+        ],
+        "usage": {
+          "modelContextLimit": 1000000,
+          "limitAssumed": false,
+          "estimatedInputTokensBeforeSend": 14715,
+          "reservedOutputTokens": 128000,
+          "estimatedRemainingCapacity": 871900,
+          "toolSchemaTokensRebilled": 0,
+          "calculationSource": "provider_reported",
+          "providerReportedInputTokens": 100,
+          "providerReportedOutputTokens": 20,
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
+        },
+        "compaction": {
+          "occurred": false,
+          "removedTokenEstimate": 0,
+          "removedSections": []
+        },
+        "memory": {
+          "runId": "turn_parity",
+          "stage": "repair",
+          "projectRevision": 2,
+          "objectiveKnown": true,
+          "committedDecisions": 1,
+          "facts": 1,
+          "evidenceHandles": 0,
+          "remainingObjectives": 1,
+          "nextAction": "Continue repair: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
+        },
+        "reasoningEffort": "medium"
+      }
+    },
+    {
+      "id": "turn_parity:assistant:seg-4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "assistant_message",
+      "text": "done"
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 15,
+        "objective": {
+          "request": "tighten the intro and the outro",
+          "outcome": "tighten the intro and the outro",
+          "provisional": true,
+          "acceptance": [
+            {
+              "id": "criterion_1",
+              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
+            }
+          ]
+        },
+        "stage": "repair",
+        "completedStages": [
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan",
+          "apply",
+          "enhance",
+          "verify"
+        ],
+        "stageEnteredAtTurn": 3,
+        "facts": [
+          {
+            "id": "fact_2",
+            "kind": "project",
+            "statement": "Timeline now: sequence 10s, 2 tracks, 3 clips — video_1 [video] 3 clips 2–10s; audio_1 [audio] empty",
+            "evidenceIds": [],
+            "scope": "timeline_dependent",
+            "observedAtRevision": 2,
+            "stage": "apply"
+          }
+        ],
+        "decisions": [
+          {
+            "id": "decision_1",
+            "decision": "tighten the intro and the outro",
+            "evidenceIds": [],
+            "stage": "plan",
+            "status": "committed",
+            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
+            "source": "inferred",
+            "until": "revision",
+            "turnsCarried": 0
+          }
+        ],
+        "plan": {
+          "status": "committed",
+          "id": "plan_turn_parity_1",
+          "committedAtTurn": 0,
+          "basedOnProjectRevision": 0,
+          "decisionIds": [
+            "decision_1"
+          ]
+        },
+        "execution": {
+          "authorized": true
+        },
+        "evidence": [],
+        "objectives": [
+          {
+            "id": "objective_1",
+            "description": "tighten the intro and the outro",
+            "stage": "verify",
+            "status": "pending"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 1,
+            "attempts": 1,
+            "planId": "plan_turn_parity_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":2}:0",
+            "projectRevisionBefore": 0,
+            "projectRevisionAfter": 1,
+            "patchId": "patch_bce93a18",
+            "objectiveId": "objective_1"
+          },
+          {
+            "id": "op_2",
+            "intent": "Deleted range",
+            "status": "succeeded",
+            "atRevision": 2,
+            "attempts": 1,
+            "planId": "plan_turn_parity_1",
+            "decisionId": "decision_1",
+            "idempotencyKey": "turn_parity:plan_turn_parity_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":8,\"end\":9}:0",
+            "projectRevisionBefore": 1,
+            "projectRevisionAfter": 2,
+            "patchId": "patch_76c10f5b",
+            "objectiveId": "objective_1"
+          }
+        ],
+        "verifications": [],
+        "nextAction": null,
+        "blockedOn": null,
+        "integrity": {
+          "status": "valid",
+          "diagnostics": []
+        },
+        "baseProjectRevision": 0,
+        "currentProjectRevision": 2,
+        "minted": {
+          "fact": 2,
+          "decision": 0,
+          "objective": 0,
+          "op": 2,
+          "verify": 0
+        }
+      }
+    },
+    {
+      "id": "turn_parity:notice:18",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "Deterministic self-check: Passed with 1 warning(s).",
+      "reason": "self_check"
+    },
+    {
+      "id": "turn_parity:notice:19",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "notification",
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–2s, 8s–9s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
+      "reason": "self_check"
+    },
+    {
+      "id": "turn_parity:run-state",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "run_state",
+      "working": {
+        "schemaVersion": 2,
+        "runId": "turn_parity",
+        "identity": {
+          "conversationId": "conv_parity",
+          "projectId": "proj_1",
+          "attemptId": "turn_parity"
+        },
+        "version": 18,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -1731,9 +2334,10 @@
           "plan",
           "apply",
           "enhance",
-          "verify"
+          "verify",
+          "repair"
         ],
-        "stageEnteredAtTurn": 3,
+        "stageEnteredAtTurn": 4,
         "facts": [
           {
             "id": "fact_2",
@@ -1836,17 +2440,17 @@
       }
     },
     {
-      "id": "turn_parity:usage:16",
+      "id": "turn_parity:usage:20",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "usage",
-      "tokens": 510,
-      "usd": 0.0097425,
-      "modelCalls": 3,
+      "tokens": 680,
+      "usd": 0.01299,
+      "modelCalls": 4,
       "priced": true,
-      "cacheReadTokens": 120,
-      "cacheWriteTokens": 30
+      "cacheReadTokens": 160,
+      "cacheWriteTokens": 40
     },
     {
       "id": "turn_parity:assistant",
@@ -1857,7 +2461,7 @@
       "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_parity:status:17",
+      "id": "turn_parity:status:21",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

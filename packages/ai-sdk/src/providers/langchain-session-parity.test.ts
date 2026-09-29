@@ -280,16 +280,19 @@ describe('whole-run behaviour through the Anthropic adapter, frozen', () => {
       scenario,
     );
     const usage = outcome.events.filter((event) => event.type === 'usage');
-    // 240 uncached + 100 cache-read tokens across the two calls. The cache reads are
-    // counted ONCE — `usageFromMetadata` subtracts them from LangChain's total and
-    // `costFromUsage` adds them back as their own priced line (`cost-meter.ts`), so a
-    // double count would read 440 here and a dropped one 240.
+    // Three calls: the edit, the reply, and the advisory fix turn (AL37) — deleting 0–3s
+    // from the only picture track leaves a gap the self-check advises on, and the run hears
+    // it once; `scriptedFetch` answers that call with the script's last reply. 360 uncached
+    // + 150 cache-read tokens across the three. The cache reads are counted ONCE —
+    // `usageFromMetadata` subtracts them from LangChain's total and `costFromUsage` adds
+    // them back as their own priced line (`cost-meter.ts`), so a double count would read
+    // 660 here and a dropped one 360.
     //
     // CONFIG runs `claude-opus-4-8`, so this is priced at the `large` tier. It used to
-    // read 0.001299 — exactly a fifth — because every editing turn passed no tier at all
-    // and was metered at `mid` whatever model served it (`runPricingFor`).
+    // read a fifth of this because every editing turn passed no tier at all and was
+    // metered at `mid` whatever model served it (`runPricingFor`).
     expect(usage).toEqual([
-      expect.objectContaining({ type: 'usage', tokens: 340, usd: 0.006495, modelCalls: 2 }),
+      expect.objectContaining({ type: 'usage', tokens: 510, usd: 0.0097425, modelCalls: 3 }),
     ]);
   });
 });

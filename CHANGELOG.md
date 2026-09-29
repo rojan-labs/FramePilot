@@ -83,6 +83,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant acts on its self-check's advice before it finishes.** When the final check
+  finds something worth a second look, such as the same shot cut to itself, the assistant now
+  hears it while it can still act. It gets one more turn to fix it, or to leave it and say why if
+  it was intended. Before, that advice arrived after the assistant's last reply, where nothing
+  could act on it. Leaving advice in place does not mark the run as failed. The jump-cut advice
+  now names both clips and where each reads from the source, and it gives a different fix for a
+  skip nobody meant (such as a speed ramp that stops short) than for a deliberate cut.
 - **The assistant's checks no longer grind your computer once a clip uses a track matte.** When
   one clip was cut by another layer (a shape or a title used as its matte), every look the
   assistant took at a frame, and every colour measurement, opened every clip in the timeline. On

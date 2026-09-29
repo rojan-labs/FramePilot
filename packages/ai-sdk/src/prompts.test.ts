@@ -8,6 +8,7 @@ import {
   SYSTEM_PROMPT,
   agentActionRecoveryBlock,
   agentModeInstruction,
+  agentVerifyFixBlock,
   agentSkillsBlock,
   classifierSystemPrompt,
 } from './prompts.js';
@@ -265,5 +266,31 @@ describe('agentModeInstruction — the visual self-check paragraph', () => {
     ]) {
       expect(contract).toContain('visually unreviewed');
     }
+  });
+});
+
+describe('agentVerifyFixBlock', () => {
+  it('is empty outside the repair stage', () => {
+    expect(agentVerifyFixBlock(false)).toBe('');
+    expect(agentVerifyFixBlock(false, [{ label: 'No jump cuts', detail: 'x' }])).toBe('');
+  });
+
+  it('points a failed-check fix turn at the FAIL lines', () => {
+    expect(agentVerifyFixBlock(true)).toContain('failed on the lines marked FAIL');
+  });
+
+  // AL37: advice is not failure. The block states the advisories itself (the briefing's
+  // VERIFIED section lists failures), allows leaving an intended one, and says how the run ends.
+  it('states the advisories, allows leaving an intended one, and says a plain reply ends the run', () => {
+    const block = agentVerifyFixBlock(true, [
+      { label: 'No jump cuts', detail: '1 cut(s) join the same shot to itself — at frame 1360' },
+    ]);
+    expect(block).toContain(
+      '- No jump cuts: 1 cut(s) join the same shot to itself — at frame 1360',
+    );
+    expect(block).toContain('passed its deterministic self-check');
+    expect(block).toMatch(/Where it is intended, leave it/);
+    expect(block).toMatch(/reply without a tool call: that ends the run/);
+    expect(block).not.toContain('FAIL');
   });
 });

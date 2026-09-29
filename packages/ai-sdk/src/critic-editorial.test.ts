@@ -79,6 +79,26 @@ describe('jump_cut — is that the same shot cut to itself?', () => {
     expect(found.detail).toContain('trim_clip');
   });
 
+  it('names both clips and where each reads the source, and the fix for a skip nobody meant', () => {
+    // Run 88c8b27d: a speed ramp fitted to its slot stopped reading the shot at 2.287 s and
+    // the next clip resumed at 2.5 s. The fix is a continuous source, not a bigger jump.
+    const found = checkOf(
+      critique(
+        project([
+          clip('ramp', 0, 4, { sourceStart: 0, sourceEnd: 2.287 }),
+          clip('rest', 4, 8, { sourceStart: 2.5, sourceEnd: 6.5 }),
+        ]),
+      ),
+      'jump_cut',
+    );
+    expect(found.status).toBe('warn');
+    expect(found.detail).toContain('"ramp" stops at source 2.287s, "rest" resumes at 2.5s');
+    expect(found.detail).toContain('make the source continuous');
+    expect(found.detail).toContain('add_clip the same span with that sourceStart');
+    // The old remedy pointed the other way.
+    expect(found.detail).not.toContain('past the match');
+  });
+
   it('does NOT fire on a plain split, where the footage runs on across the seam', () => {
     // Contiguous source is an invisible seam. Firing here would flag every split_clip.
     const found = checkOf(critique(project([clip('a', 0, 4), clip('b', 4, 8)])), 'jump_cut');
@@ -193,7 +213,10 @@ describe('word_severed — did I cut through a word?', () => {
       { word: 'short', start: 0.2, end: 0.5 },
     ];
     const found = checkOf(
-      checkProject([clip('a', 0, 2), clip('b', 2, 6, { sourceStart: 2, sourceEnd: 6 })], overlapping),
+      checkProject(
+        [clip('a', 0, 2), clip('b', 2, 6, { sourceStart: 2, sourceEnd: 6 })],
+        overlapping,
+      ),
       'word_severed',
     );
     expect(found.status).toBe('fail');

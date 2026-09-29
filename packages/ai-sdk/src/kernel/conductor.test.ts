@@ -2398,6 +2398,122 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
   });
 
+  // AL37 — run `88c8b27d` passed its self-check with "No jump cuts: 1 cut(s) join the same
+  // shot to itself … at frame 1360", a real five-frame skip inside a speed-ramped shot, and
+  // the advice arrived as a notification AFTER the model's final reply. A run that delivered
+  // work and ends with advisories now spends its one fix turn hearing them.
+  describe('the advisory fix turn', () => {
+    const advice = [
+      { label: 'No jump cuts', detail: '1 cut(s) join the same shot to itself — at frame 1360' },
+    ];
+    const advisory = verify({
+      ok: true,
+      summary: 'Passed with 1 warning(s).',
+      warnedChecks: advice,
+    });
+    const verifying = (over: Partial<ConductorState> = {}): ConductorState => ({
+      ...onEffectResult(started(), landed()).state,
+      phase: 'verifying',
+      ...over,
+    });
+
+    it('opens one turn that hears the advisories, without recording them as failures', () => {
+      const step = onEffectResult(verifying(), advisory);
+      expect(step.state.phase).toBe('executing');
+      expect(step.state.verifyFixTurns).toBe(1);
+      expect(step.state.verifyAdvisories).toEqual(advice);
+      expect(step.state.working.stage).toBe('repair');
+      expect(step.effects[0]).toMatchObject({
+        kind: 'run_turn',
+        stage: 'repair',
+        advisories: advice,
+      });
+      // (a) An advisory is not a failed verification: nothing here may bar `complete`.
+      expect(step.state.working.verifications.filter((v) => !v.passed)).toEqual([]);
+      expect(step.state.integrityFailed).toBe(false);
+      // The editor still sees the advice, and why the run went on.
+      expect(step.events).toContainEqual(
+        expect.objectContaining({
+          type: 'notification',
+          text: 'No jump cuts: 1 cut(s) join the same shot to itself — at frame 1360',
+        }),
+      );
+      expect(step.events.at(-1)).toMatchObject({
+        type: 'notification',
+        text: expect.stringContaining('leave it if intended: No jump cuts'),
+      });
+    });
+
+    it('a reply with no tool call ends the run — even with plan items still open', () => {
+      const opened = onEffectResult(
+        verifying({ modelPlan: [{ task: 'Grade the summit', status: 'pending' }] }),
+        advisory,
+      ).state;
+      const replied = onEffectResult(opened, turn({ done: true, stepIndex: opened.stepIndex }));
+      expect(replied.effects[0]).toMatchObject({ kind: 'run_verify' });
+    });
+
+    it('an advisory the model leaves on purpose still completes the run, and is only reported', () => {
+      const opened = onEffectResult(verifying(), advisory).state;
+      const replied = onEffectResult(opened, turn({ done: true, stepIndex: opened.stepIndex }));
+      // (b) No loop: the same advice again is reported, not another turn.
+      const settled = onEffectResult(replied.state, advisory);
+      expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
+      expect(settled.state.working.stage).toBe('complete');
+      expect(settled.state.integrityFailed).toBe(false);
+      expect(settled.state.verifyFixTurns).toBe(1);
+      expect(settled.state).not.toHaveProperty('verifyAdvisories');
+      expect(settled.events).toContainEqual(
+        expect.objectContaining({
+          type: 'notification',
+          text: expect.stringContaining('No jump cuts'),
+        }),
+      );
+      expect(settled.events.some((e) => e.type === 'error')).toBe(false);
+    });
+
+    it('a fix the model makes lands and the run completes', () => {
+      const opened = onEffectResult(verifying(), advisory).state;
+      const fixed = onEffectResult(opened, landed({ done: true, stepIndex: opened.stepIndex }));
+      expect(fixed.effects[0]).toMatchObject({ kind: 'run_verify' });
+      const settled = onEffectResult(fixed.state, verify({ ok: true, summary: 'all passed' }));
+      expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
+      expect(settled.state.working.stage).toBe('complete');
+    });
+
+    it('is not bought when the run already spent its fix turn, was cancelled, or ran out of budget', () => {
+      for (const over of [
+        { verifyFixTurns: MAX_VERIFY_FIX_TURNS },
+        { cancelled: true },
+        { runUsd: 2, config: { ...started().config, maxUsd: 1 } },
+        // The per-run operation cap: no room left for the fix the advice might call for.
+        { config: { ...started().config, maxOpsPerRun: 1 } },
+      ] satisfies Partial<ConductorState>[]) {
+        const step = onEffectResult(verifying(over), advisory);
+        expect(step.effects[0]).toMatchObject({ kind: 'finalize' });
+        expect(step.state).not.toHaveProperty('verifyAdvisories');
+      }
+    });
+
+    it('is not bought by a run that delivered nothing, or one whose checks FAILED', () => {
+      expect(onEffectResult(started({ phase: 'verifying' }), advisory).effects[0]).toMatchObject({
+        kind: 'finalize',
+      });
+      // A failed check buys the ordinary fix turn; the advisories ride along only as notices.
+      const failed = onEffectResult(
+        verifying(),
+        verify({
+          ok: false,
+          summary: 'one failed',
+          failedChecks: [{ label: 'No overlaps', detail: 'x' }],
+          warnedChecks: advice,
+        }),
+      );
+      expect(failed.effects[0]).toMatchObject({ kind: 'run_turn' });
+      expect(failed.state.verifyAdvisories).toBeUndefined();
+    });
+  });
+
   it('does not open a fix turn when nothing landed — there is nothing to fix', () => {
     const s = started({ phase: 'verifying' });
     const step = onEffectResult(

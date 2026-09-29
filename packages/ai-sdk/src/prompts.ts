@@ -417,8 +417,29 @@ export function agentSteeringBlock(message: string | undefined): string {
  * the cut is not on the table, and that the loop is bounded so "try something else" is
  * not a strategy. Rendered only while the run is in the `repair` stage.
  */
-export function agentVerifyFixBlock(enabled: boolean): string {
+export function agentVerifyFixBlock(
+  enabled: boolean,
+  /**
+   * The self-check's advisories, when this is the advisory fix turn (AL37). Their block is a
+   * different instruction: nothing FAILED, the run is otherwise done, and leaving an advisory
+   * that is intended is a legitimate answer — so it must not say "fix exactly those".
+   */
+  advisories?: readonly { readonly label: string; readonly detail: string }[],
+): string {
   if (!enabled) return '';
+  if (advisories !== undefined && advisories.length > 0) {
+    return [
+      '',
+      '',
+      'SELF-CHECK ADVICE: the edit passed its deterministic self-check, with these advisories:',
+      ...advisories.map((check) => `- ${check.label}: ${check.detail}`),
+      'Each one is a possible problem the checks cannot judge for you. Where one is a real',
+      'mistake, fix it with the smallest edit that clears it. Where it is intended, leave it',
+      'and say why in one line. Do not re-plan the cut or make unrelated edits. When you are',
+      'done, reply without a tool call: that ends the run, and the self-check then only',
+      'reports.',
+    ].join('\n');
+  }
   return [
     '',
     '',

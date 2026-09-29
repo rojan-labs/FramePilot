@@ -120,7 +120,9 @@ describe('FramePilot 9.5 agent run quality telemetry', () => {
     expect(events.some((event) => event.type === 'status' && event.status === 'completed')).toBe(true);
     expect(metrics.routeMode).toBe('agent');
     expect(metrics.models).toEqual([{ provider: 'mock' }]);
-    expect(metrics.modelCallCount).toBe(2);
+    // The edit, "Done.", and the advisory fix turn (AL37): deleting 0–2s from the only
+    // picture track leaves black the self-check advises on, and the run hears it once.
+    expect(metrics.modelCallCount).toBe(3);
     expect(metrics.toolCallCount).toBe(1);
     expect(metrics.operations.attempted).toBeGreaterThan(0);
     expect(metrics.operations.applied).toBe(0);
