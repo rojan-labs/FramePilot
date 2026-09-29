@@ -15,6 +15,7 @@ import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
 import { TEXT_OVERLAY_STYLE_CATALOG } from '@framepilot/timeline-schema/text-overlay-styles';
 import { bundledFontFamily } from './tool-args.js';
+import { typedTitleDrawnWidthPx, typedTitleFont, typedTitleOf } from '../overlay-fit.js';
 
 function run(name: string, project: Project, args: Record<string, unknown>): Project {
   const tool = getTool(name);
@@ -203,5 +204,35 @@ describe('adjust_effect on a title', () => {
           { project: before },
         ),
     ).toThrow(new RegExp(`set_text_style \\(clipId "${clipId}"\\)`));
+  });
+});
+
+describe('set_text_style re-fits into a tracked style (#135)', () => {
+  it('shrinks a title whose new tracking would run it out of its box', () => {
+    const placed = run('add_text_layer', vertical(), {
+      trackId: 'titles',
+      text: 'WEEKEND TRIP',
+      start: 0,
+      end: 3,
+      sizePercent: 7.5,
+      boxWidthPercent: 92,
+      fontFamily: 'Montserrat',
+      fontWeight: 600,
+    });
+    expect(textParams(placed).fontSizePercent).toBe(7.5);
+    const after = run('set_text_style', placed, {
+      clipId: titleClipId(placed),
+      style: 'tracked-caps',
+      fontFamily: 'Montserrat',
+      fontWeight: 600,
+    });
+    const params = textParams(after);
+    const typed = typedTitleOf(params.typography, params.background)!;
+    expect(typed.letterSpacing).toBe(0.24);
+    expect(params.fontSizePercent).toBeLessThan(7.5);
+    const font = typedTitleFont({ fontFamily: 'Montserrat', fontWeight: 600 }, typed);
+    const fontPx = Math.floor((1920 * (params.fontSizePercent as number)) / 100);
+    const boxPx = Math.floor((1080 * (params.boxWidthPercent as number)) / 100);
+    expect(typedTitleDrawnWidthPx('WEEKEND', fontPx, font, typed)).toBeLessThanOrEqual(boxPx);
   });
 });

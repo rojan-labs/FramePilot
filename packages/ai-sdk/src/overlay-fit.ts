@@ -28,12 +28,27 @@
  *
  * and the frame's pixel dimensions cancel down to its aspect ratio. No pixel measurement
  * is needed at this boundary; only the width of the word in em.
+ *
+ * ## A title with caption typography is drawn by the caption rasterizer (#135)
+ *
+ * A `text` effect whose `typography` validates is drawn by `render_caption_raster`
+ * (`text_overlay.text_overlay_caption_style`, ADR 0194), and that draws a word wider than
+ * its advances: `letterSpacing` (em) is added between every two glyphs (never after the
+ * last, and not at all when it is not positive — `captions._token_width`), an italic is
+ * drawn from the family's italic file, the stroke is `outlineWidth` sixteenths of the size,
+ * and the wrap width is the box less the chip's padding on each side (0.35 em unless a chip
+ * colour is set and its typography names its own `paddingX`). The harness's "WEEKEND TRIP" in
+ * `tracked-caps` (0.24 em) draws 22 % wider than its advances, so a fit that ignored tracking
+ * accepted boxes the export overflows. That path is measured in pixels, the way the caption
+ * rasterizer lays it out (`typedTitleWidthsPx`; `tests/test_title_metrics.py` pins it).
  */
 
+import { parseTextOverlayTypography } from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   TITLE_FACES,
   TITLE_GLYPHS,
   TITLE_GLYPH_TABLES,
+  TITLE_ITALIC_FACES,
   TITLE_WEIGHT_BUCKETS,
 } from './title-metrics.generated.js';
 
@@ -73,7 +88,41 @@ export const MAX_TITLE_BOX_WIDTH_PERCENT = 92;
 export interface TitleFont {
   readonly fontFamily?: string;
   readonly fontWeight?: number;
+  /**
+   * Only a title with caption typography draws italic, and only from a family that ships an
+   * italic file (`TITLE_ITALIC_FACES`); any other family draws upright whatever this says.
+   */
+  readonly fontStyle?: 'normal' | 'italic';
 }
+
+/**
+ * The caption-typography fields a typed title's WIDTH depends on, resolved the way
+ * `text_overlay_caption_style` hands them to the caption rasterizer.
+ */
+export interface TypedTitle {
+  /** Extra space between glyphs, em. Not positive: none (the rasterizer ignores it). */
+  readonly letterSpacing: number;
+  /** Stroke width in sixteenths of the font size; 0 is no stroke. */
+  readonly outlineWidth: number;
+  /** Padding each side of the words inside the wrap width, em. */
+  readonly paddingX: number;
+  /** An italic is drawn from the family's italic file, where it ships one. */
+  readonly fontStyle: 'normal' | 'italic';
+}
+
+/** The caption rasterizer's chip padding when none is named (`captions._resolve_style`). */
+const DEFAULT_CHIP_PADDING_EM = 0.35;
+/** `outlineWidth`'s unit: sixteenths of the font size (`captions._OUTLINE_UNITS_PER_EM`). */
+const OUTLINE_UNITS_PER_EM = 16;
+/** The smallest title the export draws, in pixels (`text_overlay._MIN_FONT_SIZE`). */
+const MIN_TITLE_FONT_PX = 16;
+/**
+ * The family a typed title is drawn in when the project stores none — the web editor's default,
+ * which `text_overlay._with_editor_defaults` fills in for the caption path.
+ */
+const TYPED_DEFAULT_FAMILY = 'Inter';
+/** The narrowest wrap box the caption rasterizer lays out in, percent of the frame width. */
+const MIN_TYPED_BOX_PERCENT = 5;
 
 /** The weight the export draws a title at when its style names none (`text_overlay.py`). */
 const DEFAULT_TITLE_WEIGHT = 700;
@@ -92,7 +141,9 @@ type GlyphRow = readonly (readonly [number, number, number])[];
  * weight between two measured ones reads a little wide — the direction a fit can afford.
  */
 function glyphRow(font: TitleFont | undefined): GlyphRow | undefined {
-  const rows = TITLE_FACES[font?.fontFamily ?? ''];
+  const family = font?.fontFamily ?? '';
+  const rows =
+    (font?.fontStyle === 'italic' ? TITLE_ITALIC_FACES[family] : undefined) ?? TITLE_FACES[family];
   if (rows === undefined) return undefined;
   const weight = font?.fontWeight ?? DEFAULT_TITLE_WEIGHT;
   const bucket = TITLE_WEIGHT_BUCKETS.findIndex((top) => weight <= top);
@@ -152,6 +203,113 @@ export function titleDrawnWidthPx(word: string, fontPx: number, font?: TitleFont
   return ((inkRight - inkLeft) / 1000) * fontPx + 6 * stroke;
 }
 
+/**
+ * The typed-title reading of a `text` effect's params: `undefined` for a plain title (no
+ * `typography`, or one that does not validate — the export then draws the plain title too).
+ *
+ * @param typography - The stored `typography` param.
+ * @param background - The title's own `background` param: the chip's padding comes from the
+ *   typography only when a chip colour is set, exactly as `text_overlay_caption_style` reads it.
+ */
+export function typedTitleOf(typography: unknown, background: unknown): TypedTitle | undefined {
+  const parsed = parseTextOverlayTypography(typography);
+  if (parsed === undefined) return undefined;
+  const chip = typeof background === 'string' && background.trim() !== '';
+  return {
+    letterSpacing: parsed.letterSpacing ?? 0,
+    outlineWidth: parsed.outlineWidth ?? 0,
+    paddingX: (chip ? parsed.background?.paddingX : undefined) ?? DEFAULT_CHIP_PADDING_EM,
+    fontStyle: parsed.fontStyle ?? 'normal',
+  };
+}
+
+/**
+ * The font a typed title is drawn in: the caption path fills in the editor's family when the
+ * project stores none, and the italic comes from the typography.
+ */
+export function typedTitleFont(font: TitleFont | undefined, typed: TypedTitle): TitleFont {
+  return {
+    fontFamily: font?.fontFamily ?? TYPED_DEFAULT_FAMILY,
+    ...(font?.fontWeight === undefined ? {} : { fontWeight: font.fontWeight }),
+    fontStyle: typed.fontStyle,
+  };
+}
+
+/** The pixel size a title is drawn at for `sizePercent` of a frame `height` tall. */
+function titleFontPx(sizePercent: number, height: number): number {
+  return Math.max(MIN_TITLE_FONT_PX, Math.floor((height * sizePercent) / 100));
+}
+
+/**
+ * How wide the caption rasterizer draws one `word` of a typed title at `fontPx`.
+ *
+ * - `wrapPx` — what it wraps against: the tracked advances (floored, as `block_w` is) plus the
+ *   chip padding each side. Equal to `measure_caption_layout(...).box_width` for one word.
+ * - `inkPx` — the stroked ink from the first glyph's left edge to the last one's right edge,
+ *   tracking included: what shows past the padding (an italic overhang, a heavy stroke).
+ *
+ * `unknownEm` is what a glyph the metrics do not cover is charged.
+ */
+export function typedTitleWidthsPx(
+  word: string,
+  fontPx: number,
+  font: TitleFont | undefined,
+  typed: TypedTitle,
+  unknownEm: number = UNKNOWN_FIT_EM,
+): { readonly wrapPx: number; readonly inkPx: number } {
+  const row = rowOrDefault(font);
+  const glyphs = [...word];
+  if (glyphs.length === 0) return { wrapPx: 0, inkPx: 0 };
+  const spacingPx = typed.letterSpacing * fontPx;
+  const gapsPx = spacingPx > 0 && glyphs.length > 1 ? spacingPx * (glyphs.length - 1) : 0;
+  let advance = 0;
+  let inkLeft = 0;
+  let inkRight = 0;
+  glyphs.forEach((ch, position) => {
+    const index = GLYPH_INDEX.get(ch);
+    const unknown = unknownEm * 1000;
+    const [glyphAdvance, left, right] = index === undefined ? [unknown, 0, unknown] : row[index]!;
+    if (position === 0) inkLeft = left;
+    if (position === glyphs.length - 1) inkRight = advance + right;
+    advance += glyphAdvance;
+  });
+  const stroke =
+    typed.outlineWidth <= 0
+      ? 0
+      : Math.max(1, Math.round((typed.outlineWidth * fontPx) / OUTLINE_UNITS_PER_EM));
+  const padPx = Math.floor(fontPx * typed.paddingX);
+  return {
+    wrapPx: Math.floor((advance / 1000) * fontPx + gapsPx) + 2 * padPx,
+    inkPx: ((inkRight - inkLeft) / 1000) * fontPx + gapsPx + 2 * stroke,
+  };
+}
+
+/** Everything of a typed `word` that is drawn, in whole pixels: chip or ink, whichever is wider. */
+export function typedTitleDrawnWidthPx(
+  word: string,
+  fontPx: number,
+  font: TitleFont | undefined,
+  typed: TypedTitle,
+  unknownEm: number = UNKNOWN_FIT_EM,
+): number {
+  const { wrapPx, inkPx } = typedTitleWidthsPx(word, fontPx, font, typed, unknownEm);
+  return Math.ceil(Math.max(wrapPx, inkPx));
+}
+
+/** The box a typed title wraps in, in pixels, as the caption rasterizer computes it. */
+function typedBoxPx(boxWidthPercent: number, frameWidth: number): number {
+  const fraction = Math.min(1, Math.max(MIN_TYPED_BOX_PERCENT / 100, boxWidthPercent / 100));
+  return Math.floor(frameWidth * fraction);
+}
+
+/** `text` in the case the typography draws it in. */
+function inTypedCase(text: string, typography: unknown): string {
+  const transform = parseTextOverlayTypography(typography)?.textTransform;
+  if (transform === 'uppercase') return text.toUpperCase();
+  if (transform === 'lowercase') return text.toLowerCase();
+  return text;
+}
+
 /** The style values this check needs; anything missing means it has no opinion. */
 export interface OverlayFitInput {
   readonly text?: unknown;
@@ -159,6 +317,10 @@ export interface OverlayFitInput {
   readonly boxWidthPercent?: unknown;
   readonly fontFamily?: unknown;
   readonly fontWeight?: unknown;
+  /** The caption typography; a valid one means the caption rasterizer draws the title. */
+  readonly typography?: unknown;
+  /** The chip colour, which decides whether the typography's chip padding applies. */
+  readonly background?: unknown;
 }
 
 /** The named font on a fit input, when it names a string family. */
@@ -193,12 +355,17 @@ const positive = (value: unknown): number | undefined =>
  *
  * `undefined` when nothing constrains it (no text, no box, no frame). Floored to one decimal
  * so the number reads back as something an editor would type.
+ *
+ * With `typed` (a title the caption rasterizer draws — {@link typedTitleOf}) the words are
+ * measured as that draws them: tracked, in the typography's italic, inside the chip padding.
+ * The caller passes the text in the case drawn.
  */
 export function largestFittingSizePercent(
   text: string,
   boxWidthPercent: number,
   resolution: { readonly width: number; readonly height: number },
   font?: TitleFont,
+  typed?: TypedTitle,
 ): number | undefined {
   const width = positive(resolution.width);
   const height = positive(resolution.height);
@@ -206,6 +373,7 @@ export function largestFittingSizePercent(
   if (width === undefined || height === undefined || box === undefined) return undefined;
   const words = text.split(/\s+/).filter((word) => word.length > 0);
   if (words.length === 0) return undefined;
+  if (typed !== undefined) return largestTypedSizePercent(words, box, width, height, font, typed);
   const limitPx = (box / 100) * width;
   // The engine floors the pixel size (`text_overlay_style`): draw at that size.
   const fits = (tenths: number): boolean => {
@@ -219,6 +387,34 @@ export function largestFittingSizePercent(
   while (tenths > 0 && !fits(tenths)) tenths -= 1;
   while (fits(tenths + 1)) tenths += 1;
   return tenths > 0 ? tenths / 10 : undefined;
+}
+
+/** {@link largestFittingSizePercent} for a typed title, in the caption rasterizer's pixels. */
+function largestTypedSizePercent(
+  words: readonly string[],
+  box: number,
+  width: number,
+  height: number,
+  font: TitleFont | undefined,
+  typed: TypedTitle,
+): number | undefined {
+  const limitPx = typedBoxPx(box, width);
+  const drawnIn = typedTitleFont(font, typed);
+  const fits = (tenths: number): boolean => {
+    const fontPx = titleFontPx(tenths / 10, height);
+    return words.every((word) => typedTitleDrawnWidthPx(word, fontPx, drawnIn, typed) <= limitPx);
+  };
+  // Linear in size apart from the floors, as above: estimate, then walk. Below the export's
+  // smallest size every size draws the same, so the walk stops there rather than at zero.
+  const perPx = Math.max(
+    ...words.map((word) => typedTitleDrawnWidthPx(word, 1000, drawnIn, typed) / 1000),
+  );
+  const floorTenths = Math.ceil((MIN_TITLE_FONT_PX * 1000) / height);
+  let tenths = Math.max(floorTenths, Math.floor(((limitPx / perPx) * 1000) / height));
+  while (tenths > floorTenths && !fits(tenths)) tenths -= 1;
+  if (!fits(tenths)) return undefined;
+  while (fits(tenths + 1)) tenths += 1;
+  return tenths / 10;
 }
 
 /**
@@ -244,6 +440,13 @@ export function overflowingWords(
   const height = positive(resolution.height);
   if (!text || fontSizePercent === undefined || boxWidthPercent === undefined) return [];
   if (width === undefined || height === undefined) return [];
+  const typed = typedTitleOf(input.typography, input.background);
+  if (typed !== undefined) {
+    return overflowingTypedWords(text, fontSizePercent, boxWidthPercent, input, typed, {
+      width,
+      height,
+    });
+  }
 
   // The box, expressed in em of the current font size — the unit the word widths are in.
   const boxEm = (boxWidthPercent * width) / (fontSizePercent * height);
@@ -266,6 +469,40 @@ export function overflowingWords(
       // into the recommendation would name a box that still does not hold the word in the
       // font the export actually draws with. Rounded up for the same reason.
       requiredBoxWidthPercent: Math.ceil((measuredEm * fontSizePercent * height) / width),
+      boxWidthPercent,
+    });
+  }
+  return over.sort((a, b) => b.requiredBoxWidthPercent - a.requiredBoxWidthPercent);
+}
+
+/**
+ * {@link overflowingWords} for a title the caption rasterizer draws: a word overflows when its
+ * drawn width ({@link typedTitleDrawnWidthPx}) is wider than the box — which, for the wrap
+ * part, is exactly when the rasterizer puts it on a line of its own and lets it run out.
+ */
+function overflowingTypedWords(
+  text: string,
+  fontSizePercent: number,
+  boxWidthPercent: number,
+  input: OverlayFitInput,
+  typed: TypedTitle,
+  frame: { readonly width: number; readonly height: number },
+): OverflowingWord[] {
+  const font = typedTitleFont(fontOf(input), typed);
+  const allowance = isMeasuredFont(font) ? 1 : NARROW_FONT_ALLOWANCE;
+  const fontPx = titleFontPx(fontSizePercent, frame.height);
+  const boxPx = typedBoxPx(boxWidthPercent, frame.width);
+  const seen = new Set<string>();
+  const over: OverflowingWord[] = [];
+  for (const word of inTypedCase(text, input.typography).split(/\s+/)) {
+    if (word.length === 0 || seen.has(word)) continue;
+    seen.add(word);
+    // A report, so an unknown glyph is charged the narrow estimate (see UNKNOWN_ADVANCE_EM).
+    const drawnPx = typedTitleDrawnWidthPx(word, fontPx, font, typed, UNKNOWN_ADVANCE_EM);
+    if (drawnPx * allowance <= boxPx) continue;
+    over.push({
+      word,
+      requiredBoxWidthPercent: Math.ceil((drawnPx * 100) / frame.width),
       boxWidthPercent,
     });
   }

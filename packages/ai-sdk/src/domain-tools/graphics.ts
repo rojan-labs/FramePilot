@@ -47,7 +47,12 @@ import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { ToolContext } from '../tool-context.js';
-import { largestFittingSizePercent, overflowingWords, type TitleFont } from '../overlay-fit.js';
+import {
+  largestFittingSizePercent,
+  overflowingWords,
+  typedTitleOf,
+  type TitleFont,
+} from '../overlay-fit.js';
 import { describeTextOverlayLook } from '../text-overlay-style-facts.js';
 import {
   TRANSITION_REASONS,
@@ -136,11 +141,14 @@ function withBoxInFrame(
  * why it fits rather than refuses). Returns `params` with `fontSizePercent`,
  * `boxWidthPercent` and `xPercent` adjusted where the words would not fit; unchanged when the
  * size or the box is unknown, since a renderer default is not a value anyone chose.
+ *
+ * The words are measured as the renderer draws them: a `params.typography` that validates
+ * sends the title through the caption rasterizer, which tracks (`letterSpacing`), draws the
+ * italic file and wraps inside the chip padding — so the fit reads all of that (#135).
  */
 function fitTextOverlayParams(
   text: string,
   params: Readonly<Record<string, unknown>>,
-  typography: TextOverlayTypography | undefined,
   resolution: { readonly width: number; readonly height: number },
 ): Record<string, unknown> {
   const askedSize = params.fontSizePercent;
@@ -148,7 +156,11 @@ function fitTextOverlayParams(
   if (typeof askedSize !== 'number' || typeof askedBox !== 'number') return { ...params };
   let sizePercent = askedSize;
   let boxWidthPercent = askedBox;
-  const drawn = textAsDrawn(text, typography);
+  const typed = typedTitleOf(params.typography, params.background);
+  const drawn = textAsDrawn(
+    text,
+    typed === undefined ? undefined : typographyOf(params.typography),
+  );
   const font: TitleFont | undefined =
     typeof params.fontFamily === 'string'
       ? {
@@ -156,7 +168,13 @@ function fitTextOverlayParams(
           ...(typeof params.fontWeight === 'number' ? { fontWeight: params.fontWeight } : {}),
         }
       : undefined;
-  const fitInput = { text: drawn, fontFamily: font?.fontFamily, fontWeight: font?.fontWeight };
+  const fitInput = {
+    text: drawn,
+    fontFamily: font?.fontFamily,
+    fontWeight: font?.fontWeight,
+    typography: params.typography,
+    background: params.background,
+  };
   const over = overflowingWords(
     { ...fitInput, fontSizePercent: sizePercent, boxWidthPercent },
     resolution,
@@ -176,7 +194,7 @@ function fitTextOverlayParams(
     overflowingWords({ ...fitInput, fontSizePercent: sizePercent, boxWidthPercent }, resolution)
       .length > 0
   ) {
-    const fits = largestFittingSizePercent(drawn, boxWidthPercent, resolution, font);
+    const fits = largestFittingSizePercent(drawn, boxWidthPercent, resolution, font, typed);
     if (fits === undefined || fits <= 0) {
       // Not arithmetic this can solve — the text has no measurable width, or the frame has
       // none. That is still worth saying out loud.
@@ -805,12 +823,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       };
       const weight = weightTheFamilyHas(requested.fontFamily, requested.fontWeight);
       if (weight !== undefined) requested.fontWeight = weight;
-      const params = fitTextOverlayParams(
-        a.text,
-        requested,
-        style?.look.typography,
-        ctx.project.resolution,
-      );
+      const params = fitTextOverlayParams(a.text, requested, ctx.project.resolution);
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
       const trackId = placed.trackId;
       const clipId = textOverlayClipId(trackId, a.start);
@@ -904,7 +917,6 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       const fitted = fitTextOverlayParams(
         typeof merged.text === 'string' ? merged.text : '',
         merged,
-        typographyOf(merged.typography),
         ctx.project.resolution,
       );
       const params = Object.fromEntries(

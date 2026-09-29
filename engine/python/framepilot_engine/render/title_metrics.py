@@ -18,6 +18,13 @@ Pillow's basic layout does not apply)::
     ink = Σ advance(all but last) + inkRight(last) - inkLeft(first)
     drawn = ink * size + 6 * max(1, size // 12)      # text_overlay.render_text_overlay_image
 
+TYPOGRAPHY (2026-09-29, #135). A title carrying caption ``typography`` is drawn by the caption
+rasterizer instead, which spaces its letters (``letterSpacing``, em, added between glyphs and
+never after the last), may draw from the family's ITALIC file, strokes by ``outlineWidth`` and
+wraps inside chip padding. So the table also carries each italic file's rows
+(``TITLE_ITALIC_FACES``), and the reference section carries widths the caption rasterizer drew
+(``TITLE_TYPED_REFERENCE_WIDTHS``) for the TS arithmetic of a typed title to be checked against.
+
 ``python -m framepilot_engine.render.title_metrics`` writes the table to
 ``packages/ai-sdk/src/title-metrics.generated.ts``; ``tests/test_title_metrics.py`` fails when
 the committed table no longer matches the fonts, and checks the formula against the rasterizer.
@@ -46,8 +53,13 @@ from framepilot_engine.render.captions import (
     _bundled_font_path,
     _font_manifest,
     _set_weight_axis,
+    measure_caption_layout,
+    render_caption_raster,
 )
-from framepilot_engine.render.text_overlay import rasterize_text_overlay
+from framepilot_engine.render.text_overlay import (
+    rasterize_text_overlay,
+    text_overlay_caption_style,
+)
 
 #: The glyphs measured: printable ASCII. Anything else is charged a full em by the fit.
 GLYPHS = "".join(chr(code) for code in range(32, 127))
@@ -70,17 +82,37 @@ REFERENCE_MARKER = (
 #: The frame the reference widths are drawn in, and the sizes, as percents of its height.
 REFERENCE_FRAME = (1080, 1920)
 REFERENCE_SIZES = (6.0, 15.0)
+#: Typed titles (caption typography) whose widths ride along: ``(family, weight, word, size %,
+#: letterSpacing, fontStyle, outlineWidth, chip colour or None, chip paddingX or None)``. The
+#: first two are the harness's "WEEKEND TRIP" in the ``tracked-caps`` style (Montserrat 600,
+#: 0.24 em, 4 % of a 1080x1920 frame); the rest cover an italic file, a stroke and a chip.
+TYPED_REFERENCE_CASES: tuple[
+    tuple[str, int, str, float, float, str, float, str | None, float | None], ...
+] = (
+    ("Montserrat", 600, "WEEKEND", 4.0, 0.24, "normal", 0.0, None, None),
+    ("Montserrat", 600, "TRIP", 4.0, 0.24, "normal", 0.0, None, None),
+    ("Montserrat", 600, "WEEKEND", 12.0, 0.24, "normal", 0.0, None, None),
+    ("Cinzel", 600, "CINEMATIC", 6.0, 0.22, "normal", 0.0, None, None),
+    ("Playfair Display", 700, "Wow!", 10.0, 0.1, "italic", 2.0, None, None),
+    ("Playfair Display", 400, "jig", 15.0, 0.0, "italic", 0.0, None, None),
+    ("Courier Prime", 400, "fly", 9.0, 0.3, "italic", 0.0, None, None),
+    ("Inter", 800, "SUBSCRIBE", 8.0, 0.0, "normal", 0.0, "#000000cc", 0.6),
+    ("Anton", 400, "MOTION", 15.0, 0.12, "normal", 2.5, "#000000cc", 0.1),
+)
 
 
-def _face(family: str, weight: int) -> Any:
-    """The face the export draws ``family`` with, opened with BASIC layout (see PLATFORM)."""
+def _face(family: str, weight: int, italic: bool = False) -> Any:
+    """The face the export draws ``family`` with, opened with BASIC layout (see PLATFORM).
+
+    ``italic`` opens the family's italic file, which only a typed title draws.
+    """
     basic = ImageFont.Layout.BASIC
     if family == DEFAULT_FACE:
         default = ImageFont.load_default(size=REFERENCE_SIZE)
         if not isinstance(default, ImageFont.FreeTypeFont):  # pragma: no cover - Pillow < 10.1
             raise TypeError("Pillow's default face must be a TrueType font to be measured.")
         return default.font_variant(layout_engine=basic)
-    bundled = _bundled_font_path(family, weight, False)
+    bundled = _bundled_font_path(family, weight, italic)
     if bundled is None:  # pragma: no cover - the manifest lists only bundled families
         raise ValueError(f"{family!r} is in the font manifest but not bundled.")
     path, is_variable = bundled
@@ -109,23 +141,47 @@ def _glyph_row(font: Any) -> list[list[int]]:
     return row
 
 
+def italic_families() -> list[str]:
+    """The bundled families that ship an italic file: the only ones an italic title changes."""
+    manifest = _font_manifest()
+    return sorted(
+        family
+        for family, entry in manifest.items()
+        if isinstance(entry, dict) and isinstance(entry.get("italicFile"), str)
+    )
+
+
 def build_title_metrics() -> dict[str, Any]:
-    """The table: every face's glyph rows, deduplicated, and each family's weight → row."""
-    families = [DEFAULT_FACE, *sorted(_font_manifest())]
+    """The table: every face's glyph rows, deduplicated, and each family's weight → row.
+
+    ``italicFaces`` maps each family with an italic file to its italic rows; a family without
+    one draws its upright file when italic is asked for, so it has no entry.
+    """
     tables: list[list[list[int]]] = []
     index_of: dict[str, int] = {}
-    faces: dict[str, list[int]] = {}
-    for family in families:
+
+    def rows_for(family: str, italic: bool) -> list[int]:
         buckets: list[int] = []
         for weight in WEIGHT_BUCKETS:
-            row = _glyph_row(_face(family, weight))
+            row = _glyph_row(_face(family, weight, italic))
             key = json.dumps(row, separators=(",", ":"))
             if key not in index_of:
                 index_of[key] = len(tables)
                 tables.append(row)
             buckets.append(index_of[key])
-        faces[family] = buckets
-    return {"glyphs": GLYPHS, "weights": list(WEIGHT_BUCKETS), "faces": faces, "tables": tables}
+        return buckets
+
+    faces = {
+        family: rows_for(family, False) for family in [DEFAULT_FACE, *sorted(_font_manifest())]
+    }
+    italic_faces = {family: rows_for(family, True) for family in italic_families()}
+    return {
+        "glyphs": GLYPHS,
+        "weights": list(WEIGHT_BUCKETS),
+        "faces": faces,
+        "italicFaces": italic_faces,
+        "tables": tables,
+    }
 
 
 def reference_widths() -> list[dict[str, Any]]:
@@ -143,7 +199,67 @@ def reference_widths() -> list[dict[str, Any]]:
     return cases
 
 
-def render_title_metrics_ts(metrics: dict[str, Any], cases: list[dict[str, Any]]) -> str:
+def _typed_params(
+    case: tuple[str, int, str, float, float, str, float, str | None, float | None],
+) -> dict[str, Any]:
+    """The ``text`` effect params of one :data:`TYPED_REFERENCE_CASES` entry."""
+    family, weight, _word, size, spacing, style, outline, chip, padding_x = case
+    typography: dict[str, Any] = {"letterSpacing": spacing, "fontStyle": style}
+    if outline > 0:
+        typography.update(outlineColor="#000000", outlineWidth=outline)
+    if padding_x is not None:
+        typography["background"] = {"paddingX": padding_x}
+    return {
+        "fontFamily": family,
+        "fontWeight": weight,
+        "fontSizePercent": size,
+        "boxWidthPercent": 100,
+        "background": chip,
+        "typography": typography,
+    }
+
+
+def typed_reference_widths() -> list[dict[str, Any]]:
+    """What the caption rasterizer draws for :data:`TYPED_REFERENCE_CASES`.
+
+    ``wrapPx`` is the width the renderer wraps against (the words plus the chip's padding,
+    :func:`measure_caption_layout`); ``drawnPx`` is the width of everything visibly drawn — the
+    raster's non-transparent columns, so the chip where there is one, else the stroked ink.
+    """
+    width, height = REFERENCE_FRAME
+    cases: list[dict[str, Any]] = []
+    for case in TYPED_REFERENCE_CASES:
+        family, weight, word, size, spacing, style, outline, chip, padding_x = case
+        styled = text_overlay_caption_style(_typed_params(case), height)
+        if styled is None:  # pragma: no cover - every case is a valid typography
+            raise ValueError(f"typed reference case {case!r} does not validate")
+        wrap = measure_caption_layout(word, width, height, style=styled).box_width
+        alpha = render_caption_raster(word, width, height, style=styled).image[..., 3]
+        columns = alpha.max(axis=0).nonzero()[0]
+        drawn = int(columns[-1] - columns[0] + 1) if columns.size else 0
+        cases.append(
+            {
+                "family": family,
+                "weight": weight,
+                "word": word,
+                "size": size,
+                "letterSpacing": spacing,
+                "fontStyle": style,
+                "outlineWidth": outline,
+                "background": chip,
+                "paddingX": padding_x,
+                "wrapPx": int(wrap),
+                "drawnPx": drawn,
+            }
+        )
+    return cases
+
+
+def render_title_metrics_ts(
+    metrics: dict[str, Any],
+    cases: list[dict[str, Any]],
+    typed_cases: list[dict[str, Any]] | None = None,
+) -> str:
     """The generated TypeScript module, byte-for-byte what is committed."""
     tables = ",\n".join(
         "  [" + ",".join(f"[{a},{left},{right}]" for a, left, right in row) + "]"
@@ -152,6 +268,19 @@ def render_title_metrics_ts(metrics: dict[str, Any], cases: list[dict[str, Any]]
     faces = ",\n".join(
         f"  {json.dumps(family)}: [{', '.join(str(i) for i in rows)}]"
         for family, rows in metrics["faces"].items()
+    )
+    italic_faces = ",\n".join(
+        f"  {json.dumps(family)}: [{', '.join(str(i) for i in rows)}]"
+        for family, rows in metrics["italicFaces"].items()
+    )
+    typed_lines = ",\n".join(
+        f"  {{ family: {json.dumps(c['family'])}, weight: {c['weight']}, "
+        f"word: {json.dumps(c['word'])}, size: {c['size']}, "
+        f"letterSpacing: {c['letterSpacing']}, fontStyle: {json.dumps(c['fontStyle'])}, "
+        f"outlineWidth: {c['outlineWidth']}, background: {json.dumps(c['background'])}, "
+        f"paddingX: {json.dumps(c['paddingX'])}, wrapPx: {c['wrapPx']}, "
+        f"drawnPx: {c['drawnPx']} }}"
+        for c in (typed_cases or [])
     )
     case_lines = ",\n".join(
         f"  {{ family: {json.dumps(c['family'])}, word: {json.dumps(c['word'])}, "
@@ -182,6 +311,13 @@ def render_title_metrics_ts(metrics: dict[str, Any], cases: list[dict[str, Any]]
         f"{faces}\n"
         "};\n"
         "\n"
+        "/** Family → the table index for each weight bucket of its ITALIC file. A family with "
+        "no italic file draws upright when italic is asked for, so it has no entry. */\n"
+        "export const TITLE_ITALIC_FACES: Readonly<Record<string, readonly [number, number, "
+        "number]>> = {\n"
+        f"{italic_faces}\n"
+        "};\n"
+        "\n"
         f"{REFERENCE_MARKER}\n"
         "export const TITLE_REFERENCE_FRAME = "
         f"{{ width: {frame_width}, height: {frame_height} }};\n"
@@ -193,6 +329,24 @@ def render_title_metrics_ts(metrics: dict[str, Any], cases: list[dict[str, Any]]
         "}[] = [\n"
         f"{case_lines}\n"
         "];\n"
+        "\n"
+        "/** Typed titles (caption typography) as the caption rasterizer drew them: `wrapPx` is "
+        "the width it wraps against, `drawnPx` the width of everything visibly drawn. */\n"
+        "export const TITLE_TYPED_REFERENCE_WIDTHS: readonly {\n"
+        "  readonly family: string;\n"
+        "  readonly weight: number;\n"
+        "  readonly word: string;\n"
+        "  readonly size: number;\n"
+        "  readonly letterSpacing: number;\n"
+        "  readonly fontStyle: 'normal' | 'italic';\n"
+        "  readonly outlineWidth: number;\n"
+        "  readonly background: string | null;\n"
+        "  readonly paddingX: number | null;\n"
+        "  readonly wrapPx: number;\n"
+        "  readonly drawnPx: number;\n"
+        "}[] = [\n"
+        f"{typed_lines}\n"
+        "];\n"
     )
 
 
@@ -201,7 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     root = Path(args[0]) if args else Path(__file__).resolve().parents[4]
     target = root / OUTPUT
-    target.write_text(render_title_metrics_ts(build_title_metrics(), reference_widths()))
+    target.write_text(
+        render_title_metrics_ts(build_title_metrics(), reference_widths(), typed_reference_widths())
+    )
     print(f"title-metrics: wrote {target}")
     return 0
 
