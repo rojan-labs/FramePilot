@@ -1,10 +1,14 @@
 ---
 name: story-structure
-description: Build a coherent long-form sequence from promise, setup, escalation, payoff, and ending while preserving causality and performance continuity.
+description: Structure reference for long-form and multi-section edits — promise, setup, escalation, payoff and ending, reordering whole ideas, cutting redundancy — while preserving causality; an outline or order the request gives is the structure.
 tools: [get_mapped_transcript, map_footage, get_timeline, add_marker, remove_marker, reorder_clips, move_clip, split_clip, ripple_delete, trim_clip]
 ---
 
 # Story structure
+
+**The request's outline wins.** An act list, running order or chapter plan the editor gives is
+the structure; use this skill to test it (does each section change the viewer's state?), to
+order what it leaves open, and to flag a section that will not pay off — not to replace it.
 
 ## Purpose
 
@@ -39,7 +43,9 @@ Structure is selection under a promise: each segment must advance stakes, unders
 
 ## Decision framework
 
-Map segments → state function/strength → choose opening/payoff → order escalation → remove redundancy → review causality → add chapter markers.
+Outline given → map each section to real material → build it in that order → test causality →
+report weak sections. Nothing given → map segments → state function/strength → choose
+opening/payoff → order escalation → remove redundancy → review causality → add chapter markers.
 
 ## Common mistakes
 

@@ -22,6 +22,13 @@ import {
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
+import {
+  GLASS_PILL,
+  SEPT_2026,
+  TRIP,
+  UNTIL_NEXT_WEEKEND,
+  WEEKEND,
+} from './__fixtures__/text-overlays.js';
 
 const clip = (over: Record<string, unknown>) => ({
   assetId: 'asset_1',
@@ -42,247 +49,17 @@ const withTracks = (tracks: unknown[], over: Partial<Project> = {}): Project =>
 const idOf = (report: ReturnType<typeof critique>, id: string) =>
   report.checks.find((c) => c.id === id);
 
+/**
+ * A visual deliverable was asked for — what `picture_present` and `picture_coverage` fail
+ * (rather than warn) on. A landscape-friendly platform, so `export_settings` stays quiet on
+ * the default 1920x1080 fixture.
+ */
+const ASKED_FOR_A_FILM: CritiqueOptions = { targetPlatform: 'linkedin' };
+
 describe('timelineDuration', () => {
   it('is the latest clip end, 0 for empty', () => {
     expect(timelineDuration(makeProject().timeline)).toBe(10);
     expect(timelineDuration({ tracks: [] })).toBe(0);
-  });
-});
-
-describe('shot count', () => {
-  it('fails a cut that used fewer shots than the request asked for', () => {
-    // The captured run: "at least of 20+ different best moments", delivered as eight shots,
-    // reported as a success because the run's only criterion was the request's own text.
-    const timeline = {
-      tracks: [
-        {
-          id: 'v',
-          type: 'video',
-          clips: Array.from({ length: 8 }, (_, index) => ({
-            id: `c${String(index)}`,
-            assetId: 'a1',
-            trackId: 'v',
-            start: index,
-            end: index + 1,
-            sourceStart: 0,
-            sourceEnd: 1,
-            effects: [],
-            keyframes: [],
-          })),
-        },
-      ],
-    };
-    const project = makeProject({ timeline } as never);
-    const failed = critique(project, { minShotCount: 20 });
-    expect(failed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'fail' });
-    expect(failed.ok).toBe(false);
-    const passed = critique(project, { minShotCount: 8 });
-    expect(passed.checks.find((c) => c.id === 'shot_count')).toMatchObject({ status: 'pass' });
-  });
-
-  it('skips when the request named no number', () => {
-    expect(critique(makeProject(), {}).checks.find((c) => c.id === 'shot_count')).toMatchObject({
-      status: 'skipped',
-    });
-  });
-
-  it('counts picture only — the music bed is not a shot', () => {
-    // The captured montage run ended with exactly one clip on the timeline: the track it had
-    // just downloaded. Counting `allClips` minus overlays made that a shot, the same
-    // derivation that let `picture_present` report "pass: 1 picture clip" on a fifty-clip
-    // request whose timeline held nothing but its soundtrack.
-    const project = withTracks(
-      [
-        {
-          id: 'music_1',
-          type: 'audio',
-          clips: [
-            clip({
-              id: 'clip_bed',
-              assetId: 'music_bed',
-              trackId: 'music_1',
-              end: 121,
-              sourceEnd: 121,
-            }),
-          ],
-        },
-      ],
-      {
-        assets: [{ id: 'music_bed', path: 'media/bed.mp3', kind: 'audio', durationSeconds: 121 }],
-      } as never,
-    );
-    const report = critique(project, { minShotCount: 50 });
-    expect(idOf(report, 'shot_count')).toMatchObject({ status: 'fail' });
-    expect(idOf(report, 'shot_count')?.detail).toContain('0 shots');
-    expect(report.ok).toBe(false);
-  });
-
-  it('warns when a spec-length brief states a count the reader could not read', () => {
-    const spec = `${'Make a montage. '.repeat(120)} Use 2 clips.`;
-    expect(idOf(critique(makeProject(), { request: spec }), 'shot_count')).toMatchObject({
-      status: 'warn',
-    });
-  });
-
-  it('a warned shot count never blocks the run', () => {
-    const spec = `${'Make a montage. '.repeat(120)} Use 2 clips.`;
-    const report = critique(makeProject(), { request: spec });
-    expect(report.checks.some((c) => c.id === 'shot_count' && c.status === 'warn')).toBe(true);
-    expect(report.checks.filter((c) => c.status === 'fail')).toHaveLength(0);
-    expect(report.ok).toBe(true);
-  });
-
-  it('stays skipped when a short request genuinely named no count', () => {
-    expect(
-      idOf(critique(makeProject(), { request: 'tighten the intro' }), 'shot_count'),
-    ).toMatchObject({ status: 'skipped' });
-  });
-});
-
-describe('treatment coverage', () => {
-  /** A cut of `total` clips where `treated` carry a grade and `moved` carry keyframes. */
-  const cut = (total: number, treated: number, moved: number) =>
-    makeProject({
-      timeline: {
-        tracks: [
-          {
-            id: 'v',
-            type: 'video',
-            clips: Array.from({ length: total }, (_, index) => ({
-              id: `c${String(index)}`,
-              assetId: 'asset_1',
-              trackId: 'v',
-              start: index,
-              end: index + 1,
-              sourceStart: 0,
-              sourceEnd: 1,
-              effects:
-                index < treated
-                  ? [{ id: `g${String(index)}`, type: 'color_grade', params: {}, keyframes: [] }]
-                  : [],
-              keyframes:
-                index < moved
-                  ? [
-                      {
-                        id: `k${String(index)}`,
-                        time: 0,
-                        property: 'scale',
-                        value: 1,
-                        easing: 'linear',
-                      },
-                    ]
-                  : [],
-            })),
-          },
-        ],
-      },
-    } as never);
-
-  it('fails when a treatment the request demanded of every clip is on one clip', () => {
-    // Run 2 exactly: the grade landed on 1 of 47 and the Ken Burns move on that same clip,
-    // and every criterion the run had — a duration and a shot count — was satisfied.
-    const report = critique(cut(47, 1, 1), { coverage: ['grade', 'motion'] });
-    const found = report.checks.find((c) => c.id === 'treatment_coverage');
-    expect(found).toMatchObject({ status: 'fail' });
-    expect(found?.detail).toContain('colour grade: 1 of 47');
-    expect(found?.detail).toContain('own motion (zoom/pan): 1 of 47');
-    expect(report.ok).toBe(false);
-  });
-
-  it('passes when every clip carries every demanded treatment', () => {
-    expect(
-      critique(cut(5, 5, 5), { coverage: ['grade', 'motion'] }).checks.find(
-        (c) => c.id === 'treatment_coverage',
-      ),
-    ).toMatchObject({ status: 'pass' });
-  });
-
-  it('names only the treatment that fell short', () => {
-    const found = critique(cut(5, 5, 2), { coverage: ['grade', 'motion'] }).checks.find(
-      (c) => c.id === 'treatment_coverage',
-    );
-    expect(found?.detail).toContain('own motion (zoom/pan): 2 of 5');
-    expect(found?.detail).not.toContain('colour grade');
-  });
-
-  it('skips when the request asked nothing of every clip', () => {
-    expect(
-      critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage'),
-    ).toMatchObject({ status: 'skipped' });
-  });
-
-  /** A 9:16 project holding one landscape clip and one already-vertical clip. */
-  const mixedSourceCut = (cropLandscape: boolean): Project =>
-    makeProject({
-      resolution: { width: 1080, height: 1920 },
-      assets: [
-        {
-          id: 'land',
-          path: 'media/a.mov',
-          kind: 'video',
-          durationSeconds: 40,
-          media: { width: 3840, height: 2160 },
-        },
-        {
-          id: 'port',
-          path: 'media/b.mp4',
-          kind: 'video',
-          durationSeconds: 30,
-          media: { width: 1080, height: 1920 },
-        },
-      ],
-      timeline: {
-        tracks: [
-          {
-            id: 'v',
-            type: 'video',
-            clips: [
-              {
-                id: 'c0',
-                assetId: 'land',
-                trackId: 'v',
-                start: 0,
-                end: 5,
-                sourceStart: 0,
-                sourceEnd: 5,
-                effects: [],
-                keyframes: [],
-                ...(cropLandscape ? { crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } } : {}),
-              },
-              {
-                id: 'c1',
-                assetId: 'port',
-                trackId: 'v',
-                start: 5,
-                end: 10,
-                sourceStart: 0,
-                sourceEnd: 5,
-                effects: [],
-                keyframes: [],
-              },
-            ],
-          },
-        ],
-      },
-    } as never);
-
-  it('counts a clip that already fills the frame as satisfying a "no black bars" demand', () => {
-    // `crop` coverage is parsed from "reframe / fill the frame / no black bars", so it is
-    // the framing requirement — and a source already no wider than the frame meets it while
-    // carrying no crop, which is exactly what `add_clip`'s placer leaves behind.
-    expect(
-      critique(mixedSourceCut(true), { coverage: ['crop'] }).checks.find(
-        (c) => c.id === 'treatment_coverage',
-      ),
-    ).toMatchObject({ status: 'pass' });
-  });
-
-  it('still fails the demand when the landscape clip is the one left uncropped', () => {
-    const found = critique(mixedSourceCut(false), { coverage: ['crop'] }).checks.find(
-      (c) => c.id === 'treatment_coverage',
-    );
-    expect(found).toMatchObject({ status: 'fail' });
-    expect(found?.detail).toContain('1 of 2');
   });
 });
 
@@ -460,6 +237,66 @@ describe('reframe coverage', () => {
     ).toMatchObject({ status: 'pass' });
   });
 
+  it('says the picture fills the frame, never that anyone aimed the crops', () => {
+    // Run `d8d2e445`: 25 of 29 clips carried only the automatic centred crop `add_clip`
+    // gives a landscape source in a portrait frame, and were read as "reframed". This check
+    // measures FILL; its words must not claim more.
+    const detail = critique(verticalCut(10, 10), {}).checks.find(
+      (c) => c.id === 'reframe_coverage',
+    )?.detail;
+    expect(detail).toBe('All 10 picture clips are cropped or zoomed to fill the frame.');
+    expect(detail).not.toMatch(/reframed/);
+  });
+
+  it('counts a zoom that covers the frame — a pan — as filling it, and one that does not as bars', () => {
+    // Harness run 7: 30 clips panned with reframe_pan (a cover zoom and moving x, no crop)
+    // were reported as "no crop, so they render with black bars", and the run put a crop on
+    // every one of its own pans.
+    const zoomed = (scale: number) =>
+      makeProject({
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          {
+            id: 'aerial',
+            path: 'a.mp4',
+            kind: 'video',
+            durationSeconds: 10,
+            media: { width: 1920, height: 1080 },
+          },
+        ],
+        timeline: {
+          tracks: [
+            {
+              id: 'v1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'pan',
+                  assetId: 'aerial',
+                  trackId: 'v1',
+                  start: 0,
+                  end: 4,
+                  sourceStart: 0,
+                  sourceEnd: 4,
+                  effects: [],
+                  keyframes: [
+                    { id: 's0', time: 0, property: 'scale', value: scale, easing: 'linear' },
+                    { id: 's1', time: 4, property: 'scale', value: scale, easing: 'linear' },
+                    { id: 'x0', time: 0, property: 'x', value: 300, easing: 'ease-in-out' },
+                    { id: 'x1', time: 4, property: 'x', value: -300, easing: 'ease-in-out' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      } as never);
+    const covered = critique(zoomed(3.1605), {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(covered).toMatchObject({ status: 'pass' });
+    const short = critique(zoomed(1.5), {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(short).toMatchObject({ status: 'fail' });
+  });
+
   it('warns — never fails — when a portrait frame has no reframing and no measurements', () => {
     // Might be a same-aspect edit that needs none: with the sources unmeasured this cannot
     // be settled, only raised. The warning has to say THAT, though. Its old text ("any
@@ -562,17 +399,15 @@ describe('critique — shape', () => {
       'picture_present',
       'picture_coverage',
       'duration_target',
-      'shot_count',
-      // The two the second GoPro run (`4a8e`) added: stock held to the brief's count, and a
-      // tracker that holds no motion named as such.
-      'cutaway_count',
+      // The second GoPro run (`4a8e`): a tracker that holds no motion named as such.
       'tracker_motion',
       'shot_length_target',
       'reframe_coverage',
-      'treatment_coverage',
       'hidden_picture',
       'caption_alignment',
       'safe_area',
+      // AL41: two text overlays on screen together drawing over each other.
+      'text_collision',
       'audio_clipping',
       'black_frames',
       'missing_assets',
@@ -593,13 +428,21 @@ describe('critique — shape', () => {
       // plan/elements EL7.2: an element loop its clip has outgrown (ADR 0192).
       'loop_coverage',
       // plan/elements EL8.1 (07 §4): stickers and shapes over faces, captions, edges and
-      // platform UI, a busy frame, a soft sticker, and the elements a request asked for.
+      // platform UI, a busy frame and a soft sticker.
       'element_faces',
       'element_safe_area',
       'element_busy_frame',
       'sticker_sharp',
-      'elements_placed',
     ]);
+    // Issue #136: the four checks only a regex reading of the request ever triggered are gone.
+    for (const retired of [
+      'shot_count',
+      'cutaway_count',
+      'treatment_coverage',
+      'elements_placed',
+    ]) {
+      expect(report.checks.map((c) => c.id)).not.toContain(retired);
+    }
   });
 
   it('ok is false only when a check fails; warnings still pass', () => {
@@ -692,7 +535,7 @@ describe('picture_present', () => {
     expect(detail).not.toContain('text on black');
   });
 
-  it('regression: the per-clip checks do not ask an audio clip for a reframe', () => {
+  it('regression: the reframe check does not ask an audio clip for a reframe', () => {
     // The same wrong predicate told the run "own reframe: 0 of 1 clips" about its music.
     const musicOnly = withTracks(
       [
@@ -708,8 +551,7 @@ describe('picture_present', () => {
         ] as unknown as Project['assets'],
       },
     );
-    const report = critique(musicOnly, { coverage: ['crop'] });
-    expect(idOf(report, 'treatment_coverage')).toMatchObject({ status: 'skipped' });
+    const report = critique(musicOnly, ASKED_FOR_A_FILM);
     expect(idOf(report, 'reframe_coverage')).toMatchObject({ status: 'skipped' });
   });
 });
@@ -1138,18 +980,12 @@ describe('standingAgainstAcceptance', () => {
         ] as Project['assets'],
       },
     );
-    const standing = standingAgainstAcceptance(project, {
-      durationTargetSeconds: 4,
-      minShotCount: 61,
-    });
+    const standing = standingAgainstAcceptance(project, { durationTargetSeconds: 4 });
     expect(standing.join('\n')).toMatch(/no picture under it/);
     expect(standing.join('\n')).toMatch(/Timeline is 30s but the target is 4s/);
-    expect(standing.join('\n')).toMatch(/uses 1 shots but at least 61/);
     // Every line is verbatim from a check, so the in-flight account and the verdict can
     // never describe the same condition two different ways.
-    const details = critique(project, { durationTargetSeconds: 4, minShotCount: 61 }).checks.map(
-      (c) => c.detail,
-    );
+    const details = critique(project, { durationTargetSeconds: 4 }).checks.map((c) => c.detail);
     for (const line of standing) expect(details).toContain(line);
   });
 
@@ -1164,9 +1000,7 @@ describe('standingAgainstAcceptance', () => {
         ],
       },
     ]);
-    expect(
-      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
-    ).toEqual([]);
+    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4 })).toEqual([]);
   });
 
   it('reports nothing when the request stated no checkable condition', () => {
@@ -1192,7 +1026,7 @@ describe('standingAgainstAcceptance', () => {
         clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 30 })],
       },
     ]);
-    const options = { durationTargetSeconds: 4, minShotCount: 61 };
+    const options = { durationTargetSeconds: 4 };
     expect(standingAgainstAcceptance(project, options)).toEqual(
       standingAgainstAcceptance(project, {
         ...options,
@@ -1279,9 +1113,7 @@ describe('standingAgainstAcceptance', () => {
         ],
       },
     ]);
-    expect(
-      standingAgainstAcceptance(project, { durationTargetSeconds: 4, minShotCount: 2 }),
-    ).toEqual([]);
+    expect(standingAgainstAcceptance(project, { durationTargetSeconds: 4 })).toEqual([]);
   });
 });
 
@@ -1317,7 +1149,7 @@ describe('reframe_coverage with measured sources', () => {
     );
 
   it('fails an uncropped landscape source in a portrait frame, and names the clips', () => {
-    const report = critique(portraitProjectOf({ width: 4032, height: 3024 }), { minShotCount: 2 });
+    const report = critique(portraitProjectOf({ width: 4032, height: 3024 }), ASKED_FOR_A_FILM);
     const reframe = idOf(report, 'reframe_coverage');
     expect(reframe).toMatchObject({ status: 'fail' });
     expect(reframe?.detail).toMatch(/2 of 2 picture clips use a landscape source/);
@@ -1330,7 +1162,7 @@ describe('reframe_coverage with measured sources', () => {
     // measured, every one matches 1080x1920, and there is nothing to crop. Reserving the
     // warning for the genuinely unknown case is what makes it worth reading.
     const found = idOf(
-      critique(portraitProjectOf({ width: 1080, height: 1920 }), { minShotCount: 2 }),
+      critique(portraitProjectOf({ width: 1080, height: 1920 }), ASKED_FOR_A_FILM),
       'reframe_coverage',
     );
     expect(found).toMatchObject({ status: 'pass' });
@@ -1341,7 +1173,7 @@ describe('reframe_coverage with measured sources', () => {
     // 4:5 in 9:16 still letterboxes — the renderer fits whatever aspect it is given. Not a
     // failure (padding a 4:5 still is a real choice), but not a clean pass either.
     const found = idOf(
-      critique(portraitProjectOf({ width: 1080, height: 1350 }), { minShotCount: 2 }),
+      critique(portraitProjectOf({ width: 1080, height: 1350 }), ASKED_FOR_A_FILM),
       'reframe_coverage',
     );
     expect(found).toMatchObject({ status: 'warn' });
@@ -1354,7 +1186,7 @@ describe('reframe_coverage with measured sources', () => {
     // worse than the gap this closes — but the warning must name the gap, not imply the
     // framing was inspected and accepted.
     const found = idOf(
-      critique(portraitProjectOf(undefined), { minShotCount: 2 }),
+      critique(portraitProjectOf(undefined), ASKED_FOR_A_FILM),
       'reframe_coverage',
     );
     expect(found).toMatchObject({ status: 'warn' });
@@ -1444,7 +1276,7 @@ describe('picture_coverage', () => {
     // It was one frame of sound past the end of the picture, which this check's own sentence
     // says how to fix.
     const coverage = idOf(
-      critique(soundOneFrameLongerThanPicture(), { minShotCount: 1 }),
+      critique(soundOneFrameLongerThanPicture(), ASKED_FOR_A_FILM),
       'picture_coverage',
     );
     expect(coverage).toMatchObject({ status: 'fail' });
@@ -1472,7 +1304,7 @@ describe('picture_coverage', () => {
         ] as Project['assets'],
       },
     );
-    expect(idOf(critique(withBeat, { minShotCount: 1 }), 'picture_coverage')).toMatchObject({
+    expect(idOf(critique(withBeat, ASKED_FOR_A_FILM), 'picture_coverage')).toMatchObject({
       status: 'pass',
     });
   });
@@ -1507,7 +1339,7 @@ describe('picture_coverage', () => {
         ] as Project['assets'],
       },
     );
-    expect(idOf(critique(together, { minShotCount: 1 }), 'picture_coverage')).toMatchObject({
+    expect(idOf(critique(together, ASKED_FOR_A_FILM), 'picture_coverage')).toMatchObject({
       status: 'pass',
     });
   });
@@ -1516,14 +1348,12 @@ describe('picture_coverage', () => {
     // The check and the repair share one tail rule. When they did not, this reported a
     // defect the repair declined to fix — a finding the run cannot act on, which is how a
     // run becomes a loop.
-    const ops = repairTrailingSoundOverrun(soundOneFrameLongerThanPicture(), {
-      minShotCount: 1,
-    });
+    const ops = repairTrailingSoundOverrun(soundOneFrameLongerThanPicture(), ASKED_FOR_A_FILM);
     expect(ops).toEqual([{ type: 'trim_clip', clipId: 'bed', start: 0, end: 1493 / 30 }]);
   });
 
   it('regression: fails a montage whose music outruns its picture', () => {
-    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    const report = critique(musicOutrunsPicture(), ASKED_FOR_A_FILM);
     const coverage = idOf(report, 'picture_coverage');
     expect(coverage).toMatchObject({ status: 'fail' });
     expect(coverage?.detail).toMatch(/26\.099s of the 36\.107s programme has no picture/);
@@ -1537,7 +1367,7 @@ describe('picture_coverage', () => {
   describe('repairTrailingSoundOverrun', () => {
     it('trims the bed back to where the picture ends', () => {
       const project = musicOutrunsPicture();
-      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      const ops = repairTrailingSoundOverrun(project, ASKED_FOR_A_FILM);
       expect(ops).toEqual([{ type: 'trim_clip', clipId: 'music', start: 0, end: 10.008 }]);
     });
 
@@ -1552,7 +1382,7 @@ describe('picture_coverage', () => {
           ],
         },
       ]);
-      expect(repairTrailingSoundOverrun(project, { minShotCount: 2 })).toEqual([]);
+      expect(repairTrailingSoundOverrun(project, ASKED_FOR_A_FILM)).toEqual([]);
     });
 
     it('refuses when nothing visual was asked for — sound over no picture is the deliverable', () => {
@@ -1567,7 +1397,7 @@ describe('picture_coverage', () => {
           clips: [clip({ id: 'p_1', trackId: 'v_main', start: 0, end: 6 })],
         },
       ]);
-      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+      expect(repairTrailingSoundOverrun(project, ASKED_FOR_A_FILM)).toEqual([]);
     });
 
     it('leaves a bed that starts after the picture ends for a human', () => {
@@ -1595,26 +1425,26 @@ describe('picture_coverage', () => {
           ] as Project['assets'],
         },
       );
-      expect(repairTrailingSoundOverrun(project, { minShotCount: 1 })).toEqual([]);
+      expect(repairTrailingSoundOverrun(project, ASKED_FOR_A_FILM)).toEqual([]);
     });
 
     it('closes the hole it was given — the check passes on the repaired timeline', () => {
       const project = musicOutrunsPicture();
-      const ops = repairTrailingSoundOverrun(project, { minShotCount: 61 });
+      const ops = repairTrailingSoundOverrun(project, ASKED_FOR_A_FILM);
       const repaired = applyProjectPatch(project, {
         patchId: 'p' as never,
         createdBy: 'agent',
         reason: 'test',
         operations: [...ops],
       });
-      expect(idOf(critique(repaired, { minShotCount: 61 }), 'picture_coverage')).toMatchObject({
+      expect(idOf(critique(repaired, ASKED_FOR_A_FILM), 'picture_coverage')).toMatchObject({
         status: 'pass',
       });
     });
   });
 
   it('is what picture_present cannot ask: that check passes the same timeline', () => {
-    const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
+    const report = critique(musicOutrunsPicture(), ASKED_FOR_A_FILM);
     expect(idOf(report, 'picture_present')).toMatchObject({ status: 'pass' });
   });
 
@@ -1629,7 +1459,7 @@ describe('picture_coverage', () => {
         ],
       },
     ]);
-    const coverage = idOf(critique(project, { minShotCount: 2 }), 'picture_coverage');
+    const coverage = idOf(critique(project, ASKED_FOR_A_FILM), 'picture_coverage');
     expect(coverage).toMatchObject({ status: 'fail' });
     expect(coverage?.detail).toMatch(/4s–9s/);
   });
@@ -1660,7 +1490,7 @@ describe('picture_coverage', () => {
         ],
       },
     ]);
-    expect(idOf(critique(project, { minShotCount: 2 }), 'picture_coverage')).toMatchObject({
+    expect(idOf(critique(project, ASKED_FOR_A_FILM), 'picture_coverage')).toMatchObject({
       status: 'pass',
     });
   });
@@ -1675,7 +1505,8 @@ describe('run 4c9b5f82, end to end', () => {
    * The whole chain the run walked through, from the brief it was given to the verdict it
    * should have reached. Every link was individually broken:
    *
-   * - the brief's "61 photos" was not a shot noun, so no floor was read;
+   * - the brief's "61 photos" was not a shot noun, so no floor was read (none is read from
+   *   the request's words at all since issue #136 — the photo count is the model's plan);
    * - the brief's "20-35 seconds" range was dropped whole, so no duration was read;
    * - with neither, the only checks that could fail were skipped;
    * - and `picture_present` passed on ten clips over a thirty-six-second programme.
@@ -1738,21 +1569,21 @@ describe('run 4c9b5f82, end to end', () => {
     // range's midpoint and half-width, with the brief's own words.
     const stated = { seconds: 27.5, toleranceSeconds: 7.5, statedAs: 'Approximately 20–35 seconds' };
     const acceptance = checkableAcceptance(brief, stated);
-    expect(acceptance.minShotCount).toBe(61);
-    expect(acceptance.durationStatedAs).toBe('Approximately 20–35 seconds');
+    expect(acceptance).toEqual({
+      durationSeconds: 27.5,
+      durationToleranceSeconds: 7.5,
+      durationStatedAs: 'Approximately 20–35 seconds',
+    });
 
     const report = critique(whatItShipped(), {
-      request: brief,
       durationTargetSeconds: stated.seconds,
       durationToleranceSeconds: stated.toleranceSeconds,
-      minShotCount: acceptance.minShotCount,
     });
     expect(report.ok).toBe(false);
     const failed = report.checks
       .filter((check) => check.status === 'fail')
       .map((check) => check.id);
     expect(failed).toContain('picture_coverage');
-    expect(failed).toContain('shot_count');
     expect(failed).toContain('duration_target');
   });
 
@@ -1789,10 +1620,8 @@ describe('run 4c9b5f82, end to end', () => {
       },
     );
     const report = critique(project, {
-      request: brief,
       durationTargetSeconds: 27.5,
       durationToleranceSeconds: 7.5,
-      minShotCount: 61,
     });
     expect(report.checks.filter((check) => check.status === 'fail')).toEqual([]);
     expect(report.ok).toBe(true);
@@ -2237,69 +2066,6 @@ describe('hidden_picture', () => {
   });
 });
 
-describe('cutaway_count — stock cutaways held to the number the brief asked for', () => {
-  const stockAsset = (id: string) => ({
-    id,
-    path: `media/${id}.mp4`,
-    kind: 'video',
-    durationSeconds: 30,
-    source: {
-      provider: 'pexels',
-      remoteId: '1',
-      license: 'Pexels',
-      attributionRequired: false,
-      fetchedAt: '2026-09-06T00:00:00Z',
-    },
-  });
-  const withStock = (stockClips: number): Project =>
-    withTracks(
-      [
-        {
-          id: 'v_main',
-          type: 'video',
-          clips: [clip({ id: 'own', start: 0, end: 60, sourceStart: 0, sourceEnd: 60 })],
-        },
-        {
-          id: 'cutaways',
-          type: 'video',
-          clips: Array.from({ length: stockClips }, (_, i) =>
-            clip({
-              id: `stock_${String(i)}`,
-              assetId: `stock_${String(i)}`,
-              trackId: 'cutaways',
-              start: i * 5,
-              end: i * 5 + 3,
-              sourceStart: 0,
-              sourceEnd: 3,
-            }),
-          ),
-        },
-      ],
-      {
-        assets: [
-          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
-          ...Array.from({ length: stockClips }, (_, i) => stockAsset(`stock_${String(i)}`)),
-        ],
-      } as Partial<Project>,
-    );
-
-  it('fails when more stock is placed than asked for, naming the clips', () => {
-    // Run `4a8e`: "two cutaways I never shot" → eight stock clips over 50 of 60 seconds.
-    const report = critique(withStock(4), { maxStockCutaways: 2 });
-    expect(idOf(report, 'cutaway_count')).toMatchObject({ status: 'fail' });
-    expect(idOf(report, 'cutaway_count')?.detail).toContain('4 stock cutaways');
-    expect(idOf(report, 'cutaway_count')?.detail).toContain('asked for 2');
-    expect(idOf(report, 'cutaway_count')?.detail).toContain('stock_0');
-  });
-
-  it('passes at or under the cap, and is skipped when no count was asked for', () => {
-    expect(idOf(critique(withStock(2), { maxStockCutaways: 2 }), 'cutaway_count')).toMatchObject({
-      status: 'pass',
-    });
-    expect(idOf(critique(withStock(4), {}), 'cutaway_count')).toMatchObject({ status: 'skipped' });
-  });
-});
-
 describe('tracker_motion — a tracker with no keyframes follows nothing', () => {
   it('warns on an empty tracker, passes a measured one, and is skipped with none', () => {
     const tracked = (keyframes: unknown[]) =>
@@ -2338,5 +2104,168 @@ describe('tracker_motion — a tracker with no keyframes follows nothing', () =>
     expect(idOf(critique(makeProject(), {}), 'tracker_motion')).toMatchObject({
       status: 'skipped',
     });
+  });
+});
+
+describe('text collision (AL41)', () => {
+  /** A text overlay clip on track `track`, on screen `start`–`end`. */
+  const overlay = (
+    id: string,
+    params: Record<string, unknown>,
+    start: number,
+    end: number,
+    over: Record<string, unknown> = {},
+  ) =>
+    clip({
+      id,
+      assetId: TEXT_OVERLAY_ASSET_ID,
+      start,
+      end,
+      sourceEnd: end - start,
+      effects: [{ id: `${id}_text`, type: 'text', params, keyframes: [] }],
+      ...over,
+    });
+  /** A 1080x1920 project over a picture track, the overlays split across two text tracks. */
+  const vertical = (
+    first: readonly ReturnType<typeof overlay>[],
+    second: readonly ReturnType<typeof overlay>[] = [],
+    secondHidden = false,
+  ): Project =>
+    withTracks(
+      [
+        { id: 'v', type: 'video', clips: [clip({ id: 'pic', end: 60, sourceEnd: 60 })] },
+        { id: 'text1', type: 'overlay', clips: first },
+        { id: 'text2', type: 'overlay', clips: second, ...(secondHidden ? { hidden: true } : {}) },
+      ],
+      { resolution: { width: 1080, height: 1920 } },
+    );
+  const collision = (project: Project) => idOf(critique(project), 'text_collision')!;
+
+  it("warns on harness run 16's date drawn across the closing line, naming both and the fix", () => {
+    const report = collision(
+      vertical(
+        [overlay('text__text1_56680', UNTIL_NEXT_WEEKEND, 56.666666666666664, 59.96666666666667)],
+        [overlay('text__layer_overlay_5_57144', SEPT_2026, 57.13333333333333, 59.96666666666667)],
+      ),
+    );
+    expect(report.status).toBe('warn');
+    expect(report.label).toBe('Text overlays clear of each other');
+    expect(report.detail).toContain('"text__text1_56680" ("Until next weekend.")');
+    expect(report.detail).toContain('"text__layer_overlay_5_57144" ("SEPT 2026")');
+    // The moment they share the screen, and every remedy by the tool that makes it.
+    expect(report.detail).toContain('"57.133s–59.967s"');
+    for (const tool of ['set_text_style', 'yPercent', 'trim_clip', 'delete_clip']) {
+      expect(report.detail).toContain(tool);
+    }
+    // Numbers only inside quotes: the sentence around them is the same for every pair.
+    expect(report.detail.replace(/"[^"]*"/g, '')).not.toMatch(/\d/);
+  });
+
+  it('passes a stacked title and subtitle that sit clear of each other', () => {
+    // The same run's opener: "TRIP" tucked under "Weekend", inside its line box but below
+    // every letter of it (there are no descenders in "Weekend").
+    const report = collision(
+      vertical(
+        [overlay('text__text1_467', WEEKEND, 0.4666666666666667, 3.3)],
+        [overlay('text__layer_overlay_5_929', TRIP, 0.9333333333333333, 3.3)],
+      ),
+    );
+    expect(report.status).toBe('pass');
+  });
+
+  it('passes the colliding pair when they never share the screen', () => {
+    const report = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 50, 53)],
+        [overlay('date', SEPT_2026, 53, 56)],
+      ),
+    );
+    // Back to back at a cut is not together: they meet at 53 s and never overlap.
+    expect(report.status).toBe('pass');
+  });
+
+  it('does not count a shared sliver shorter than a frame', () => {
+    const report = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 50, 53.01)],
+        [overlay('date', SEPT_2026, 53, 56)],
+      ),
+    );
+    expect(report.status).toBe('pass');
+  });
+
+  it('judges a filled chip edge to edge, and plain titles by their block', () => {
+    // The date at the pill's height, left of centre: it lands on the chip, not on its words.
+    const onChip = collision(
+      vertical(
+        [overlay('pill', GLASS_PILL, 0, 3)],
+        [overlay('date', { ...SEPT_2026, xPercent: 20, yPercent: 78 }, 0, 3)],
+      ),
+    );
+    expect(onChip.status).toBe('warn');
+    // Two plain titles (no typography) centred on the same point.
+    const plain = { text: 'BIG NEWS', fontSizePercent: 6 };
+    const plainPair = collision(
+      vertical([overlay('a', plain, 0, 3)], [overlay('b', { ...plain, text: 'today' }, 1, 4)]),
+    );
+    expect(plainPair.status).toBe('warn');
+    expect(plainPair.detail).toContain('"1s–3s"');
+    // The same two, one moved well clear.
+    const apart = collision(
+      vertical(
+        [overlay('a', plain, 0, 3)],
+        [overlay('b', { ...plain, text: 'today', yPercent: 80 }, 1, 4)],
+      ),
+    );
+    expect(apart.status).toBe('pass');
+  });
+
+  it('leaves out overlays that are hidden or moved by keyframes', () => {
+    const hidden = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [overlay('date', SEPT_2026, 57, 60)],
+        true,
+      ),
+    );
+    expect(hidden.status).toBe('skipped');
+    // A keyframed position is somewhere else every frame; its params are not where it is.
+    const moving = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [
+          overlay('date', SEPT_2026, 57, 60, {
+            keyframes: [{ id: 'k', time: 0, property: 'y', value: 400, easing: 'linear' }],
+          }),
+        ],
+      ),
+    );
+    expect(moving.status).toBe('skipped');
+    // A fade does not move it: still compared, still colliding.
+    const fading = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [
+          overlay('date', SEPT_2026, 57, 60, {
+            keyframes: [{ id: 'k', time: 0, property: 'opacity', value: 0, easing: 'linear' }],
+          }),
+        ],
+      ),
+    );
+    expect(fading.status).toBe('warn');
+  });
+
+  it('skips with fewer than two overlays, and never fails the review', () => {
+    expect(collision(vertical([overlay('one', SEPT_2026, 0, 3)])).status).toBe('skipped');
+    const report = critique(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [overlay('date', SEPT_2026, 57, 60)],
+      ),
+    );
+    expect(report.checks.find((c) => c.id === 'text_collision')!.status).toBe('warn');
+    expect(report.checks.filter((c) => c.status === 'fail').map((c) => c.id)).not.toContain(
+      'text_collision',
+    );
   });
 });

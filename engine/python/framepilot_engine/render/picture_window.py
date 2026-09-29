@@ -13,17 +13,32 @@ to the composite at ``t`` — MoviePy composites ``playing_clips(t)`` over the b
 layer order, and skips the rest — so dropping only non-playing layers leaves the frame at
 ``t`` bit-identical, provided every other stage is a function of ``t`` alone. The window is a
 conservative SUPERSET of the playing layers (a clip is kept when any layer it builds could
-still be playing), never an estimate, and the constructs whose frame at ``t`` depends on
-something other than the layers playing at ``t`` are refused here, so the grab falls back to
-the full compile for them:
+still be playing), never an estimate.
 
-* **Blend modes.** ``_composite_with_blend_modes`` ignores the FIRST layer's mode and
-  round-trips every later layer through float, playing or not; removing a layer changes
-  which layer is first and which pixels take the round trip.
-* **Track mattes** (``layer`` masks). ``LayerMatteResolver.frame_at`` answers a source with
-  no layers with an empty matte, and a source whose layers are all idle with MoviePy's own
-  composite of them; the window would turn the second case into the first, and nothing
-  proves the two are equal.
+Blend modes ARE windowed (AL38), at every instant where the export's frame is still a function
+of the layers playing then. The export's blend compositor (``compiler._composite_with_blend_
+modes``) takes each blended layer over the composite of everything beneath it; a layer that is
+not playing is an exact identity there (the float round trip of an 8-bit frame is lossless, and
+a blend at alpha 0 returns the base), so only two things make the frame depend on other layers:
+the bottom layer's own mode is ignored, and a blended layer that outlives every layer beneath it
+blends over their last frame, held. A window composites its layers with the same compositor,
+and answers only an instant where every blended layer still to play has a layer beneath it,
+built in the window, that lasts past that instant — then neither thing can happen, in the
+export or in the window (``compiler.window_answers``). Elsewhere, and when a frosted text overlay
+the window leaves out would put the export on the frost compositor (which rounds a blend
+differently), the frame comes from the full compile. A blend mode on a burned caption is still
+refused here.
+
+Track mattes (``layer`` masks) ARE windowed. A matte source is a picture clip like any other,
+so it is in the window exactly when one of its layers can be playing, and the compile still
+consumes it as a matte (``layer_matte_sources`` reads the whole project, not the window). What
+the matte is at ``t`` is :func:`~framepilot_engine.render.layer_mattes.composite_alone` of the
+source's layers: only the layers playing at ``t``, drawn on a transparent frame (AL31). A source
+whose layers are all idle is therefore the same transparent frame as a source with none built,
+which is what the window leaves out. They were refused while the matte was MoviePy's composite
+mask of every layer, idle ones included; since AL31 refusing them only made every grab and
+colour measurement of a project with one track matte compile the whole timeline — 40 readers,
+~43 s a frame on the captured travel reel (AL33).
 
 Everything else is windowed: transitions (the under-layer a transition borrows from its
 neighbour is built by, and placed inside, the clip that carries the transition, and the
@@ -40,11 +55,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from framepilot_engine.effects.speed_curve import has_speed_ramp
-from framepilot_engine.render.frame_plan import PICTURE_KINDS, caption_tracks, clip_kind
-from framepilot_engine.timeline.models import Clip, Project
+from framepilot_engine.render.frame_plan import caption_tracks, clip_kind
+from framepilot_engine.timeline.models import Clip, Project, TrackType
+from framepilot_engine.timeline.synthetic_assets import DRAWN_CLIP_KINDS
 
 #: The clip kinds the compiler turns into picture layers (``compile_timeline``'s main loop).
-WINDOWED_KINDS = PICTURE_KINDS | frozenset({"text", "shape"})
+WINDOWED_KINDS = DRAWN_CLIP_KINDS
 
 #: Slack added on both sides of a clip's reach. The compiler refuses a constant-speed or
 #: reversed clip whose rendered segment differs from its timeline span by more than
@@ -90,17 +106,19 @@ def clip_reach(clip: Clip, kind: str) -> tuple[float, float]:
 
 
 def whole_timeline_reason(project: Project) -> str | None:
-    """Why a frame of ``project`` cannot be composited from a window, or ``None`` if it can.
+    """Why no frame of ``project`` can be composited from a window, or ``None`` if one can.
 
-    See the module note for why each construct depends on layers that are not playing.
+    A blended burned caption composites over the whole picture, held past its end; it is refused
+    here. A blended picture layer is decided per instant by the windowed compile itself (see the
+    module note).
     """
     for track in project.timeline.tracks:
+        if track.type != TrackType.CAPTION:
+            continue
         for clip in track.clips:
             mode = clip.blend_mode
             if mode is not None and mode != "normal":
-                return f"clip {clip.id} uses the {mode} blend mode"
-            if any(mask.enabled and mask.kind == "layer" for mask in clip.masks or []):
-                return f"clip {clip.id} uses a track matte"
+                return f"caption {clip.id} uses the {mode} blend mode"
     return None
 
 

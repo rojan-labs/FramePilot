@@ -54,7 +54,7 @@ Beyond the schema, every tool resolves a typed **execution contract**
   (`kernel/cost/analysis-caps.ts`): `maxTranscriptionMinutes` (default 60) over minutes of
   audio actually transcribed, and `maxFfmpegSeconds` (default 900) over wall-clock seconds
   of ffmpeg-backed analysis — the silence/scene/beat analyzers, `get_frame`,
-  `measure_color`. The host seam checks the budget before dispatch and records the real
+  `measure_color`, `measure_loudness`. The host seam checks the budget before dispatch and records the real
   consumption after, so a call over the ceiling **fails honestly and never runs**; its
   summary names the resource and the totals. Callers that thread no budget (a one-off MCP
   call) are uncapped, as before.
@@ -130,6 +130,7 @@ nothing in a non-empty bin.
 | `render_preview`                    | Produce a low-res preview render                               | action           | yes        |
 | `export_video`                      | Final export (after approval)                                  | action           | yes        |
 | `analyze_silence`                   | Detect silent gaps (ffmpeg silencedetect)                      | analysis         | yes        |
+| `measure_loudness`                  | Meter the timeline mix or a role stem (LUFS, LRA, peaks)       | analysis         | yes        |
 | `detect_scenes`                     | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
 | `detect_subjects`                   | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `find_mask_targets` … `delete_mask` | The masking domain — see [ai-masking.md](./ai-masking.md)      | analysis / write | yes        |
@@ -140,10 +141,37 @@ names the element and where it sits in its own tool's units (`sticker "Fire" at 
 element. `add_sticker` without `sizePercent` places the art at 30% of the frame height, or at the
 largest whole percent that stays within 1.5× its pixels on a tall or 4K frame. An edit that
 leaves an element off the frame for its whole span is refused (`element_off_frame`). The critic
-adds `element_faces`, `element_safe_area`, `element_busy_frame`, `sticker_sharp` (advisories)
-and `elements_placed` (a failure when the request named a sticker or a callout and none was
-placed). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
+adds `element_faces`, `element_safe_area`, `element_busy_frame` and `sticker_sharp`
+(advisories). Whether the request asked for a sticker or a callout is the model's own plan to
+carry, not a check read out of the request's words (ADR 0196 amendment, issue #136). Where the host cannot place stickers (`placesStickers: false`, the MCP server),
 `search_elements` returns shapes only with a `note`.
+
+Placement and loops (issue #150). `add_shape` and `set_shape_style` move a box shape just far
+enough that what it draws (outline and stroke, by `shapeBounds`) is inside the frame; an axis the
+shape is larger than, and a line's or arrow's ends, stay as asked. Shapes are not held to the 10%
+safe margin: a callout sits on its target, which is why `element_safe_area` exempts them.
+`add_sticker` moves a sticker that would be partly off the frame in the same way. When the
+placed sticker is outside the Critic's `SAFE_AREA_INSET`, its result says so and gives the
+`xPercent`/`yPercent` ranges that keep this sticker inside. The text `safe_area` check no longer
+reads shape params, whose x/y are percentages. It had been reading them as 0–1 fractions, so it
+flagged every positioned shape. `set_element_animation` refuses a loop its clip is too short to
+move with numbers computed from the loop table: the clip's length, the least the requested loop
+needs, the slowest period of that loop that fits, the other loops that fit and their periods, and
+the longest In/Out. It never substitutes a different loop. A spin moves on a clip of any length,
+because it is two keyframes across the clip.
+
+Lane choice keeps neighbours valid (AL43). A lane has room for a new clip only when nothing
+occupies the span AND the validator's own transition rule (`laneTransitionProblems`) reports no
+new problem with a bare clip in place (`placementBreaksTransitions` in `lane-placement.ts`). So no
+picker lands a clip against a neighbour's In or Out that names no clip (an element animation or a
+cutaway entrance/exit), which would turn that edge into a cut the patch is refused for, or between
+two clips joined by a cross. It moves to another lane of the same role where the clip is valid, or
+opens one. Every picker that reads `trackHasRoomFor` gets this: `add_shape`, `add_text_layer`,
+stickers, `add_clip`, caption cues, the web editor's drops, stock and picture-layer placement.
+`add_shape` honours a named `trackId` or refuses it. An id that names no track, a picture or audio
+lane, or a locked lane is refused with the remedy (leave `trackId` out, or name a graphics lane
+from `get_timeline`). A named graphics lane that is busy over the span is still resolved by the
+allocator.
 
 `get_project_state` returns the media bin as a **tally**, not a listing:
 
@@ -211,6 +239,43 @@ This is intentionally a host-backed mutation: audio and credentials never enter 
 while the resulting edit still passes through validate → review/apply → undo. Desktop manual
 transcription, the in-app agent, and MCP all converge on that operation boundary.
 
+### Measuring loudness: `measure_loudness`
+
+`measure_loudness` meters the working timeline's sound through the engine's EBU R128 meter
+(ffmpeg `ebur128`, behind `/review/temporal-evidence` as a `loudness` request). It is a
+host-run read (`hostUiOnly`, audio domain, `inspection` role so it stays offered after the
+first patch), charged to the run's `ffmpegSeconds` budget.
+
+| Argument          | Meaning                                                                   |
+| ----------------- | ------------------------------------------------------------------------- |
+| `role`            | `mix` (default), or `dialogue`/`music`/`sfx`: only the tracks labelled so |
+| `startSeconds`    | Timeline seconds; default the start                                       |
+| `endSeconds`      | Timeline seconds; default the end                                         |
+| `targetLufs`      | The integrated loudness the request asks for (e.g. `-14`)                 |
+| `maxTruePeakDbtp` | The true-peak ceiling the request asks for (e.g. `-1`)                    |
+
+It returns `integratedLufs`, `loudnessRangeLu`, `truePeakDbtp`, `samplePeakDbfs`, the
+`gapLu` to a stated target, and a `reading` naming the move that closes each gap. The two
+peaks are different measurements:
+
+- **True peak (dBTP)** is ebur128's 4× oversampled peak of the mix as an export writes it:
+  16-bit PCM, clipped at full scale. An overloaded mix therefore reads about 0 dBTP however
+  hot it is.
+- **Sample peak (dBFS)** is the highest sample of the composed mix _before_ that clip. Above
+  0 dBFS means the export will clip.
+
+The levers the reading names: a flat `adjust_audio` gain on every track moves integrated
+loudness by the same number of dB (the gain is absolute, so the reading says "current gain
++N dB"); `professional_audio` `compress` lowers the peaks relative to the average before a
+raise would cross the ceiling; peak `normalize` sets a peak, not loudness. It measures the
+timeline, not the Export dialog's optional Loudness preset, which normalises the delivered
+file instead.
+
+A loudness window may span thirty minutes at 60 fps (picture evidence windows stay at 300
+frames): integrated loudness is gated against the programme's own level, so it cannot be
+assembled from short windows. An empty timeline or a range past its end is refused before
+anything is sent; a role no track is labelled with is refused by the engine.
+
 ### Caption design tools
 
 `discover_caption_styles` returns the canonical bundled font families, their weight ranges,
@@ -243,12 +308,41 @@ applied it. Every other styling arg (`sizePercent`, `color`, `background`, `alig
 it names. `fontFamily` is an enum of the bundled caption fonts; a family named over a style has
 the style's weight held inside the weights that family ships.
 
+Typography args, each written over its one field of `params.typography`
+(`TextOverlayTypographySchema`, #135): `letterSpacing` (em, 0–0.6; both renderers draw a style's
+negative tracking, down to -0.2, but the agent's own range still starts at 0), `fontStyle`
+(`italic` only in a family that ships an italic file, else refused — neither renderer
+synthesises a slant), `lineHeight` (0.7–3), `textTransform`, `textOpacity`
+(0–1), `outlineColor`, `outlineWidth` (sixteenths of the size, 0–8; 0 is no outline) and
+`shadow` (`{color, blur, offsetX, offsetY}` in em, or `"none"` to drop the style's). An overlay
+with no typography yet starts from `PLAIN_TEXT_OVERLAY_TYPOGRAPHY`, as the Inspector's first
+edit does, so one field does not also drop the plain overlay's black stroke. The chip's shape
+comes with a style.
+
 Words that would run out of the frame are fitted, not refused: the box is widened first (up to
 92% of the width, recentred so it stays inside the frame), then the size comes down. The fit
-measures the overlay's own face and, for a capitalising style, the capitals it draws. A style's
-size and box are fitted the same way as explicit ones.
+measures what the renderer draws (`overlay-fit.ts`): the overlay's own face and weight, the case
+a capitalising style draws and, for an overlay with typography (drawn by the caption
+rasterizer), the tracking between glyphs, the italic file, the stroke and the chip padding the
+wrap keeps. `tests/test_title_metrics.py` checks that arithmetic against the rasterizer. A
+style's size and box are fitted the same way as explicit ones. Per-letter and per-word reveals
+do not exist for text overlays yet (#152).
 
-`set_text_style` (`clipId` plus any of `text`, `style` and the same styling args) restyles an
+Two overlays that draw over each other are reported, not prevented (AL41). The critic's
+`text_collision` advisory lays out every text overlay on a visible track with no position,
+scale or rotation keyframes (`overlay-fit.ts` `drawnTextRects`) the way the export does: wrapped,
+centred on `xPercent`/`yPercent`, and for a typed overlay stacked with the face's own ascent and
+descent (`TITLE_FACE_LINES` in the generated title metrics). It then compares every pair that
+shares the screen for a frame or more. A line counts as drawn from its baseline to the top of
+an "x"; a filled chip counts edge to edge. A subtitle tucked into a title's empty descender
+room therefore passes, and a date set across a word does not. Overlaps smaller than a tenth of
+the smaller size are ignored. The warning names both clips, their words and the span they share,
+and gives the fixes: `set_text_style` a new `yPercent`, `trim_clip` one span, or merge the words
+into one overlay and `delete_clip` the other. Captions are not compared. A plain overlay (no
+typography) is measured from its x-height only, so a collision can go unreported but a
+reported one is real.
+
+`set_text_style` (`clipId` plus any of `text`, `style` and the same styling and typography args) restyles an
 overlay already on the timeline in one `set_effect_params`. A `style` is applied the way the
 Text panel's Apply does (`applyTextOverlayStylePatch`): its whole look except `xPercent`,
 `yPercent` and `boxWidthPercent`, so the overlay stays where it was placed. The result is
@@ -261,6 +355,199 @@ sits, chip/outline/glow/shadow), so the model can choose without the full looks 
 request. It is static catalog data (`guidance`, revision-independent), in the `effects` domain.
 The Python twin mirrors `add_text_layer` from the packaged catalog copy
 (`framepilot_engine/ai_tools/text_overlay_styles.json`) and delegates discovery to the host.
+
+### The agent's plan: `update_plan`
+
+`update_plan` is a session tool (like `load_tools`): it changes no timeline and returns no patch.
+The model writes its plan for the request as a list and keeps it current. Each call sends the
+whole list, and an earlier item the call leaves out is **kept**, never dropped (AL44).
+
+```ts
+update_plan({
+  items: [
+    { task: 'Build the 24-shot montage from the shot list', status: 'done' },
+    { task: 'Warm teal-orange grade', status: 'in_progress' },
+    { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+  ],
+});
+// → "Plan saved (1 in progress, 1 done, 1 blocked). Next: “Warm teal-orange grade”. …"
+```
+
+- **Schema:** 1–40 items; `task` 1–160 characters; `status` is `pending`, `in_progress`, `done`
+  or `blocked`; `note` is at most 480 characters and is **required** when `done` (the edit that
+  delivered it) and when `blocked` (why no available tool can do it). Strict: unknown keys are
+  refused. An over-long note is refused with "A note is at most 480 characters — shorten it to
+  the edit that delivered the item, or why no tool can do it." (240 until AL44: a review pass's
+  done note outgrew it in harness runs 8, 10, 13 and 18.)
+- **Merge, not replace (AL44, `mergeModelPlan`):** an item leaves the plan only as `done` or
+  `blocked`. Every earlier item the call omits is carried with its last status and note, in its
+  original place among the call's items (whose order is the call's). Items match by the label the
+  briefing shows (`plainPlanLabel`: markdown stripped, otherwise exact, no fuzzy matching), so a
+  rewritten task is a new item and the old one is carried until it is settled by its own words.
+  Carried open items keep the run going; carried blocked items stay in the "Not done" report.
+  Omitted `done` items are carried too, so the checklist and the continuation record keep the
+  delivered work; they give way first (oldest first) when the plan would pass 40 items. A call
+  whose omitted open/blocked items cannot fit beside it is refused ("Plan not saved: …") and
+  the plan stays as it was. The echo names what it kept: `Kept N items your list left out, as
+  they were: “…” (blocked), …, and M done items.` Harness run 18 sent two items over a 24-item
+  plan; the list used to become those two, and four blocked masking items vanished unreported.
+- **Surface:** core (always advertised in agent mode, including the action-recovery turn); not
+  offered on the read-only question route. `hostUiOnly` and `serialOnly`: the plan lives in a TS
+  orchestrator run, so neither the Python sidecar nor the MCP server mirrors it.
+- **What the loop does with it** (`kernel/conductor.ts`, `kernel/model-plan.ts`): a reply with no
+  tool call ends the run only when no item is `pending` or `in_progress`. While one is open, the
+  run continues with the next item (the one in progress, else the first pending). This is bounded
+  by progress: each continuation records a mark (applied turns, applied ops, and every item's task
+  and status). A second reply with the same mark settles the run through verification. `blocked`
+  is not open. `maxSteps` (widened to fit the plan, as a drafted plan widens it), wall time and
+  cost still bound everything. Nothing reads the model's prose or the request.
+- **A plan that ends on blocked items (AL39):** when a no-tool reply leaves nothing open, at least
+  one item `blocked`, and tool domains the run never loaded, the run continues ONCE. That turn's
+  DO THIS NOW names the blocked items and each unloaded domain with its `load_tools` summary:
+  load and retry an item, or reply without a tool call to leave it blocked. The runtime reports
+  the unloaded domains (`AgentTurnResult.unloadedToolDomains`); the reducer decides from plan
+  statuses alone. Never when cancelled, over budget, or out of steps; a second no-tool reply ends
+  the run. Harness run 16 blocked "Sound design" on "No SFX in the bin" without ever loading
+  `sourcing`.
+- **What the editor sees:** the existing `plan` event, one checklist node per run. `done` maps to
+  `completed`, `in_progress` to `running`, `pending` to `pending`, and `blocked` to `failed`
+  with the note. Once the model owns the plan, the positional drafted ledger (`planFirst`) never
+  draws over it. When the run ends, open items settle as failed ("Not done — the run ended
+  first"), a warning names them, and the completion report lists each unfinished item under
+  **Not done** (`— not done` or `— blocked: <note>`).
+- **Across a run boundary (AL5, #149):** the plan used to live in conductor state only, so a
+  resumed run and a follow-up on the same request re-planned from the brief and could redo
+  finished work. Now:
+  - **Resume.** A cancelled run's `checkpoint` event carries `modelPlan` (the items). The host
+    hands it back as `AgentOptions.resume.modelPlan`, and the resumed run starts with it.
+  - **Continuation.** Every plan event the model's list produces carries
+    `modelPlan: { objectiveKey, items }`. `objectiveKey` is a fingerprint of the request the run
+    works toward (`modelPlanObjectiveKey`), so a "continue" run files its plan under the brief it
+    continues. Hosts pass `AgentOptions.priorPlans = modelPlanRecordsFromEvents(conversation.events)`.
+    `streamAuto` reads them only when the router's grounded `continues` names an earlier
+    request. It seeds `RequestReading.continuedPlan` with that request's newest plan, items as
+    they were: open stays open, done and blocked stay as they are.
+  - **New request.** A new request never inherits a plan.
+  - **Validation.** A carried plan is drawn as the run's first `plan` event, briefed as YOUR
+    PLAN, and held by the same continuation rule. `parseModelPlan` / `parseModelPlanRecords`
+    validate whatever comes back off disk or over IPC (desktop `parseAgentOptions`). Anything
+    malformed is dropped, and the run plans again.
+- **What the model sees:** a `YOUR PLAN` section in the run briefing, with every item, and
+  `DO THIS NOW` pointing at the next open item.
+
+### Looking at many sources: `get_frame { sources }`
+
+`get_frame` has three exclusive modes: `timeSeconds` (a moment of the edit), `assetId`
+(+ `sourceSeconds`, one source file as shot), and `sources` (several source files on one sheet).
+
+```ts
+get_frame({
+  sources: [{ assetId: 'asset_passenger' }, { assetId: 'asset_car', sourceSeconds: 2 }],
+});
+// → one image: a numbered grid, each tile the whole uncropped source frame, labelled
+//   "1  passenger.mp4  9.5s". data.tiles = [{ tile: 1, assetId, name, sourceSeconds,
+//   durationSeconds, error? }, …] in the same order.
+```
+
+- **Schema:** 1-12 entries; `assetId` non-empty; `sourceSeconds` ≥ 0 and optional (omitted =
+  the middle of the source; a still shows its one frame). Strict: unknown keys are refused. It
+  cannot be combined with `timeSeconds`, `assetId` or `sourceSeconds`. `maxDimension` bounds the
+  **whole sheet** (default 1024 for a sheet, 512 for one frame).
+- **Why:** run `d8d2e445` saw 3 of 20 sources, one picture per call. It is one call and one
+  image for the whole bin, so the model can compare shots and see where each subject sits
+  before it cuts or crops. It then uses single-source `get_frame` for a close look.
+- **Errors:** an unknown or audio-only asset refuses the whole sheet and names every bad id. A
+  tile that fails to render is drawn as a labelled error, the rest still answer, and the result
+  summary names the failed tile.
+- **Engine:** `framepilot_engine/render/source_sheet.py`. Each tile is
+  `frame_grab.source_view_project` through the export's compiler, composited uncached four at a
+  time. The grid is fixed arithmetic (`ceil(sqrt(n))` columns), so the same sources give the
+  same pixels. The Python registry and its strict contract override mirror the schema. The MCP
+  server does not forward `sources` yet.
+
+### A punch-in on a panned clip: `punch_in` over `reframe_pan`
+
+`reframe_pan` fills the frame with `scale` keyframes (the cover zoom, about 3.16 for a 16:9
+source in a 9:16 frame) plus `x`/`y` offsets. `punch_in` used to write absolute `scale` values
+(1.0 → 1.2), which replaced that zoom and letterboxed the shot (issue #139). Run 4 of the travel
+brief removed 22 pans by hand before it could punch in.
+
+- **Rule:** if the clip already has `scale` keyframes, the punch **multiplies** them:
+  `result(t) = existing(t) × punch(t)`. The punch curve holds `fromScale` before its window and
+  `toScale` after it, like any keyframe curve. On a clip with no scale animation this is the
+  same as the plain punch, which still writes a single `add_keyframes`. `x`/`y` are not
+  touched, so the pan keeps moving while the punch zooms in.
+- **Ops:** `remove_keyframes { property: "scale" }`, then `add_keyframes` with the composed
+  curve. Keyframes outside the window are rescaled by the held factor and keep their easing and
+  handles. Inside the window, the result is sampled at both window edges and at every existing
+  keyframe between them. The result is exact when the existing zoom is constant across the
+  window, which is always true for `reframe_pan`. Both ops invert to a snapshot of the clip's
+  track, so undo restores the old keyframes exactly.
+- **Errors:** a factor below 1 that would take a clip that fills the frame below its cover
+  zoom is refused with "keep fromScale and toScale at 1 or above". A zoom-out that stays at or
+  above the cover is allowed.
+- **Mirror:** `engine/python/framepilot_engine/ai_tools/handlers.py` `punch_in` builds the same
+  operations.
+
+### How far a zoom magnifies the source: `magnificationNote`
+
+A zoom's `scale` is relative to the fit, not to the source's pixels. A `reframe_pan` of a
+1920×1080 source into a 1080×1920 frame already draws each source pixel 1.78 output pixels
+wide, and a 1.2 punch on top makes it 2.13. Harness run 8's road shot at 17 s was visibly soft
+for that reason, and nothing in the result said so.
+
+- **Rule:** after `punch_in` or `reframe_pan` lands, the result states the clip's peak
+  magnification: output pixels per source pixel, on the more magnified axis. It uses
+  `framePlanAt` geometry (fit, crop, keyframed scale and stretch) at the project resolution,
+  against the asset's measured display size. The peak is sampled at the clip's edges and at
+  every size keyframe. Between keyframes a named easing stays inside their values, so the
+  peak is at one of them.
+- **Above `SOFT_UPSCALE_THRESHOLD` (1)** the note says plainly that the picture is upscaled
+  and will look soft. For a punch it also says what helps. If the clip was below 1 before the
+  punch, a smaller `toScale` keeps it sharp. If the clip was already above 1 (a pan of a
+  1080p source), no punch is sharp, and a smaller one softens it less. Nothing is refused: a
+  soft push-in can be a deliberate choice.
+- **Silent** when the source was never measured, because there is no honest number to give.
+- **Where:** `packages/ai-sdk/src/domain-tools/magnification-note.ts`, appended to the result
+  note in `orchestrator.ts` beside `verificationNote`. The Python registry returns operations
+  only and has no result notes, so it has nothing to mirror.
+
+### A reframe that follows a tracked subject: `reframe_to_subject`
+
+`reframe_to_subject { clipId, maskId }` (masking domain, issue #137) moves a wide clip's window
+in a narrower frame so that it follows a subject. The subject is marked by a tracked mask
+(`create_mask` with `track: true`, or `track_mask`). The tool **bakes** the track into keyframes;
+it does not link to it. A live link from a clip transform to a track needs a schema field
+(MO-14), and nobody has approved one. So this adds no schema change. The result is ordinary
+`x`/`y`/`scale` keyframes that validate, undo in one step, and render like any keyframed clip.
+
+- **Host-measured**, like `track_mask`. The track is a digest-pinned file
+  (`<project>/.framepilot-derived/tracks/<key>/track.json`) that only the desktop host reads.
+  The host (`masking-executor.ts` → `subjectSamplesFromTrack`) reads it back through
+  `readTrackArtifact`, which checks the digest. It then returns the subject's centre (the mask's
+  geometry moved by the track, `T(t) · G(t)`) on a six-per-second grid of clip frames. Each
+  sample is the mean of the confidently tracked frames around it, stamped at their mean frame.
+  Frames outside the tracked range, or below `DEFAULT_TRACK_POLICY.minimumConfidence`, count
+  as unseen (confidence 0).
+- **Orchestrator** (`reframeToSubjectEdit`). It re-checks the measurement: same mask, the same
+  pinned track (a re-track since then is refused), and no sample past the clip's length (a trim
+  since then is refused). It then runs editor-core `planAutomaticReframe`, which computes the
+  cover zoom and the clamped pan from the render compiler's placement formula, damped to
+  24 px per frame. Keyframes are linear. A property that never changes (the cover `scale`, and
+  `y` for a 16:9 → 9:16 reframe) gets one keyframe.
+- **Ops:** the same tail as `reframe_pan`. `set_clip_crop { crop: null }` if the clip had a
+  crop, `remove_keyframes` for the x/y/scale it owns, then `add_keyframes`. A second run after
+  re-tracking replaces the first.
+- **Result:** the number of pan keyframes, the span followed, the cover zoom, and the range the
+  window centre travels as a percentage of the source. It says when the frame holds outside the
+  span the track saw, and when damping slowed some steps. Data is `kind: "subject_reframe"`.
+- **Refusals (preflight, before the host reads anything):** a mask that is not tracked (the
+  remedy is `track_mask`), a cut-out (use a tracked shape mask), and a clip that already has the
+  frame's shape (use `punch_in`). An unknown clip or mask names `get_clips` / `get_masks`. A
+  track that is missing or changed on disk refuses with `track_unreadable` (track again).
+- **Masking kill switch:** the tool is in `MASKING_TOOLS`, so `FRAMEPILOT_AI_MASKING=off` (the
+  packaged default) withholds it. In the browser build it is unroutable, like every other
+  host-measured masking tool. The Python registry excludes `hostUiOnly` tools.
 
 ---
 
@@ -287,30 +574,84 @@ validator.
 
 ---
 
+## Layered picture: where a placement goes
+
+Any picture `add_clip` / `add_clips` / `move_clip` places over existing picture lands on a
+layer in FRONT of what it covers, opening one in the same patch when there is none. That
+holds for a full-frame cutaway and for a scaled, positioned, cropped, faded, blended or
+masked layer alike: the program monitor composites every stack exactly as the export does
+(ADR 0180), so picture-in-picture, split-screen panels and a blurred-fill foreground are
+ordinary layered edits (ADR 0180 amendment, 2026-09-29).
+
+That includes the lane the call NAMES (AL45): picture already on it at that moment is picture
+the placement covers, so the lane is passed over and the clip goes on a free lane in front of
+it, or on one opened in the patch. On the named lane the overlap is judged on the frame grid the
+patch is snapped to, so a placement that only butts its neighbour once snapped stays on the lane
+as a sequence edit. Harness run 18 named `V1` for three split-screen panels over V1's own clips
+and all three were refused as a same-track overlap.
+
+`add_clip` takes an optional `crop`, the geometry of a layered look: a rect of the source
+(0..1 fractions), or `null` for the whole picture fitted inside the frame with transparent
+bars. Without it, a fresh placement fills the frame: a portrait project cover-crops a measured
+landscape source, and a placement over picture whose shape leaves bars gets the cover crop
+that closes them. Scale and position come from `add_keyframes` (`scale`, `x`/`y` in project
+pixels from the frame centre). `apply_color_grade` with `type: "blur"` and `params.amount`
+(0..0.25, a fraction of the picture's smaller side) blurs a whole clip, under the same effect
+id the Inspector's Blur control edits; `amount: 0` turns it off (AL39: the op contract used to
+refuse 0 while every other layer took it). No tool removes a clip effect.
+
+Recipes, pinned end to end by `domain-tools/layered-picture-recipes.test.ts` and rendered by
+`engine/python/tests/test_layered_picture_render.py`:
+
+- **Blurred fill (9:16 from 16:9):** the shot's cover-cropped copy, blurred
+  (`apply_color_grade` `blur`), and the same asset, span and `sourceStart` again with
+  `crop: null`, which lands in front fitted whole (scale 0.5625 for a 1920×1080 source in a
+  1080×1920 frame, never upscaled). The background may be a `reframe_pan` (keyframes, no crop),
+  and the foreground may name the background's own track: it is placed on a layer in front
+  rather than colliding with it.
+- **3-up split (9:16):** three shots, each `crop` `{ x: 0.025391, y: 0, width: 0.949219,
+  height: 1 }` (a 1080×640 panel), moved with a `y` keyframe of −640, 0 and +640.
+
 ## When a placement is refused
 
 Two refusals guard `add_clip` / `add_clips` / `move_clip` beyond schema validation, both
 from run `137d8fd0` (a 60s highlight that finished with 37 of its 48 picture clips never
 visible):
 
-- **`hides_a_cutaway`.** ADR 0169 lifts a legal full-frame placement onto a layer in FRONT
-  of the picture it covers. That is right when what it covers is the base A-roll — a
-  cutaway covers the A-roll by definition. It is wrong when the thing underneath is itself
-  a cutaway whose whole span the new placement would swallow: nothing of it would ever be
-  seen. The refusal names the buried clip, its lane and its span, and the three moves
-  (`remove_clip`, place it elsewhere, `trim_clip`). A clip that was ALREADY fully hidden
-  before the call does not trigger it — an inherited defect is an advisory, not a reason to
-  refuse the next edit. The cause is arrangement-DEPENDENT, so a landed patch clears the
-  run's memory of it.
+- **`hides_a_cutaway`.** A placement that fills the frame and hides what it covers is lifted
+  in front of it. That is right when what it covers is the base A-roll — a cutaway covers the
+  A-roll by definition. It is wrong when the thing underneath is itself a cutaway whose whole
+  span the new placement would swallow: nothing of it would ever be seen. The refusal names
+  the buried clip, its lane and its span, and the three moves (`delete_clip`, place it
+  elsewhere, `trim_clip`). A window (see-through, scaled, or cropped smaller than the frame)
+  never triggers it: what it covers still shows round or through it, and a split-screen panel
+  lands centred before it is moved. A clip that was ALREADY fully hidden before the call does
+  not trigger it either — an inherited defect is an advisory, not a reason to refuse the next
+  edit. The cause is arrangement-DEPENDENT, so a landed patch clears the run's memory of it.
 - **The same frames at the same moment.** Two placements of one asset are the same
   placement when their PIN (`sourceStart - start`) matches within a frame and their spans
   overlap by more than a frame — the span itself need not match. A different pin is a
-  different moment of the file and is allowed. Audio goes through the same path, where the
-  defect is audible rather than invisible: the same bed on two lanes plays over itself.
+  different moment of the file and is allowed. So is the same moment through a different
+  crop that is known before placement (`add_clip`'s own `crop`, or the portrait
+  auto-reframe), or when the clip already there is framed by transform keyframes (a pan,
+  punch-in or Ken Burns; every clip transform but opacity): that is a blurred-fill foreground,
+  not an invisible duplicate. A picture refusal always ends with the blurred-fill route (keep
+  the clip that is there as the background and add this one with `crop: null`; or, when the
+  call already asked for `crop: null`, give the one there a fill crop first). Audio goes
+  through the same path, where the defect is audible rather than invisible: the same bed on
+  two lanes plays over itself, and no route is offered.
+
+`add_stock` keeps a third, `picture_over_picture`: it places a full-frame cutaway at a moment
+and takes no geometry, so a stock clip that cannot be shown to hide the footage under it (an
+unmeasured shape) is refused, naming the hole it could cut instead and the route that layers
+it on purpose (download to the bin, then `add_clip`).
 
 The Critic's `hidden_picture` check reports the same condition on a finished project. It
 `warn`s and never `fail`s, because buried picture can be inherited from the project the run
-was handed.
+was handed. Only picture that HIDES a clip counts as covering it (coverage is a relation,
+ADR 0170): the A-roll under a picture-in-picture is not buried. Likewise `reframe_coverage`
+does not call a fitted clip letterboxed when frame-filling picture sits behind it for its
+whole span.
 
 ---
 

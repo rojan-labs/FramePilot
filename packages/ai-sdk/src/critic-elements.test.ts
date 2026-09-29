@@ -9,6 +9,7 @@ import {
   applyProjectPatch,
   buildAddShapeOps,
   buildAddStickerOps,
+  elementRectAt,
   type Operation,
   type Patch,
 } from '@framepilot/editor-core';
@@ -162,6 +163,37 @@ describe('element checks', () => {
     expect(find(block, 'element_faces', { subjects: [face] }).status).toBe('warn');
   });
 
+  it('judge a shape by its drawn rect, never as a text overlay with 0–1 coordinates (#150)', () => {
+    // Harness runs 7–9 of #148 each ended "Outside the 10% safe area" for two shapes, one of
+    // them centred at (47, 46): `safe_area` read a shape's percent x/y as fractions of the frame.
+    const vertical = { width: 1080, height: 1920 };
+    let project = base(vertical);
+    const ids: string[] = [];
+    for (const place of [
+      { x: 72, y: 22, width: 7, height: 7 },
+      { x: 47, y: 46, width: 44, height: 52 },
+    ]) {
+      const placed = buildAddShapeOps(
+        project.timeline,
+        { ...presetShapeParams('rounded-rect/highlight')!, ...place } as never,
+        ids.length * 3,
+        ids.length * 3 + 2,
+      );
+      project = applyProjectPatch(project, patchOf(placed.operations));
+      ids.push(placed.clipId);
+    }
+    const textCheck = find(project, 'safe_area');
+    expect(textCheck.status).not.toBe('warn');
+    for (const id of ids) expect(textCheck.detail).not.toContain(id);
+    // The frame plan agrees the small box sits inside the 10% margin the old warning named.
+    const rect = elementRectAt(project, ids[0]!, 0.5)!;
+    expect(rect.x).toBeGreaterThanOrEqual(0.1);
+    expect(rect.y).toBeGreaterThanOrEqual(0.1);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(0.9);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(0.9);
+    expect(find(project, 'element_safe_area').status).toBe('pass');
+  });
+
   it('warn when more than three elements are on screen at once', () => {
     let busy = base();
     for (let n = 0; n < 4; n += 1) busy = withSticker(busy, 0, 3, { x: -600 + n * 400, y: 0 });
@@ -186,23 +218,5 @@ describe('element checks', () => {
       // Clip ids are quoted, so the fix can target them; nothing else is a number.
       expect(check.detail.replace(/"[^"]*"/g, ''), id).not.toMatch(/\d/);
     }
-  });
-});
-
-describe('the elements a request asked for', () => {
-  it('fails a run that was asked for a sticker or a callout and placed none', () => {
-    const none = base();
-    expect(find(none, 'elements_placed', { requiredElements: ['sticker'] }).status).toBe('fail');
-    const sticker = withSticker(base(), 0, 3);
-    expect(find(sticker, 'elements_placed', { requiredElements: ['sticker'] }).status).toBe('pass');
-    expect(find(sticker, 'elements_placed', { requiredElements: ['callout'] }).status).toBe('fail');
-    const shape = applyProjectPatch(
-      base(),
-      patchOf(
-        buildAddShapeOps(base().timeline, presetShapeParams('line-arrow/red')!, 0, 2).operations,
-      ),
-    );
-    expect(find(shape, 'elements_placed', { requiredElements: ['callout'] }).status).toBe('pass');
-    expect(find(none, 'elements_placed').status).toBe('skipped');
   });
 });

@@ -15,6 +15,7 @@ import {
   captionWordCss,
   captionWordMotion,
   isSeeThroughCaption,
+  MIN_LETTER_SPACING_EM,
   resolveCaptionStyle,
   seeThroughColor,
   visibleWordIndices,
@@ -235,6 +236,13 @@ describe('captionLineCss', () => {
     expect(css.padding).toBe('0.2em 0.4em');
     expect(css.textShadow).toBe('0.1em 0.2em 0.3em #ff00ff');
     expect(css.WebkitTextStroke).toContain('#000000');
+  });
+
+  it('draws negative tracking, clamped where the export clamps it', () => {
+    const tight = captionLineCss(resolveCaptionStyle({ letterSpacing: -0.02 }));
+    expect(tight.letterSpacing).toBe('-0.02em');
+    const crushed = captionLineCss(resolveCaptionStyle({ letterSpacing: -0.5 }));
+    expect(crushed.letterSpacing).toBe(`${String(MIN_LETTER_SPACING_EM)}em`);
   });
 
   it('draws the outline outside the glyph at the width the export strokes', () => {

@@ -3,7 +3,13 @@ import { makeProject } from './__fixtures__/project.js';
 import type { ContextInput } from './context-builder.js';
 import type { AiEvent } from './events.js';
 import type { EditorRunStageEvent } from './kernel/editor-run-lifecycle.js';
-import { Orchestrator, type EditorRunRequest, type StreamOptions } from './orchestrator.js';
+import {
+  LATE_REVIEW_WAIT_MS,
+  Orchestrator,
+  type EditorRunRequest,
+  type StreamOptions,
+} from './orchestrator.js';
+import { realTimers, type TimerApi } from './reliability/timeout.js';
 import { createSteeringQueue } from './run-controls.js';
 import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from './providers/types.js';
@@ -21,11 +27,13 @@ class ScriptedProvider implements AiProvider {
   public readonly modelId = 'mock';
   private index = 0;
   public callCount = 0;
+  public readonly requests: AiCompletionRequest[] = [];
 
   public constructor(private readonly responses: readonly AiResponse[]) {}
 
-  public async complete(_request: AiCompletionRequest): Promise<AiResponse> {
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
     this.callCount += 1;
+    this.requests.push(request);
     const response = this.responses[Math.min(this.index, this.responses.length - 1)]!;
     this.index += 1;
     return response;
@@ -341,6 +349,131 @@ describe('streamEditorRun route adapters', () => {
     expect(queued !== undefined || reachedModel).toBe(true);
   });
 
+  // ---------------------------------------------------------------------------
+  // The review of the LAST edit (run d8d2e445). The loop only collected reviews that had
+  // already finished at an edit boundary and waited only once the agent had stopped, so a
+  // finding about the final edit arrived when nothing could act on it. The run now waits
+  // for it, bounded, when the model says it is done.
+  // ---------------------------------------------------------------------------
+  describe('when the model says it is done with a review still rendering', () => {
+    const editThenDone = () =>
+      new ScriptedProvider([
+        {
+          text: 'Trim the intro',
+          toolCalls: [
+            {
+              id: 'first',
+              name: 'delete_range',
+              arguments: { trackId: 'video_1', start: 0, end: 1 },
+            },
+          ],
+        },
+        { text: 'Done.' },
+      ]);
+    /** A review slower than the per-edit `drainSettled` (one macrotask) can see. */
+    const slowReview =
+      (ms: number, passing: boolean) =>
+      async (_project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+        return { renderSettings, results: passing ? passingEvidence(requests) : [] };
+      };
+    const agentRoute = {
+      route: 'agent',
+      agentOptions: { maxSteps: 4, autoRepair: false },
+    } satisfies EditorRunRequest;
+
+    it('gives the model one turn with a finding that lands within the budget', async () => {
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_finding_steers' },
+          agentRoute,
+          { temporalEvidence: slowReview(20, false) },
+        ),
+      );
+      // Edit, "Done." (the wait), then ONE more turn carrying the finding — and the second
+      // "Done." ends the run rather than waiting again. The fourth call is the advisory fix
+      // turn (AL37): deleting 0–1s from the only picture track leaves black the self-check
+      // advises on, and a run that delivered work hears its advice once before it ends.
+      expect(provider.callCount).toBe(4);
+      expect(JSON.stringify(provider.requests[2]?.messages)).toContain('Fix only these');
+      expect(JSON.stringify(provider.requests[3]?.messages)).toContain('SELF-CHECK ADVICE');
+      const finding = events.findIndex((event) => event.type === 'review_finding');
+      const acting = events.findIndex(
+        (event) => event.type === 'notification' && /Acting on what the review/.test(event.text),
+      );
+      expect(finding).toBeGreaterThanOrEqual(0);
+      expect(finding).toBeLessThan(acting);
+      // It was acted on, so it is not reported as never attempted.
+      expect(
+        events.some((event) => event.type === 'warning' && /after the run had/.test(event.text)),
+      ).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('completes with no extra turn when the review finds nothing', async () => {
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_review_clean' },
+          agentRoute,
+          { temporalEvidence: slowReview(20, true) },
+        ),
+      );
+      // No REVIEW turn. The one extra call is the advisory fix turn (AL37), which carries
+      // the self-check's advice about the picture gap, not a review finding.
+      expect(provider.callCount).toBe(3);
+      expect(JSON.stringify(provider.requests[2]?.messages)).toContain('SELF-CHECK ADVICE');
+      expect(JSON.stringify(provider.requests[2]?.messages)).not.toContain('Fix only these');
+      expect(events.some((event) => event.type === 'review_finding')).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('stops waiting at the budget and reports the late finding as before', async () => {
+      // The budget timer fires at once, and the review is held until it has fired — so the
+      // review cannot land inside the wait however slow the run is (under coverage a 40 ms
+      // review finished before the model even said done, and correctly earned a turn). The
+      // run's own deadline keeps its real clock.
+      let releaseReview: () => void = () => undefined;
+      const reviewHeld = new Promise<void>((resolve) => {
+        releaseReview = resolve;
+      });
+      const timers: TimerApi = {
+        setTimeout: (handler, ms) =>
+          ms === LATE_REVIEW_WAIT_MS
+            ? realTimers.setTimeout(() => {
+                handler();
+                realTimers.setTimeout(releaseReview, 0);
+              }, 0)
+            : realTimers.setTimeout(handler, ms),
+        clearTimeout: (handle) => realTimers.clearTimeout(handle),
+      };
+      const heldReview = async () => {
+        await reviewHeld;
+        return { renderSettings, results: [] };
+      };
+      const provider = editThenDone();
+      const events = await collect(
+        new Orchestrator(provider).streamEditorRun(
+          input,
+          { ...options, runId: 'late_review_over_budget' },
+          agentRoute,
+          { agent: { timers }, temporalEvidence: heldReview },
+        ),
+      );
+      // Edit, "Done.", and the advisory fix turn (AL37) — never a review turn.
+      expect(provider.callCount).toBe(3);
+      expect(JSON.stringify(provider.requests[2]?.messages)).not.toContain('Fix only these');
+      const unattempted = events.find(
+        (event) => event.type === 'warning' && /after the run had finished/.test(event.text),
+      );
+      expect(unattempted).toBeDefined();
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+  });
+
   it('neither fails the run nor claims verification when the reviewer is unreachable', async () => {
     // An unreachable reviewer is not a verdict about the edit. It must not destroy the work
     // (the bug ADR 0120 fixed), must not fail the run, and must not be mistaken for a clean
@@ -369,6 +502,79 @@ describe('streamEditorRun route adapters', () => {
     ).toBe(true);
     expect(events.some((event) => event.type === 'review_finding')).toBe(false);
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
+  describe('when the evidence came back only in part (#99)', () => {
+    // Run 19e20922 lost its last review to one deadline over one all-or-nothing batch. The
+    // acquirer now keeps what landed and says why the rest is missing; the run must review
+    // what it has, and say plainly which moments it never looked at.
+    const partialEvidence =
+      (options: { readonly blackOpening: boolean }) =>
+      async (_project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        const landed = passingEvidence(requests.slice(0, -1)).map((result) => {
+          const withLineage = { ...result, renderSettings } as TemporalEvidenceResult;
+          return options.blackOpening && withLineage.kind === 'frame'
+            ? { ...withLineage, sample: { ...withLineage.sample, luma: 0, blackRatio: 1 } }
+            : withLineage;
+        });
+        return {
+          renderSettings,
+          results: landed,
+          incomplete: '1 of N evidence request(s) came back without evidence: timed out.',
+        };
+      };
+    let lastRequestId = '';
+    let plannedRequests = 0;
+    const recordingLast =
+      (inner: ReturnType<typeof partialEvidence>) =>
+      async (project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        lastRequestId = requests.at(-1)?.requestId ?? '';
+        plannedRequests = requests.length;
+        return inner(project, requests);
+      };
+
+    it('reports what it did not check instead of a finding or a full review', async () => {
+      const events = await collect(
+        new Orchestrator(new MockProvider()).streamEditorRun(
+          input,
+          { ...options, runId: 'partial_clean_review' },
+          { route: 'edit' },
+          { temporalEvidence: recordingLast(partialEvidence({ blackOpening: false })) },
+        ),
+      );
+
+      // Nothing it looked at was wrong, so there is nothing to steer on…
+      expect(events.some((event) => event.type === 'review_finding')).toBe(false);
+      // …and it is not "could not run", nor silence that reads as a clean review.
+      const account = events.find(
+        (event) => event.type === 'warning' && event.text.startsWith('Partial review:'),
+      );
+      expect(account).toBeDefined();
+      const text = account?.type === 'warning' ? account.text : '';
+      expect(text).toContain(`not checked: ${lastRequestId} (`);
+      expect(text).toMatch(/moments not checked were not perceptually checked/);
+      expect(text).not.toMatch(/could not run/i);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('raises what the checked moments found, and still names what went unchecked', async () => {
+      const events = await collect(
+        new Orchestrator(new MockProvider()).streamEditorRun(
+          input,
+          { ...options, runId: 'partial_failing_review' },
+          { route: 'edit' },
+          { temporalEvidence: recordingLast(partialEvidence({ blackOpening: true })) },
+        ),
+      );
+      // The mock edit plans several moments, so at least one is checked and one is not.
+      expect(plannedRequests).toBeGreaterThan(1);
+      const finding = events.find((event) => event.type === 'review_finding');
+      expect(finding?.type).toBe('review_finding');
+      if (finding?.type !== 'review_finding') return;
+      expect(finding.detail).toMatch(/black/i);
+      expect(finding.detail).toContain(`not checked: ${lastRequestId} (`);
+      expect(finding.detail).not.toMatch(/Evidence was not returned/);
+    });
   });
 
   it('says it is checking while the run waits on a review, before it reports completed', async () => {

@@ -74,6 +74,8 @@ import {
   type ConductorState,
   type ConductorStep,
   type Emitter,
+  MAX_VERIFY_FIX_TURNS,
+  PLAN_STEP_HEADROOM,
   initialConductorState,
   onApprovalResult,
   onCommand,
@@ -82,6 +84,7 @@ import {
   onTurnResult,
   onVerifyResult,
 } from './conductor.js';
+import { MODEL_PLAN_MAX_ITEMS, openPlanItems } from './model-plan.js';
 
 const log = createLogger('ai-sdk:kernel:agent-graph');
 
@@ -157,6 +160,8 @@ function logDecision(step: Step): void {
     applied: state.cumulativeOps.length,
     rejected: state.rejectedOpCount,
     stallStreak: state.stallStreak,
+    // How much of the model's own plan is still open — the input to the done rule.
+    ...(state.modelPlan ? { planOpen: openPlanItems(state.modelPlan).length } : {}),
     runUsd: state.runUsd,
     runElapsedMs: state.runElapsedMs,
     said: saidTexts(step.events),
@@ -217,12 +222,18 @@ export interface ConductorHandlers {
 
 /**
  * A drafted plan may widen a deliberately tiny requested step cap to fit its plan +
- * headroom. Thirty-two is safely above that plan-derived floor, while normal runs use
- * the conductor's actual configured maxSteps. Each effect costs at most select + execute;
- * the fixed overhead covers dispatch, plan/resume/approval, verify, finalize, and END.
- * The graph is therefore a runaway backstop that always sits outside conductor policy.
+ * headroom, and so may the model's own plan (`update_plan`, up to
+ * {@link MODEL_PLAN_MAX_ITEMS} items) — mid-run, after this limit was fixed. The floor is
+ * therefore the widest cap a plan can reach plus the verification fix turns, so a widened
+ * run is always stopped by the conductor's `maxSteps` and never by this backstop; normal
+ * runs use the conductor's actual configured maxSteps. Each effect costs at most select +
+ * execute; the fixed overhead covers dispatch, plan/resume/approval, verify, finalize, and
+ * END. The graph is therefore a runaway backstop that always sits outside conductor policy.
  */
-const MIN_GRAPH_STEP_BUDGET = 32;
+const MIN_GRAPH_STEP_BUDGET = Math.max(
+  32,
+  MODEL_PLAN_MAX_ITEMS + PLAN_STEP_HEADROOM + MAX_VERIFY_FIX_TURNS,
+);
 const GRAPH_NODE_OVERHEAD = 16;
 
 export function graphRecursionLimit(command: Command): number {

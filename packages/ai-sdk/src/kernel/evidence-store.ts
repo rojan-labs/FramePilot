@@ -235,6 +235,29 @@ export interface EvidenceEntry {
   readonly data: unknown;
 }
 
+/**
+ * What a handle was, after the run retired it.
+ *
+ * Still small by design (see {@link EvidenceStore}'s `expired`): the payload itself is NOT
+ * kept, only what a refusal needs to name the reading and the remedy.
+ */
+export interface ExpiredEvidence {
+  readonly id: string;
+  readonly descriptor: string;
+  readonly source: string;
+  /** The clip the payload was about, when it named exactly one (`clipId`). */
+  readonly clipId?: string;
+  /** What retired it: the tool whose applied edit did, else the applied operation types. */
+  readonly staledBy: string;
+}
+
+/** The clip a payload is about, when it carries a top-level `clipId` string. */
+function subjectClipOf(data: unknown): string | undefined {
+  if (typeof data !== 'object' || data === null) return undefined;
+  const clipId = (data as { clipId?: unknown }).clipId;
+  return typeof clipId === 'string' && clipId !== '' ? clipId : undefined;
+}
+
 /** Render a payload as the text the model reads. Objects become compact JSON. */
 function render(data: unknown): string {
   if (typeof data === 'string') return data;
@@ -358,10 +381,7 @@ export class EvidenceStore {
    *
    * Two small strings per expired read, bounded by the run's own read count.
    */
-  private readonly expired = new Map<
-    string,
-    { readonly descriptor: string; readonly source: string }
-  >();
+  private readonly expired = new Map<string, ExpiredEvidence>();
   private counter = 0;
 
   /** Everything currently held, in insertion order. */
@@ -388,10 +408,20 @@ export class EvidenceStore {
    * `undefined` distinguishes a handle that never existed — which is the model's mistake —
    * from one that expired, which is the run's own doing and has a specific remedy.
    */
-  public expiredHandle(
-    id: string,
-  ): { readonly descriptor: string; readonly source: string } | undefined {
+  public expiredHandle(id: string): ExpiredEvidence | undefined {
     return this.expired.get(id);
+  }
+
+  /**
+   * Every handle the run has retired, oldest first.
+   *
+   * A tool that looks readings up by SUBJECT rather than by handle (the solved colour tools
+   * find a clip's `measure_color` reading themselves) needs this to tell "measured, then an
+   * edit made it untrue" from "never measured". Run 11 got the second sentence for the
+   * first case and was sent to re-measure clips it believed it had just measured.
+   */
+  public expiredEntries(): readonly ExpiredEvidence[] {
+    return [...this.expired.values()];
   }
 
   /**
@@ -478,7 +508,10 @@ export class EvidenceStore {
    * — a mutating tool that legitimately had nothing to do — now correctly invalidates
    * nothing, because nothing was applied.
    */
-  public invalidate(appliedOperationTypes: readonly string[]): number {
+  public invalidate(appliedOperationTypes: readonly string[], cause?: string): number {
+    // Named by the TOOL when the caller knows it: "measured before normalize_exposure changed
+    // the picture" is a remedy the model can act on; the operation types are the fallback.
+    const staledBy = cause ?? [...new Set(appliedOperationTypes)].join(', ');
     const transcriptRewritten = appliedOperationTypes.includes(TRANSCRIPT_OPERATION);
     const binChanged = appliedOperationTypes.some((type) => ASSET_OPERATIONS.has(type));
     const changedFacets = new Set(appliedOperationTypes.flatMap(facetsChangedBy));
@@ -493,7 +526,14 @@ export class EvidenceStore {
       if (!stale) continue;
       this.byKey.delete(entry.key);
       this.byId.delete(entry.id);
-      this.expired.set(entry.id, { descriptor: entry.descriptor, source: entry.source });
+      const clipId = subjectClipOf(entry.data);
+      this.expired.set(entry.id, {
+        id: entry.id,
+        descriptor: entry.descriptor,
+        source: entry.source,
+        ...(clipId === undefined ? {} : { clipId }),
+        staledBy,
+      });
       dropped += 1;
     }
     if (dropped > 0) {

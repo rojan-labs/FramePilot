@@ -215,6 +215,11 @@ class AddClipArgs(BaseModel):
     # source end from the timeline span so untrusted model arithmetic cannot violate
     # the clip speed/duration invariant.
     source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+    # The geometry of a layered look (picture-in-picture, a split-screen panel, a blurred-fill
+    # foreground): a rect of the source, or ``null`` for the whole picture fitted inside the
+    # frame. Absent and ``null`` differ, so the handler reads ``model_fields_set``. Mirrors the
+    # TS ``add_clip`` ``crop``.
+    crop: CropRect | None = None
 
 
 class AddClipsArgs(BaseModel):
@@ -271,7 +276,80 @@ BundledFontFamily = Annotated[
 ]
 
 
-class AddTextLayerArgs(BaseModel):
+#: The heaviest text overlay stroke an arg may ask for, sixteenths of the size (TS
+#: ``MAX_TEXT_OUTLINE_WIDTH``).
+_MAX_TEXT_OUTLINE_WIDTH = 8.0
+#: The caption tools' em ranges (TS ``caption-style-facts.ts``).
+_MAX_CAPTION_LETTER_SPACING = 0.6
+_MIN_CAPTION_LETTER_SPACING = -0.2
+_MAX_CAPTION_EM_VALUE = 3.0
+_MAX_CAPTION_SHADOW_OFFSET = 0.5
+
+
+class TextShadowArg(BaseModel):
+    """A text overlay's shadow, in em of the font size (TS ``TYPOGRAPHY_ARGS.shadow``)."""
+
+    model_config = _STRICT
+    color: str = Field(min_length=1)
+    blur: float = Field(ge=0.0, le=_MAX_CAPTION_EM_VALUE)
+    offset_x: float = Field(
+        alias="offsetX", ge=-_MAX_CAPTION_SHADOW_OFFSET, le=_MAX_CAPTION_SHADOW_OFFSET
+    )
+    offset_y: float = Field(
+        alias="offsetY", ge=-_MAX_CAPTION_SHADOW_OFFSET, le=_MAX_CAPTION_SHADOW_OFFSET
+    )
+
+
+class _TextTypographyArgs(BaseModel):
+    """The typography args ``add_text_layer`` and ``set_text_style`` share (TS
+    ``TYPOGRAPHY_ARGS``): each overrides one field of the overlay's ``params.typography``.
+
+    Tracking starts at 0: until 2026-09-29 the export drew no negative tracking. Both renderers
+    draw it now (down to ``captions.MIN_LETTER_SPACING_EM``), and the catalog styles that
+    tighten carry it; opening the agent's own range to the caption tools' -0.2 moves the
+    tool's description, so it is its own change. The other bounds are
+    ``TextOverlayTypographySchema``'s where it has them.
+    """
+
+    model_config = _STRICT
+    letter_spacing: float | None = Field(
+        default=None,
+        alias="letterSpacing",
+        ge=_MIN_CAPTION_LETTER_SPACING,
+        le=_MAX_CAPTION_LETTER_SPACING,
+    )
+    font_style: Literal["normal", "italic"] | None = Field(default=None, alias="fontStyle")
+    line_height: float | None = Field(default=None, alias="lineHeight", ge=0.7, le=3.0)
+    text_transform: Literal["none", "uppercase", "lowercase"] | None = Field(
+        default=None, alias="textTransform"
+    )
+    text_opacity: float | None = Field(default=None, alias="textOpacity", ge=0.0, le=1.0)
+    outline_color: str | None = Field(default=None, alias="outlineColor", min_length=1)
+    outline_width: float | None = Field(
+        default=None, alias="outlineWidth", ge=0.0, le=_MAX_TEXT_OUTLINE_WIDTH
+    )
+    shadow: TextShadowArg | Literal["none"] | None = None
+
+    def typography_fields(self) -> dict[str, Any]:
+        """The typography args that were passed, in the project's camelCase."""
+        fields = self.model_dump(
+            by_alias=True,
+            exclude_none=True,
+            include={
+                "letter_spacing",
+                "font_style",
+                "line_height",
+                "text_transform",
+                "text_opacity",
+                "outline_color",
+                "outline_width",
+                "shadow",
+            },
+        )
+        return fields
+
+
+class AddTextLayerArgs(_TextTypographyArgs):
     """Text overlay plus its styling.
 
     The style keys mirror the web editor's ``TextOverlayParams`` exactly, because they end
@@ -298,7 +376,7 @@ class AddTextLayerArgs(BaseModel):
     font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
 
 
-class SetTextStyleArgs(BaseModel):
+class SetTextStyleArgs(_TextTypographyArgs):
     """Restyle one text overlay; mirrors the TS ``set_text_style`` schema."""
 
     model_config = _STRICT
@@ -523,10 +601,10 @@ class ReframePanArgs(BaseModel):
 class ApplyColorGradeArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
-    # Accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs` refuses it
-    # with the sentence that says where transforms actually come from. Mirrors
-    # `domain-tools/color.ts`.
-    type: Literal["color_grade", "lut", "transform"] | None = None
+    # `transform` is accepted here, not advertised: `contract_overrides._ApplyColorGradeArgs`
+    # refuses it with the sentence that says where transforms actually come from. `blur` is
+    # the whole-clip blur (params.amount). Mirrors `domain-tools/color.ts`.
+    type: Literal["color_grade", "lut", "blur", "transform"] | None = None
     params: dict[str, Any] | None = None
 
 
@@ -1165,6 +1243,19 @@ class DetectScenesArgs(BaseModel):
     threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class GetFrameSourceArgs(BaseModel):
+    """One tile of a ``get_frame { sources }`` sheet: a source file, at a moment in it."""
+
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId", min_length=1)
+    source_seconds: float | None = Field(
+        default=None,
+        alias="sourceSeconds",
+        ge=0.0,
+        description="The moment in this source (default: its middle).",
+    )
+
+
 class GetFrameArgs(BaseModel):
     """Render ONE composited frame of the timeline and look at it (vision).
 
@@ -1195,13 +1286,23 @@ class GetFrameArgs(BaseModel):
         ge=0.0,
         description="With assetId: the moment in the SOURCE file (default its start).",
     )
+    sources: list[GetFrameSourceArgs] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=12,
+        description=(
+            "Up to 12 media files as shot, tiled into ONE labelled image (tile 1 = the first "
+            "entry). Omit timeSeconds and assetId."
+        ),
+    )
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
 
     @model_validator(mode="after")
     def _edit_or_source(self) -> GetFrameArgs:
-        if (self.time_seconds is None) == (self.asset_id is None):
-            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        named = [value is not None for value in (self.time_seconds, self.asset_id, self.sources)]
+        if sum(named) != 1:
+            raise ValueError("get_frame takes exactly one of timeSeconds, assetId or sources.")
         if self.source_seconds is not None and self.asset_id is None:
             raise ValueError("sourceSeconds needs assetId.")
         return self
@@ -2201,7 +2302,11 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "the footage, whether a grade reads as intended. Prefer it over guessing from "
         "numbers whenever the question is about how something LOOKS. It renders through "
         "the same engine as the final export, so what you see is what will be delivered. "
-        "One frame per call, and each costs real context — grab the few moments that "
+        "To look ACROSS many sources in one call — every clip before cutting, choosing "
+        "between takes — pass sources: [{ assetId, sourceSeconds? }] (up to 12): one "
+        "labelled contact sheet, numbered in your order, each source uncropped as shot. "
+        "Then single-source get_frame for a close look at the one that matters. Each "
+        "timeline look is one frame and costs real context — grab the few moments that "
         "actually settle the question, not a sweep of the timeline.",
         kind="analysis",
         input_model=GetFrameArgs,

@@ -208,6 +208,105 @@ describe('professional_color domain tool', () => {
     ).toMatchObject({ status: 'rejected', code: 'target_unresolved' });
   });
 
+  it('grades the clips it names by id, with nothing selected', () => {
+    // Issue #138: an agent run has no selection, so "this"/"these" could not reach a shot.
+    const base = project();
+    const edited = dispatch(base, context(base, []), {
+      intent: 'correct',
+      clipIds: ['shot_b'],
+      adjustments: { exposure: 0.3 },
+    });
+    expect(edited.tracks[0]!.clips.map((clip) => clip.effects[0]?.params)).toEqual([
+      undefined,
+      { exposure: 0.3 },
+    ]);
+  });
+
+  it('matches a shot it names by id, checking the evidence against that shot', () => {
+    const base = project();
+    const evidence = new Map([
+      ['ev_b', { source: 'measure_color', data: measurement('shot_b', { luma: 0.25 }) }],
+      ['ev_a', { source: 'measure_color', data: measurement('shot_a', { luma: 0.5 }) }],
+    ]);
+    const reader = { byHandle: (id: string) => evidence.get(id) };
+    const interaction = context(base, []).interaction!;
+    const named = parseColorObjective({
+      intent: 'match_reference',
+      clipIds: ['shot_b'],
+      targetEvidenceId: 'ev_b',
+      referenceEvidenceId: 'ev_a',
+    });
+    expect(
+      resolveColorObjective({ project: base, interaction, objective: named, evidence: reader }),
+    ).toMatchObject({ status: 'resolved', commands: [{ clipId: 'shot_b' }] });
+    // The named clip is the target the evidence must measure — not whatever handle came first.
+    const mismatched = parseColorObjective({
+      intent: 'match_reference',
+      clipIds: ['shot_a'],
+      targetEvidenceId: 'ev_b',
+      referenceEvidenceId: 'ev_a',
+    });
+    expect(
+      resolveColorObjective({
+        project: base,
+        interaction,
+        objective: mismatched,
+        evidence: reader,
+      }),
+    ).toMatchObject({ status: 'rejected', code: 'evidence_target_mismatch' });
+  });
+
+  it('refuses an id the project does not hold rather than guessing', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, context(base, []), {
+        intent: 'correct',
+        clipIds: ['camera_b'],
+        adjustments: { exposure: 0.3 },
+      }),
+    ).toThrow(/missing_explicit_target/);
+  });
+
+  it('says how to settle an ambiguous playhead: name the clip', () => {
+    const base = project();
+    base.timeline.tracks.push({
+      ...base.timeline.tracks[0]!,
+      id: 'v2',
+      clips: [{ ...base.timeline.tracks[0]!.clips[0]!, id: 'overlay', trackId: 'v2' }],
+    });
+    expect(() =>
+      dispatch(base, context(base, []), {
+        intent: 'correct',
+        target: 'playhead',
+        adjustments: { exposure: 0.3 },
+      }),
+    ).toThrow(/target_ambiguous: .*name the clip\(s\) you mean with clipIds/);
+  });
+
+  it('takes one named shot for a match or a group, and names clipIds for an id in target', () => {
+    const twoShots = ColorObjectiveSchema.safeParse({
+      intent: 'match_reference',
+      clipIds: ['shot_a', 'shot_b'],
+      targetEvidenceId: 'target',
+      referenceEvidenceId: 'reference',
+    });
+    expect(twoShots.success).toBe(false);
+    expect(twoShots.error!.issues[0]!.message).toContain('name one clip in clipIds');
+    const groupOfTwo = ColorObjectiveSchema.safeParse({
+      intent: 'correct',
+      clipIds: ['shot_a', 'shot_b'],
+      groupShots: true,
+      adjustments: { exposure: 0.1 },
+    });
+    expect(groupOfTwo.success).toBe(false);
+    const idInTarget = ColorObjectiveSchema.safeParse({
+      intent: 'correct',
+      target: 'shot_a',
+      adjustments: { exposure: 0.1 },
+    });
+    expect(idInTarget.error!.issues[0]!.message).toContain('pass its id in clipIds');
+  });
+
   it('schema-rejects empty, unknown, and out-of-range corrections', () => {
     expect(() => ColorObjectiveSchema.parse({ intent: 'correct', adjustments: {} })).toThrow();
     expect(() =>

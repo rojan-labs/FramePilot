@@ -1,7 +1,7 @@
 ---
 name: cinematic-storytelling
 description: Shape visual scenes around point of view, anticipation, action, reaction, consequence, motif, and emotional contrast while preserving spatial clarity.
-tools: [map_footage, describe_footage, search_visual, get_timeline, add_clip, add_clips, split_clip, trim_clip, move_clip, add_transition, get_frame]
+tools: [map_footage, describe_footage, search_visual, get_timeline, add_clip, add_clips, split_clip, trim_clip, reorder_clips, add_transitions, get_frame]
 ---
 
 # Cinematic storytelling
@@ -16,7 +16,9 @@ Narrative scenes, documentary sequences, branded films, weddings, travel, or emo
 
 ## When not to use
 
-Do not impose drama unsupported by footage or sacrifice factual/speech continuity for a stylish sequence.
+Do not impose drama unsupported by footage, sacrifice factual/speech continuity for a stylish
+sequence, or re-sequence shots the editor has already ordered — there, use it only to judge the
+moments inside each shot and the cuts between them.
 
 ## Required inputs
 

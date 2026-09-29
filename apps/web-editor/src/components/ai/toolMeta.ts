@@ -28,6 +28,7 @@ import {
   ImagePlus,
   Layers,
   Lightbulb,
+  ListChecks,
   ListX,
   Map,
   MessageCircleQuestion,
@@ -84,6 +85,9 @@ const TOOL_META: Record<string, ToolMeta> = {
   // kind of work needs. Named for what the user sees happening — the agent is
   // reaching for a specialised set — rather than for the mechanism.
   load_tools: { label: 'Load tools', Icon: Wrench },
+  // The agent's own checklist for the request (`update_plan`); the run keeps going while an
+  // item on it is open, so the row says what the editor sees change — the plan.
+  update_plan: { label: 'Update plan', Icon: ListChecks },
   // The undo half of `add_keyframes`. Named for what the editor sees happen —
   // motion coming off a clip — not for the operation that does it.
   remove_keyframes: { label: 'Remove animation', Icon: Diamond },
@@ -136,6 +140,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   track_subject_automatically: { label: 'Track subject automatically', Icon: Scan },
   detect_subjects: { label: 'Detect subjects', Icon: Scan },
   professional_audio: { label: 'Mix audio', Icon: AudioLines },
+  measure_loudness: { label: 'Measure loudness', Icon: AudioLines },
 
   // Masking (plan 11). Labels are the editor's words for the request, not the mechanism.
   find_mask_targets: { label: 'Find what to mask', Icon: Scan },
@@ -180,6 +185,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   add_keyframes: { label: 'Add keyframes', Icon: SlidersHorizontal },
   punch_in: { label: 'Punch in', Icon: ZoomIn },
   reframe_pan: { label: 'Reframe', Icon: ZoomIn },
+  reframe_to_subject: { label: 'Reframe to subject', Icon: Scan },
   apply_color_grade: { label: 'Color grade', Icon: Palette },
   adjust_audio: { label: 'Adjust audio', Icon: Volume2 },
   add_transition: { label: 'Add transition', Icon: ArrowLeftRight },

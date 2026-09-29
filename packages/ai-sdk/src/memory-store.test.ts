@@ -196,10 +196,11 @@ describe("summarizeMemory is bounded in the project's age (Workstream E)", () =>
     expect(reason).not.toMatch(/word\d+[a-z]/);
   });
 
-  it("renders an auto-applied edit as an earlier run's own words, never as the editor's acceptance", () => {
+  it("keeps an earlier run's auto-applied narration out of the model's memory entirely", () => {
     // Run 6cb12e30: "…since the default face is the only one available" — an earlier run's
-    // auto-applied narration — sat under "Previously accepted edits", and the next run told
-    // the editor "you chose to keep the default font".
+    // auto-applied narration — was read as the editor's decision ("you chose to keep the
+    // default font"). Labelled as an earlier run's words, it was STILL followed: a later run
+    // planned "Typography (default face, per earlier decision)" against a brief naming fonts.
     const project = recordAccepted(
       recordAccepted(makeProject(), patch('p1', 'Tightened the intro.')),
       patch('p2', "I'm reworking the titles, since the default face is the only one available."),
@@ -209,10 +210,8 @@ describe("summarizeMemory is bounded in the project's age (Workstream E)", () =>
     expect(line(summary, 'Previously accepted')).toBe(
       'Previously accepted edits: Tightened the intro.',
     );
-    const automatic = line(summary, 'Applied automatically by earlier AI runs');
-    expect(automatic).toContain("not the editor's words");
-    expect(automatic).toContain('default face');
-    expect(line(summary, 'Previously accepted')).not.toContain('default face');
+    expect(summary).not.toContain('default face');
+    expect(summary).not.toContain('Applied automatically');
   });
 
   it('drops an empty reason rather than rendering a blank entry', () => {

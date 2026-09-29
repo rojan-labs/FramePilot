@@ -49,6 +49,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
+import { magnificationNote } from './domain-tools/magnification-note.js';
 import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
@@ -62,14 +63,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, RequestReading, ReviewResult } from './agent.js';
-import {
-  asksForPreview,
-  asksForRenderedFile,
-  asksToRememberPreference,
-  checkableAcceptance,
-  explicitCutawayCount,
-  statedDuration,
-} from './acceptance.js';
+import { statedDuration } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { referenceImagesBlock } from './references/images.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
@@ -130,6 +124,7 @@ import type {
   ResumeEffect,
   RunTurnEffect,
   RunVerifyEffect,
+  VerifyCheck,
 } from './kernel/conductor.js';
 import {
   type ToolDomain,
@@ -149,6 +144,7 @@ import {
   STALL_CONFIRM_TURNS,
   maxWallMsFor,
   type RepairOutcome,
+  runObjectiveText,
   type TurnCallFact,
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
@@ -164,9 +160,21 @@ import {
 import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
 import { verificationNote } from './kernel/verification-note.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
-import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
+import {
+  MODEL_PLAN_OVERFLOW_REFUSAL,
+  type ModelPlanItem,
+  describeToolDomains,
+  mergeModelPlan,
+  modelPlanEcho,
+  modelPlanObjectiveKey,
+  modelPlanSteps,
+  nextOpenItem,
+  planForContinuation,
+  planItemLabel,
+  unloadedDomainsForBlocked,
+} from './kernel/model-plan.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { withResolvedAssetId } from './catalogue-asset-id.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
@@ -188,6 +196,8 @@ import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   authoredBlackFrames,
+  describePartialTemporalReview,
+  PARTIAL_REVIEW_PREFIX,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
@@ -247,7 +257,12 @@ import {
   unknownToolNote,
   unusableHostPayload,
 } from './reliability/refusal-notes.js';
-import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
+import type {
+  AgentRunControls,
+  AskUser,
+  AskUserOption,
+  LateReviewControl,
+} from './run-controls.js';
 import type { LedgerSnapshot } from './ledger.js';
 import { indexFor } from './project-index.js';
 import { pictureFor } from './kernel/semantic-index/picture.js';
@@ -282,7 +297,6 @@ import { BUNDLED_SKILLS, skillsByName, skillsOnOffer } from './skills.js';
 import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
-import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
 import {
   flagMaskForReviewOps,
   maskingOpsFromMeasurement,
@@ -318,6 +332,33 @@ import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
+
+/**
+ * The tool context for the next call in the same step, once a call has advanced the working
+ * project. The interaction snapshot is re-stamped with it: `toolContext` rebases it once per
+ * step, so without this a second edit in one step (run-10: `adjust_audio` took the timeline
+ * @43 -> @45 before `professional_audio` ran) left every selection-authored tool after it
+ * refusing `stale_context` against a selection that still meant the same clips.
+ *
+ * @param ctx - The context the previous call ran with.
+ * @param project - The project that call produced.
+ * @returns `ctx` on `project`, its interaction rebased when the selection is intact.
+ */
+function advanceToolContext(ctx: ToolContext, project: Project): ToolContext {
+  return {
+    ...ctx,
+    project,
+    ...(ctx.interaction
+      ? {
+          interaction: rebaseEditorInteractionContext(
+            ctx.interaction,
+            project,
+            ctx.projectRevision,
+          ),
+        }
+      : {}),
+  };
+}
 
 export type { EditResult } from './assemble.js';
 
@@ -581,6 +622,23 @@ const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 /** How many recent step notes the agent context keeps verbatim before digesting (B4). */
 const AGENT_LOG_RECENT = 6;
 
+/**
+ * The `update_plan` echo's account of what a blocked item has not yet tried: the tool
+ * domains this run never loaded, each with its summary (`kernel/model-plan.ts`). Empty when
+ * nothing is blocked or every domain is loaded.
+ */
+function unloadedDomainsNote(
+  items: readonly ModelPlanItem[],
+  loaded: ReadonlySet<ToolDomain>,
+): string {
+  const unloaded = unloadedDomainsForBlocked(items, loaded);
+  if (unloaded.length === 0) return '';
+  return (
+    ` Before leaving an item blocked: you have not loaded ${describeToolDomains(unloaded)}. ` +
+    'Blocked is right only when none of these can do it — load_tools, then try.'
+  );
+}
+
 /** A tool's picture as its card carries it: the bytes and what they show, nothing else. */
 function toolResultImage(image: AiImage): ToolResultImage {
   return {
@@ -682,6 +740,66 @@ const MAX_UNUSABLE_TURN_RETRIES = 1;
  * indexing.
  */
 const MAX_LEDGER_REFRESHES = 3;
+
+/**
+ * How long a run that has just said it is done waits for the review of its own edits.
+ *
+ * Reviews render frames through the engine, so the review of the LAST edit usually settles
+ * after the model's final reply; with no wait it could only be reported, never fixed (run
+ * d8d2e445). A minute covers a typical review batch without letting one stalled render hold
+ * a finished run open indefinitely. Anything still pending after it is reported at the end
+ * of the run exactly as before (ADR 0187). The run's Stop signal and wall-clock budget cut
+ * the wait short too.
+ */
+export const LATE_REVIEW_WAIT_MS = 60_000;
+
+/**
+ * Bin assets the timeline references, as ids. Synthetic clip ids (a caption, a title) that
+ * name no bin asset are left out: they can never have ledger rows.
+ */
+function placedBinAssetIds(project: Project): Set<string> {
+  const inBin = new Set(project.assets.map((asset) => asset.id));
+  const placed = new Set<string>();
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.assetId && inBin.has(clip.assetId)) placed.add(clip.assetId);
+    }
+  }
+  return placed;
+}
+
+/**
+ * Which placed assets a mid-run ledger refresh should ask about (VU8).
+ *
+ * Two kinds of asset, both on the timeline and both with no rows in the current snapshot:
+ *
+ * - footage the run ACQUIRED — it may still be indexing, so it is asked about again at later
+ *   boundaries until it has rows (the refresh cap bounds that);
+ * - any other bin asset the host has never been asked about. The host reads the ledger once,
+ *   at run start, scoped to what the timeline references then — so a run that STARTS on an
+ *   empty timeline (run d8d2e445) had no picture facts for the footage it went on to place
+ *   from the bin: `apply_look` found every clip unmeasured and the model abandoned colour.
+ *   Those assets were imported before the run and are usually long measured, so one ask each
+ *   is enough; asking again every turn would spend the prompt cache on an asset whose
+ *   answer has not changed.
+ *
+ * @param placed - Bin assets the timeline references now (`placedBinAssetIds`).
+ * @param ledger - The run's current snapshot.
+ * @param acquired - Assets this run put in the bin.
+ * @param asked - Assets the host has already been asked about (seeded with the run start's).
+ * @returns The asset ids to refresh, in timeline order; empty when nothing needs a re-read.
+ */
+function ledgerRefreshCandidates(
+  placed: ReadonlySet<string>,
+  ledger: LedgerSnapshot | null | undefined,
+  acquired: ReadonlySet<string>,
+  asked: ReadonlySet<string>,
+): string[] {
+  const measured = new Set((ledger?.shots ?? []).map((shot) => shot.assetId));
+  return [...placed].filter(
+    (assetId) => !measured.has(assetId) && (acquired.has(assetId) || !asked.has(assetId)),
+  );
+}
 
 /**
  * Picture clips this run has actually put on the timeline.
@@ -1348,7 +1466,7 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
  * stored it for four of its patches, where it told the next run nothing).
  */
 function operationsReason(ops: readonly AnyOperation[], names: ProjectNames): string {
-  const lines = [...new Set(ops.map((op) => operationLine(op, names)))];
+  const lines = [...new Set(receiptLines(ops, names).map((line) => line.text))];
   if (lines.length === 0) return 'Agent step';
   const shown = lines.slice(0, OPERATIONS_REASON_LINES).join('; ');
   const more = lines.length - OPERATIONS_REASON_LINES;
@@ -1453,25 +1571,80 @@ export function captionStyleNote(project: Project, trackId: unknown): string {
  */
 const NOTE_OPERATION_LINES = 8;
 
+/** One receipt line and the operations it stands for. */
+interface ReceiptLine {
+  readonly text: string;
+  readonly ops: readonly AnyOperation[];
+}
+
+/**
+ * Operation lines, with the same line from DIFFERENT clips said once with a clip count.
+ *
+ * A clip is labelled by its source file, so clips cut from one file share a label. Harness
+ * run 11's `normalize_exposure` graded three different clips of `passenger.mp4` and its
+ * receipt read "Applied color grade passenger.mp4" three times — which says one clip was
+ * graded three times. "Applied color grade passenger.mp4 (3 clips)" says what happened.
+ * Two operations on the SAME clip keep their own lines: that really is the clip twice.
+ */
+function receiptLines(ops: readonly AnyOperation[], names?: ProjectNames): ReceiptLine[] {
+  const lines = ops.map((op) => ({ op, text: operationLine(op, names), clipId: clipIdOf(op) }));
+  const clipsByText = new Map<string, Set<string>>();
+  for (const line of lines) {
+    if (line.clipId === undefined) continue;
+    const clips = clipsByText.get(line.text) ?? new Set<string>();
+    clips.add(line.clipId);
+    clipsByText.set(line.text, clips);
+  }
+  const folded = new Map<string, AnyOperation[]>();
+  const receipt: ReceiptLine[] = [];
+  for (const line of lines) {
+    const clipCount = clipsByText.get(line.text)?.size ?? 0;
+    if (clipCount < 2) {
+      receipt.push({ text: line.text, ops: [line.op] });
+      continue;
+    }
+    const group = folded.get(line.text);
+    if (group !== undefined) {
+      group.push(line.op);
+      continue;
+    }
+    const ops: AnyOperation[] = [line.op];
+    folded.set(line.text, ops);
+    receipt.push({ text: `${line.text} (${String(clipCount)} clips)`, ops });
+  }
+  return receipt;
+}
+
+/** The clip an operation targets, when it names exactly one. */
+function clipIdOf(op: AnyOperation): string | undefined {
+  const clipId = (op as { clipId?: unknown }).clipId;
+  return typeof clipId === 'string' ? clipId : undefined;
+}
+
 export function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
   call?: { readonly name: string; readonly arguments: unknown },
 ): string {
-  const lines = ops.map((op) => operationLine(op, names));
+  const lines = receiptLines(ops, names);
   let outcome: string;
   if (lines.length <= NOTE_OPERATION_LINES) {
-    outcome = lines.join('; ');
+    outcome = lines.map((line) => line.text).join('; ');
   } else {
     // The rest by ACTION, so a re-caption reads "Added captions ×694, Deleted range ×700"
     // rather than as a wall of cue times.
     const rest = new Map<string, number>();
-    for (const op of ops.slice(NOTE_OPERATION_LINES)) {
+    const unshown = lines.slice(NOTE_OPERATION_LINES).flatMap((line) => line.ops);
+    for (const op of unshown) {
       const action = describeOperation(op, names).action;
       rest.set(action, (rest.get(action) ?? 0) + 1);
     }
     const tally = [...rest.entries()].map(([action, n]) => `${action} ×${String(n)}`).join(', ');
-    outcome = `${lines.slice(0, NOTE_OPERATION_LINES).join('; ')}; …and ${String(ops.length - NOTE_OPERATION_LINES)} more (${tally})`;
+    const shown = lines
+      .slice(0, NOTE_OPERATION_LINES)
+      .map((line) => line.text)
+      .join('; ');
+    outcome = `${shown}; …and ${String(unshown.length)} more (${tally})`;
   }
   if (!call || outcome === '') return outcome;
   if (ops.some((op) => op.type === call.name)) return outcome;
@@ -1769,6 +1942,12 @@ export function callNoveltyKey(call: ToolCall): string {
   // and its `start`/`end` say where, not how closely to look. Dropped as tuning arguments, the
   // same emoji at two moments keyed as one call and the second placement "learned nothing".
   if (call.name === 'add_sticker') return `${call.name}:${identifyingArgs(call, NO_ARG_KEYS)}`;
+  // The model's plan tells the run nothing about the footage or the timeline — the model
+  // wrote it. Keyed on the name alone, so rewriting the plan never reads as LEARNING (only
+  // the run's first call is ever first-seen) and a run that does nothing but re-plan still
+  // reaches the stall guard. What a plan change DOES buy is decided by the conductor's
+  // done rule, which reads the plan itself (`kernel/model-plan.ts#modelPlanDigest`).
+  if (call.name === 'update_plan') return call.name;
   if (tool?.kind === 'analysis') {
     const assetId = (call.arguments as { assetId?: unknown }).assetId;
     // An asseted analysis keys on the asset alone — see the doc above: re-running
@@ -1952,6 +2131,13 @@ interface HostCallContext {
    */
   readonly loadedToolDomains: Set<ToolDomain>;
   /**
+   * The model's plan as the run holds it at this call: the conductor's list when the turn
+   * began, updated by each `update_plan` call the turn makes (they are serial). An update is
+   * merged into it rather than replacing it (`kernel/model-plan.ts#mergeModelPlan`, AL44), so
+   * the handler has to know what the plan said. Absent on surfaces that hold no plan.
+   */
+  readonly modelPlan?: { items: readonly ModelPlanItem[] | undefined };
+  /**
    * Resolves the model's own questions (P12). Optional on purpose: only a surface with a
    * live editor in front of it can answer, so the non-streaming paths leave it out and
    * `ask_user` degrades honestly rather than inventing what the editor "said".
@@ -2089,6 +2275,13 @@ interface AgentCallOutcome {
    * as real image content. Never enters `note` — see `HostToolOutcome.images`.
    */
   images?: readonly AiImage[];
+  /**
+   * The plan this `update_plan` call recorded (`kernel/model-plan.ts`). Carried out of the
+   * call rather than written to a ledger here: the plan belongs to the conductor, which
+   * decides from it whether a reply ends the run, so `executeToolCalls` shows it to the
+   * editor and hands the turn's last one to the reducer.
+   */
+  modelPlan?: readonly ModelPlanItem[];
 }
 
 /**
@@ -2190,7 +2383,7 @@ export function arrangementLine(project: Project): string {
       // Same words `get_timeline_summary`'s `hiddenBehindPicture` flag stands for, so the
       // constraint the run reads here and the answer it gets from the tool are one rule.
       const noRoom = blocked.has(track.id)
-        ? ` — hidden behind picture 0–${round2(end)}s (a full-frame clip added here lands on a new front layer)`
+        ? ` — hidden behind picture 0–${round2(end)}s (a clip added here lands on a new front layer)`
         : '';
       // The mix role is part of the arrangement: it is what `professional_audio` ducks
       // by, and a run that cannot see it re-labels the same track every turn.
@@ -2410,15 +2603,47 @@ function catalogDigest(
   const head = `${String(obj.returned ?? entries.length)} of ${String(
     obj.matched ?? entries.length,
   )} matching ${noun}`;
+  // One line per entry, under its category: the id, its default length and what it looks
+  // like. Ids alone were not enough to choose with — run d8d2e445 spent a `recall_evidence`
+  // on each of its two discover results just to read the descriptions and lengths this
+  // digest had dropped. Params stay in the payload (and in `recall_evidence`): they are what
+  // a SECOND look is for, once an entry has been chosen.
   const byCategory = new Map<string, string[]>();
   for (const entry of entries) {
     const category = String(entry.category ?? 'other');
-    byCategory.set(category, [...(byCategory.get(category) ?? []), String(entry[idField])]);
+    byCategory.set(category, [
+      ...(byCategory.get(category) ?? []),
+      catalogEntryLine(entry, idField),
+    ]);
   }
   return [
     head,
-    ...[...byCategory.entries()].map(([category, ids]) => `${category}: ${ids.join(', ')}`),
+    ...[...byCategory.entries()].flatMap(([category, lines]) => [`${category}:`, ...lines]),
   ].join('\n');
+}
+
+/** Longest catalogue description a digest line carries; the catalogue's own run ≤ ~90. */
+const MAX_CATALOG_DESCRIPTION_CHARS = 90;
+
+/** `- id (default 2s) — description`, omitting whichever part the entry does not carry. */
+function catalogEntryLine(entry: Record<string, unknown>, idField: string): string {
+  const duration =
+    typeof entry.defaultDuration === 'number' && entry.defaultDuration > 0
+      ? ` (default ${round3(entry.defaultDuration)}s)`
+      : '';
+  const description =
+    typeof entry.description === 'string' && entry.description.trim() !== ''
+      ? ` — ${boundedDescription(entry.description.trim())}`
+      : '';
+  return `- ${String(entry[idField])}${duration}${description}`;
+}
+
+/** Cut at the last word boundary within the cap, so a line never ends mid-word. */
+function boundedDescription(text: string): string {
+  if (text.length <= MAX_CATALOG_DESCRIPTION_CHARS) return text;
+  const cut = text.slice(0, MAX_CATALOG_DESCRIPTION_CHARS - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,;:.]+$/, '')}…`;
 }
 
 /**
@@ -3048,7 +3273,7 @@ export function summarizeReadResult(
             // a run that read one plans against a constraint the other never mentioned.
           }${
             t.hiddenBehindPicture === true
-              ? ` — hidden behind picture 0–${duration} (a full-frame clip added here lands on a new front layer)`
+              ? ` — hidden behind picture 0–${duration} (a clip added here lands on a new front layer)`
               : ''
           }`,
         'tracks',
@@ -3466,6 +3691,7 @@ export function summarizeReadResult(
       );
     }
     case 'check_caption_legibility':
+    case 'measure_loudness':
     case 'measure_subject': {
       // Geometry the model places text by: the host already wrote it as lines (head, face
       // band, width per band, the title answer). A JSON slice would cut the band list and
@@ -3952,10 +4178,6 @@ export class Orchestrator {
   }
 
   private toolContext(input: ContextInput): ToolContext {
-    // The cutaway cap the brief states, so the placement tools can hold the run to it
-    // (`domain-tools/timeline.ts`). Read here, once, from the same reader the Critic uses.
-    const objective = deriveObjectiveText(input.userPrompt, input.history);
-    const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
       // What the EDITOR wrote — not the model, not a tool. It is the one source two masking
@@ -3966,7 +4188,6 @@ export class Orchestrator {
       // (masking/candidate-id.ts), because the sidebar picker writes the id into one.
       userNumbers: geometryNumbersIn(input.userPrompt),
       userPickedCandidateIds: candidateIdsIn(editorWords(input)),
-      ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(this.packagedStickers ? { packagedStickers: true } : {}),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
@@ -4068,28 +4289,11 @@ export class Orchestrator {
      */
     evidence?: EvidenceStore,
   ): CritiqueOptions {
-    // What the run is actually being asked for, not what was typed last. "continue from
-    // here" carries no duration, no shot count and no coverage — deriving acceptance from
-    // it discarded the 50-clip brief it was nudging, so a continuation's self-check had
-    // nothing left to settle. `deriveObjectiveText` already owns this resolution for the
-    // run's objective; the Critic reads the same answer so criterion and check cannot be
-    // about two different requests.
-    // When the command reader ran, its reading settles both: which request this is, and the
-    // finished length it states (`kernel/command-classifier.ts#DeliverableLength`).
-    const objectiveText =
-      options.requestReading?.objectiveText ?? deriveObjectiveText(input.userPrompt, input.history);
     // A request that stated a RANGE ("20–35 seconds") also stated its own tolerance; using
     // the 2s default over the range's midpoint would fail a 34-second cut the brief allowed.
     const stated = statedDuration(options);
     const durationTargetSeconds = stated?.seconds;
     const durationToleranceSeconds = stated?.toleranceSeconds;
-    // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
-    // reading is recorded on the run's objective, so the criterion the ledger reports against
-    // and the check that settles it can never be two different things.
-    const { minShotCount, coverage, maxStockCutaways, elements } = checkableAcceptance(
-      objectiveText,
-      stated,
-    );
     // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
     // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
     // a target it never had to restate, and the check the run is graded by and the target
@@ -4100,21 +4304,14 @@ export class Orchestrator {
     const medianShotSource = directives.applied.find((c) => c.line.startsWith('Pacing:'));
     return {
       userPrompt: input.userPrompt,
-      // The resolved request, so `checkShotCount` can tell "no count was asked for" apart
-      // from "a count was asked for and the reader missed it" (see `acceptance.ts`).
-      request: objectiveText,
       ...(producedChanges !== undefined ? { producedChanges } : {}),
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
-      ...(minShotCount !== undefined ? { minShotCount } : {}),
-      ...(maxStockCutaways !== undefined ? { maxStockCutaways } : {}),
       ...(medianShotTargetSeconds !== undefined ? { medianShotTargetSeconds } : {}),
       ...(medianShotToleranceSeconds !== undefined ? { medianShotToleranceSeconds } : {}),
       ...(medianShotSource !== undefined
         ? { medianShotSource: `${medianShotSource.profileId}: ${medianShotSource.line}` }
         : {}),
-      ...(coverage !== undefined ? { coverage } : {}),
-      ...(elements !== undefined ? { requiredElements: elements } : {}),
       ...(options.targetPlatform !== undefined ? { targetPlatform: options.targetPlatform } : {}),
       ...(options.render !== undefined ? { render: options.render } : {}),
       ...(evidence ? measuredSilences(evidence) : {}),
@@ -4377,6 +4574,9 @@ export class Orchestrator {
           effect === 'mutation' ||
           tool.kind === 'ask' ||
           tool.name === 'load_tools' ||
+          // Marking an item done, or blocked with the reason, is how a run that has done
+          // what it can says so — and the loop keeps going while an item is open.
+          tool.name === 'update_plan' ||
           tool.name === 'recall_evidence' ||
           EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
           toolRole(tool.name, tool.mutates) === 'sourcing'
@@ -4399,6 +4599,10 @@ export class Orchestrator {
       // project can always search) and released by the first successful placement.
       if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
+      // A plan is what an agent RUN is held to: its conductor continues while an item is
+      // open. A question turn has no conductor, so the call would draw a checklist nothing
+      // honours — and bill its schema on every question.
+      if (questionScope !== undefined && tool.name === 'update_plan') return false;
       // Progressive disclosure. The core set plus whatever this run has asked for; see
       // `tool-domains.ts` for the measurement that made this necessary. Applied last so
       // every narrowing above still holds — a domain being loaded never re-admits a tool
@@ -4604,6 +4808,18 @@ export class Orchestrator {
      * an empty block rather than a wrong one.
      */
     agentOptions: AgentOptions = {},
+    /**
+     * The plan the model wrote with `update_plan`, which the conductor holds the run to.
+     * Shown in the briefing so the model sees the list it must keep current — it replaces
+     * the whole list on every call. Absent before the model writes one.
+     */
+    modelPlan?: readonly ModelPlanItem[],
+    /**
+     * The self-check advisories an advisory fix turn exists to hear (AL37). They are not in
+     * the briefing's VERIFIED section — that lists failures, and these are not — so the fix
+     * block states them itself. Absent on every other turn.
+     */
+    advisories?: readonly VerifyCheck[],
   ): {
     readonly messages: AiMessage[];
     /**
@@ -4696,7 +4912,7 @@ export class Orchestrator {
     const steeringBlock = agentSteeringBlock(steeringMessage);
     const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
     // P4.3: a run in the `repair` stage is on a bounded verification fix turn.
-    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair');
+    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair', advisories);
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
@@ -4714,6 +4930,7 @@ export class Orchestrator {
             this.critiqueOptions(input, agentOptions, true),
             input.project,
           ),
+          modelPlan,
         )
       : '';
     const turnMessage: AiMessage = {
@@ -4961,9 +5178,17 @@ export class Orchestrator {
       // next run asks again — or worse, proceeds on its own guess: in the captured session
       // the editor chose the vertical framing in answer to this very question, and the
       // following run rebuilt the montage with no crop at all.
+      //
+      // The question is the ASSISTANT's words, and describes the tools as they were then —
+      // desktop run 88c8b27d read a stored "text overlays can't take a font family" (true on
+      // 2026-09-28, false a day later) as the editor's decision, and set a brief that named
+      // Playfair and Inter in the default face. Only the answer is the editor's, and it
+      // settles that question, not the next request.
       host.rememberDecision?.({
-        title: `The editor answered: ${parsed.question}`,
-        body: `They said: ${answerText}. Follow this on later turns unless they change it.`,
+        title: `The assistant asked: ${parsed.question}`,
+        body:
+          `The editor answered: ${answerText}. That settles this question until they say ` +
+          'otherwise; a later request that asks for something else is them changing it.',
       });
       return {
         ops: [],
@@ -5133,7 +5358,10 @@ export class Orchestrator {
         /* v8 ignore stop */
         // The transcript itself was just rewritten, so transcript-derived evidence is
         // genuinely stale — the one case where source-material knowledge does not survive.
-        host.evidence?.invalidate(ops.map((op) => op.type));
+        host.evidence?.invalidate(
+          ops.map((op) => op.type),
+          call.name,
+        );
         return {
           ops,
           note: outcome.summary,
@@ -5335,7 +5563,8 @@ export class Orchestrator {
           ops,
           note:
             `${outcome.summary} Placed as clip "${placed.clipId}" on ${placed.trackId} from ` +
-            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.`,
+            `${placed.start.toFixed(1)}s to ${placed.end.toFixed(1)}s. Stickers need no credit.` +
+            (placed.safeAreaNote === undefined ? '' : ` ${placed.safeAreaNote}`),
           summary: outcome.summary,
           status: 'completed',
           project: applyProjectPatch(ctx.project, probe.patch),
@@ -5369,22 +5598,6 @@ export class Orchestrator {
             `not downloaded again. Place it with add_clip (assetId "${stockAsset.id}"), ` +
             `or search for a different one.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
-        }
-        // The brief's cutaway cap, before a download becomes a placement (the download
-        // itself is fine: it lands in the bin, where the editor can still choose it).
-        const capNote =
-          parsed.data.atSeconds === undefined ? null : stockCutawayCapRefusal(ctx, stockAsset.id);
-        if (capNote !== null) {
-          const note = `Refused "add_stock": ${capNote}`;
-          return {
-            ops: [],
-            note,
-            summary: note,
-            status: 'failed',
-            data: capNote,
-            deterministicFailure: true,
-            rejectedOpCount: 1,
-          };
         }
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {
@@ -5751,7 +5964,7 @@ export class Orchestrator {
             ops: [],
             note: `${desc} → ${
               alreadyLoaded
-                ? 'already loaded earlier this run — its playbook is already in the Skills section of your context; follow it now rather than loading it again.'
+                ? 'already loaded earlier this run — it is already in the Skills section of your context; use it rather than loading it again.'
                 : 'loaded — its full playbook is now in the Skills section of your context.'
             }`,
             summary: desc,
@@ -5795,6 +6008,41 @@ export class Orchestrator {
             finding: `tools loaded: ${loaded.join(', ')}`,
             status: 'completed',
             data: value,
+          };
+        }
+        // The model's plan (`kernel/model-plan.ts`). Answered here, never through the read
+        // memo, for the same reason as `load_tools` above: the call's whole purpose is to
+        // change run state, and "unchanged since you last read it" is not an answer to it.
+        // The validated list rides out on the outcome; the conductor owns it from there.
+        //
+        // The call's list is MERGED into the plan, not swapped for it (AL44): an earlier item
+        // it leaves out is kept with its last status, and the echo says which. Harness run 18
+        // sent two items over a 24-item plan and the four blocked ones vanished unreported.
+        if (call.name === 'update_plan') {
+          const sent = (value as { items: readonly ModelPlanItem[] }).items;
+          const merged = mergeModelPlan(host.modelPlan?.items, sent);
+          if (merged === undefined) {
+            return {
+              ops: [],
+              note: `${desc} → ${MODEL_PLAN_OVERFLOW_REFUSAL}`,
+              summary: MODEL_PLAN_OVERFLOW_REFUSAL,
+              status: 'failed',
+              data: MODEL_PLAN_OVERFLOW_REFUSAL,
+              deterministicFailure: true,
+            };
+          }
+          const items = merged.items;
+          if (host.modelPlan) host.modelPlan.items = items;
+          const echo =
+            modelPlanEcho(items, merged.carried) +
+            unloadedDomainsNote(items, host.loadedToolDomains);
+          return {
+            ops: [],
+            note: `${desc} → ${echo}`,
+            summary: desc,
+            status: 'completed',
+            data: echo,
+            modelPlan: items,
           };
         }
         // Read memoization (see HostCallContext.evidence): a read is a pure function of
@@ -5865,8 +6113,13 @@ export class Orchestrator {
     // `applyProjectPatch` below are not, and a throw from any of them was being
     // relabelled as the model's bad arguments AND banked as permanent.
     let ops: AnyOperation[];
+    // ONE context for the tool and for the note that explains it. The solved colour tools
+    // find their readings in the run's evidence store; the note (`colorSolveNote`) re-derives
+    // the tool's plan, and it was handed `ctx` WITHOUT the store — so it could only ever see
+    // ledger rows and called every rendered reading "nothing has measured" (AL29).
+    const toolCtx: ToolContext = host.evidence ? { ...ctx, evidence: host.evidence } : ctx;
     try {
-      ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
+      ops = this.operationsFor(call, toolCtx);
     } catch (error) {
       // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
       // invalid args/refusal) — all four are the model's to act on and all four are worth
@@ -5924,8 +6177,8 @@ export class Orchestrator {
         // "nothing to change", reissued the identical call, and ended with no text at all.
         const note =
           `${desc} — nothing to change` +
-          colorSolveNote(call.name, ctx, call.arguments) +
-          transitionsNote(call.name, ctx, call.arguments);
+          colorSolveNote(call.name, toolCtx, call.arguments) +
+          transitionsNote(call.name, toolCtx, call.arguments);
         return { ops, note, summary: note, status: 'warning' };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -6066,8 +6319,11 @@ export class Orchestrator {
         // cannot carry them — and a silence reads as "done exactly", which sends the run
         // back to re-grade or to fill in the transitions it withheld on purpose. Computed
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
-        colorSolveNote(call.name, ctx, call.arguments) +
-        transitionsNote(call.name, ctx, call.arguments) +
+        colorSolveNote(call.name, toolCtx, call.arguments) +
+        transitionsNote(call.name, toolCtx, call.arguments) +
+        // How far a zoom magnifies the source, from the export's geometry on the applied
+        // state, so a soft upscale is a choice rather than a surprise (magnification-note.ts).
+        magnificationNote(call.name, ctx.project, applied, call.arguments) +
         // The check the model used to spend a step asking for, run on the state the edit
         // produced (`kernel/verification-note.ts`). On the card too: "verified" is the answer.
         verificationNote(call.name, applied);
@@ -6091,7 +6347,12 @@ export class Orchestrator {
       // (§3.7). This used to be a blanket `clear()`, which threw away the transcript and
       // the footage map every time a cut landed, forcing the run to buy its own
       // reconnaissance again. A ripple delete cannot change the words that were spoken.
-      host.evidence?.invalidate(normalized.map((op) => op.type));
+      // The tool's name rides along so a reading this retires can say WHAT retired it
+      // ("measured before normalize_exposure changed the picture"), not just that it is gone.
+      host.evidence?.invalidate(
+        normalized.map((op) => op.type),
+        call.name,
+      );
       return {
         ops: normalized,
         note,
@@ -6376,7 +6637,7 @@ export class Orchestrator {
       if (callSatisfied === true) satisfied = true;
       if (callAsked === true) askedQuestion = true;
       if (project) {
-        ctx = { ...ctx, project };
+        ctx = advanceToolContext(ctx, project);
         names = projectNames(project);
       }
     }
@@ -6605,7 +6866,7 @@ export class Orchestrator {
           role: toolRole(call.name, getTool(call.name)?.mutates === true),
         });
         if (project) {
-          ctx = { ...ctx, project };
+          ctx = advanceToolContext(ctx, project);
           names = projectNames(project);
         }
       }
@@ -7345,6 +7606,17 @@ export class Orchestrator {
     stageWithheld?: boolean,
     /** The run's vision reviewer, for an AI mask's spot check. Absent ⇒ the check is `not_run`. */
     maskSpotCheck?: MaskSpotCheckControls,
+    /**
+     * The key the run's plan is filed under (`ConductorState.modelPlanObjectiveKey`), stamped
+     * on the plan event an `update_plan` call produces so a later run continuing the same
+     * request can pick the list up (AL5). Absent ⇒ the event carries the steps only.
+     */
+    modelPlanObjectiveKey?: string,
+    /**
+     * The model's plan as the conductor holds it when the turn begins, so an `update_plan`
+     * call is merged into it (see `HostCallContext.modelPlan`). Absent ⇒ no plan yet.
+     */
+    priorModelPlan?: readonly ModelPlanItem[],
   ): AsyncGenerator<
     AiEvent,
     {
@@ -7385,9 +7657,15 @@ export class Orchestrator {
        * past tense, for clips that never reached the timeline, six times over.
        */
       proposalCards: { id: string; name: string }[];
+      /**
+       * The last plan an `update_plan` call recorded this turn (the list is replaced
+       * whole, so the last one wins). Absent when the turn did not touch the plan.
+       */
+      modelPlan?: readonly ModelPlanItem[];
     }
   > {
     const turnOps: AnyOperation[] = [];
+    let modelPlan: readonly ModelPlanItem[] | undefined;
     const notes: string[] = [];
     const turnStatuses: ToolStatus[] = [];
     /** Did any call report the timeline already matched it? See `AgentCallOutcome.satisfied`. */
@@ -7418,6 +7696,7 @@ export class Orchestrator {
       ...(appliedCalls ? { appliedCalls } : {}),
       loadedSkills,
       loadedToolDomains,
+      modelPlan: { items: priorModelPlan },
       ...(askUser ? { askUser } : {}),
       ...(rememberDecision ? { rememberDecision } : {}),
       ...(maskSpotCheck ? { maskSpotCheck } : {}),
@@ -7639,6 +7918,18 @@ export class Orchestrator {
             ? { images: outcome.images.map(toolResultImage) }
             : {}),
         });
+        // The model's plan becomes the editor's checklist the moment it is written, through
+        // the same `plan` event a drafted plan uses — one checklist per run, updated in
+        // place, so no host needs to know which of the two wrote it.
+        if (outcome.modelPlan !== undefined) {
+          modelPlan = outcome.modelPlan;
+          yield emit.plan(
+            modelPlanSteps(outcome.modelPlan),
+            modelPlanObjectiveKey === undefined
+              ? undefined
+              : { objectiveKey: modelPlanObjectiveKey, items: outcome.modelPlan },
+          );
+        }
         // NOTE: `timeline_action` cards are emitted only AFTER the turn's ops pass
         // the validator and are applied (by the caller) — not here. Emitting them
         // per-op at call time claimed "Trimmed clip …" for edits the validator later
@@ -7727,7 +8018,7 @@ export class Orchestrator {
         }
         if (outcome.derivedOpCount) derivedOpCount += outcome.derivedOpCount;
         if (outcome.project) {
-          turnCtx = { ...turnCtx, project: outcome.project };
+          turnCtx = advanceToolContext(turnCtx, outcome.project);
           turnNames = projectNames(outcome.project);
         }
         // The user stopped the run while this call was in flight — don't start
@@ -7755,6 +8046,7 @@ export class Orchestrator {
       toolAttempts,
       frames,
       proposalCards,
+      ...(modelPlan === undefined ? {} : { modelPlan }),
     };
   }
 
@@ -7961,11 +8253,18 @@ export class Orchestrator {
           classification.continues === undefined
             ? undefined
             : earlierRequests[classification.continues - 1];
+        // A continuation picks up the plan the last run on that request ended with (AL5);
+        // a new request never does — `priorPlans` is read on this branch only.
+        const continuedPlan =
+          continued === undefined
+            ? undefined
+            : planForContinuation(autoOptions.agentOptions?.priorPlans, continued.full);
         const requestReading: RequestReading = {
           objectiveText: continued === undefined ? input.userPrompt : continued.full,
           ...(classification.deliverableLength === undefined
             ? {}
             : { deliverableLength: classification.deliverableLength }),
+          ...(continuedPlan === undefined ? {} : { continuedPlan }),
         };
         yield* this.streamEditorRun(
           input,
@@ -8291,8 +8590,30 @@ export class Orchestrator {
     // of its own. One is created when the host wired none, so the repair path exists on
     // every route rather than only the ones with a steering-capable UI attached.
     const steering = controls.agent?.steering ?? createSteeringQueue();
+    /**
+     * Events the late-review wait produced inside the agent loop, where this generator
+     * cannot yield. Flushed ahead of the next event the loop emits.
+     */
+    const lateEvents: AiEvent[] = [];
+    // The wait the loop makes once, when the model says it is done (`LATE_REVIEW_WAIT_MS`).
+    // Declared before `steerFindings` is, but only ever called from inside the run below.
+    const lateReviews: LateReviewControl = {
+      hasPending: () => findings.hasPending,
+      settle: async (signal) => {
+        const live = await findings.drainUntil(signal);
+        const repaired = findings.takeResolved();
+        const exhausted = steerFindings(live);
+        lateEvents.push(
+          ...publishFindings(live, repaired),
+          ...exhausted.map((finding) => unfixedFindingWarning(finding)),
+        );
+        // `admitForSteering` splits `live` into steered and exhausted, so any difference
+        // is a finding that went onto the steering channel.
+        return live.length > exhausted.length;
+      },
+    };
     const effectiveControls: EditorRunControls = reviewRequested
-      ? { ...controls, agent: { ...(controls.agent ?? {}), steering } }
+      ? { ...controls, agent: { ...(controls.agent ?? {}), steering, lateReviews } }
       : controls;
     const evidenceBase = (): { conversationId: string; turnId: string; ts: number } => ({
       conversationId: options.conversationId,
@@ -8328,6 +8649,13 @@ export class Orchestrator {
      * transition model rather than by any proposal) into a run that spent its whole budget
      * being told to fix it. The cap lives in `review-findings.ts`.
      */
+    /** Said once per defect class, the moment the run stops retrying it. */
+    const unfixedFindingWarning = (finding: ReviewFinding): AiEvent => ({
+      ...evidenceBase(),
+      id: `${options.turnId}:finding-unfixed:${finding.id}`,
+      type: 'warning',
+      text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
+    });
     const steerFindings = (live: readonly ReviewFinding[]): readonly ReviewFinding[] => {
       if (live.length === 0) return [];
       const { steer, exhausted } = findings.admitForSteering(live);
@@ -8349,6 +8677,9 @@ export class Orchestrator {
       // monotonic key to compare against later edits.
       let turnOrdinal = 0;
       for await (const event of this.legacyEditorRun(input, options, request, effectiveControls)) {
+        // Anything the late-review wait found goes out before whatever the run does next —
+        // so the finding's card precedes the turn that acts on it.
+        if (lateEvents.length > 0) yield* lateEvents.splice(0);
         if (event.type === 'diff' && event.edit.validation.valid && event.edit.diff) {
           const before = event.scope === 'turn' ? workingProject : input.project;
           workingProject = applyProjectPatch(before, event.edit.patch);
@@ -8396,14 +8727,7 @@ export class Orchestrator {
             // Say it out loud the moment the run stops retrying, rather than letting the
             // editor watch the same finding reappear and assume something is still working
             // on it. Named per defect, not per frame.
-            for (const finding of exhausted) {
-              yield {
-                ...evidenceBase(),
-                id: `${options.turnId}:finding-unfixed:${finding.id}`,
-                type: 'warning',
-                text: `The review still reports this after a correction attempt, so the run is not retrying it again: ${finding.detail} It is likely a render or transition-model defect rather than something this edit can fix.`,
-              };
-            }
+            for (const finding of exhausted) yield unfixedFindingWarning(finding);
           }
           continue;
         }
@@ -8492,7 +8816,11 @@ export class Orchestrator {
               ...evidenceBase(),
               id: `${options.turnId}:review-unavailable:${String(index)}`,
               type: 'warning',
-              text: `Review could not run: ${failure} Your edits are applied and validated, but were not perceptually checked.`,
+              // A partial review DID run; it must neither be called one that could not, nor
+              // be mistaken for a whole one.
+              text: failure.startsWith(PARTIAL_REVIEW_PREFIX)
+                ? `${failure} Your edits are applied and validated; the moments not checked were not perceptually checked.`
+                : `Review could not run: ${failure} Your edits are applied and validated, but were not perceptually checked.`,
             };
             projector?.observe(notice);
             yield notice;
@@ -8501,6 +8829,7 @@ export class Orchestrator {
         projector?.observe(event);
         yield event;
       }
+      if (lateEvents.length > 0) yield* lateEvents.splice(0);
       projector?.finishWithoutTerminal('Legacy editor route ended without a terminal status.');
     } catch (error) {
       projector?.finishWithoutTerminal(error instanceof Error ? error.message : String(error));
@@ -8590,6 +8919,13 @@ export class Orchestrator {
     readonly repairable: boolean;
     readonly detail: string;
     readonly lineage: readonly string[];
+    /** How many checks the evidence actually failed (unchecked moments are not failures). */
+    readonly failedChecks: number;
+    /**
+     * The account of a review that stopped early, naming the moments it did not check (#99).
+     * Absent when the acquisition came back whole.
+     */
+    readonly partial?: string;
     /**
      * Where in the programme the earliest FAILING evidence sits, when it has a frame.
      *
@@ -8625,9 +8961,21 @@ export class Orchestrator {
     const passed = critique(workingProject, { temporal: report }).checks.some(
       (check) => check.id === 'temporal_evidence' && check.status === 'pass',
     );
-    const failing = report.checks.filter((check) => check.status !== 'pass');
-    const detail = failing
-      .map((check) => `${check.requestId}: ${check.issues.join(' ')}`)
+    // An acquisition that stopped early (#99) left some requests NOT CHECKED, and a moment
+    // nobody looked at is not a defect: it goes in the account, never in the findings.
+    // Without `incomplete`, a missing result is the engine's omission and fails as before.
+    const partial =
+      acquisition.incomplete === undefined
+        ? undefined
+        : describePartialTemporalReview(requests, report, acquisition.incomplete);
+    const failing = report.checks.filter((check) =>
+      partial === undefined ? check.status !== 'pass' : check.status === 'fail',
+    );
+    const detail = [
+      failing.map((check) => `${check.requestId}: ${check.issues.join(' ')}`).join(' '),
+      partial ?? '',
+    ]
+      .filter((part) => part.length > 0)
       .join(' ')
       .slice(0, 1000);
     const atSeconds = failingReviewSecond(requests, failing, workingProject.fps);
@@ -8636,6 +8984,8 @@ export class Orchestrator {
       passed,
       repairable: failing.length > 0 && failing.every((check) => check.status === 'fail'),
       detail,
+      failedChecks: failing.length,
+      ...(partial === undefined ? {} : { partial }),
       ...(atSeconds === undefined ? {} : { atSeconds }),
       lineage: [
         `temporal:revision=${report.projectRevision}`,
@@ -8679,6 +9029,7 @@ export class Orchestrator {
     // The turn's location, used only when a finding cannot place itself.
     const turnSecond = earliestTouchedSecond(args.after, region);
     const found: ReviewFinding[] = [];
+    let partialOnly: string | undefined;
     const base = {
       turnIndex: args.turnIndex,
       scope,
@@ -8694,7 +9045,9 @@ export class Orchestrator {
         args.temporal,
         args.signal,
       );
-      if (review && !review.passed) {
+      if (review?.partial !== undefined && review.failedChecks === 0) {
+        partialOnly = review.partial;
+      } else if (review && !review.passed) {
         found.push({
           ...base,
           // The failing evidence places itself; `base`'s turn location is the fallback.
@@ -8727,6 +9080,12 @@ export class Orchestrator {
       }
     }
 
+    // Nothing it looked at was wrong, but it did not look at everything. That is neither a
+    // finding (nothing is known to be wrong) nor a clean review (a clean review resolves
+    // delivered findings in its region, and part of that region went unseen), so it is
+    // reported the way an unreachable reviewer is — with its own wording at the end of the
+    // run (see PARTIAL_REVIEW_PREFIX where the failures are published).
+    if (partialOnly !== undefined && found.length === 0) throw new Error(partialOnly);
     return found;
   }
 
@@ -9095,19 +9454,28 @@ export class Orchestrator {
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
+    // The same key the conductor files the run's plan under (`runObjectiveText` is shared).
+    const planObjectiveKey = modelPlanObjectiveKey(runObjectiveText(agentOptions, input));
     const appliedPatchIds = new Set<string>();
     const log: string[] = [];
     let plan: readonly string[] | undefined;
     let working: Project = input.project;
     /**
      * The run's picture facts. Fixed for the run by design — it renders into the prompt
-     * prefix — except for footage the run acquires ITSELF (see `refreshRunLedger`).
+     * prefix — except for placed footage it has no rows for (see the VU8 refresh).
      */
     let ledger = input.ledger;
     /** Assets this run put in the bin, so a refresh can be scoped to them. */
     const acquiredAssetIds = new Set<string>();
+    /**
+     * Assets the host has already been asked about. Seeded with what the timeline referenced
+     * at run start, because that is exactly the set the host's initial read covered.
+     */
+    const ledgerAskedAssetIds = placedBinAssetIds(input.project);
     /** How many mid-run ledger re-reads this run has spent. */
     let ledgerRefreshes = 0;
+    /** Whether this run has spent its one wait for late reviews (see `LATE_REVIEW_WAIT_MS`). */
+    let lateReviewsAwaited = false;
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
     // keeps the closure's view of "what landed" in lockstep with the reducer.
     const cumulativeOps: AnyOperation[] = [];
@@ -9227,16 +9595,6 @@ export class Orchestrator {
      */
     const toolAttempts: ToolAttempt[] = [];
     /**
-     * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
-     * export have no route from the panel — so the completion account says so rather than
-     * reporting a finished job over a deliverable that was never produced.
-     */
-    const asksForFile = asksForRenderedFile(input.userPrompt);
-    /** …and did it ask to SEE a preview first? Same answer: no route from the panel. */
-    const asksToPreview = asksForPreview(input.userPrompt);
-    /** …and did it state something to remember for future edits? */
-    const asksToRemember = asksToRememberPreference(input.userPrompt);
-    /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
      * WHY only the last turn's, and why they are cleared once sent: a frame is only
@@ -9336,6 +9694,33 @@ export class Orchestrator {
       )
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
+    };
+
+    /**
+     * Wait, once per run and for at most `LATE_REVIEW_WAIT_MS`, for the reviews of this
+     * run's edits when the model says it is done, so the last edit's finding can steer.
+     *
+     * Bounded three ways: the budget timer, the editor's Stop, and the run's wall-clock
+     * deadline (both carried by `runSignal`). A run that was stopped does not steer, even if
+     * a finding arrived during the wait — the editor ended it. Status `verifying` is what the
+     * panel shows while the reply is written and the run checks it (`AiSidebar`).
+     *
+     * @returns True when findings are now queued for the model's next turn.
+     */
+    const awaitLateReviews = async function* (emit: TurnEmitter): AsyncGenerator<AiEvent, boolean> {
+      const reviews = controls?.lateReviews;
+      if (reviews === undefined || lateReviewsAwaited) return false;
+      lateReviewsAwaited = true;
+      if (reviews.hasPending()) yield emit.status('verifying');
+      // A second deadline, armed on the wait alone: the same timer-plus-cancel pairing the
+      // run's own clock uses, combined with `runSignal` so either end stops it.
+      const budget = createRunDeadline(LATE_REVIEW_WAIT_MS, runSignal, controls?.timers);
+      try {
+        const steered = await reviews.settle(budget.signal);
+        return steered && !runSignal.aborted;
+      } finally {
+        budget.dispose();
+      }
     };
 
     const stepHandlers: ConductorHandlers = {
@@ -9608,6 +9993,8 @@ export class Orchestrator {
             taskMemory,
             pendingFrames,
             agentOptions,
+            effect.modelPlan,
+            effect.advisories,
           );
         const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(
@@ -9791,9 +10178,24 @@ export class Orchestrator {
           // stated against the timeline as it actually is, so the reducer can tell a run
           // that is done from one that has stopped. See `AgentTurnResult.acceptanceShortfall`.
           const shortfall = acceptanceShortfall(state.cumulativeOps.length > 0);
+          // The run is about to verify — nothing in the model's plan is open and the request
+          // measures met — so this is the last moment a review of its edits can still change
+          // anything. Wait for them (bounded, once per run); a finding buys one steering turn.
+          const lateReviewSteering =
+            shortfall.length === 0 &&
+            !(effect.modelPlan && nextOpenItem(effect.modelPlan)) &&
+            (yield* awaitLateReviews(emit));
+          // The domains a blocked item never tried (AL39). The reducer holds no tool
+          // surface, so the runtime reads which domains this run loaded and the reducer
+          // decides whether that buys a turn. See `AgentTurnResult.unloadedToolDomains`.
+          const unloadedToolDomains = effect.modelPlan
+            ? unloadedDomainsForBlocked(effect.modelPlan, loadedToolDomains)
+            : [];
           return turnBase(index, emit.seq(), {
             done: true,
             ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
+            ...(lateReviewSteering ? { lateReviewSteering: true } : {}),
+            ...(unloadedToolDomains.length > 0 ? { unloadedToolDomains } : {}),
           });
         }
 
@@ -9803,8 +10205,8 @@ export class Orchestrator {
         const ctx = self.toolContext({
           ...input,
           project: working,
-          // The run-scoped snapshot, which is `input.ledger` until the run acquires
-          // footage of its own (see the refresh below).
+          // The run-scoped snapshot, which is `input.ledger` until the run places
+          // footage the snapshot has no rows for (see the refresh below).
           ...(ledger === undefined ? {} : { ledger }),
         });
         // U2: turns map positionally onto the seeded ledger; past it — or with none —
@@ -9821,7 +10223,12 @@ export class Orchestrator {
         // agent runs keep `planSteps` in reducer state (below, for status/threshold logic)
         // but emit NO plan node — otherwise the ledger grows one pinned row per step for
         // the whole run. The step's own reasoning + tool cards are the visible activity.
-        if (effect.ledgerLength > 0) yield emit.plan([...planSteps]);
+        //
+        // Nor once the MODEL owns the plan (`update_plan`): the checklist is one node per
+        // run, so a positional ledger row would overwrite the model's list on screen.
+        if (effect.ledgerLength > 0 && effect.modelPlan === undefined) {
+          yield emit.plan([...planSteps]);
+        }
 
         // C2: the turn's calls are now known — announce the specific, honest status for
         // what they're about to do before running them (never per-call, just once here).
@@ -9885,6 +10292,7 @@ export class Orchestrator {
           toolAttempts: turnToolAttempts,
           frames,
           proposalCards,
+          modelPlan: turnModelPlan,
         } = yield* self.executeToolCalls(
           emit,
           turn.calls,
@@ -9930,6 +10338,8 @@ export class Orchestrator {
           // The same reviewer picture verification uses; a mask's spot check is one more
           // bounded question to it, never a second reviewer.
           review.visionReview,
+          planObjectiveKey,
+          effect.modelPlan,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it
@@ -9968,6 +10378,8 @@ export class Orchestrator {
           // E4.1: the turn's real reported usage, so the reducer can measure the
           // output-token delta this turn actually produced (diminishing-returns stop).
           ...(turn.usage ? { usage: turn.usage } : {}),
+          // The plan the model wrote this turn, for the reducer to hold the run to.
+          ...(turnModelPlan === undefined ? {} : { modelPlan: turnModelPlan }),
         };
 
         // Stop mid-turn: the interrupted turn is not applied; its step says why.
@@ -10079,27 +10491,29 @@ export class Orchestrator {
             });
           }
         }
-        // VU8 — the run's own footage becomes visible to the run.
+        // VU8 — footage placed mid-run becomes visible to the run.
         //
         // The ledger is read once per `runAiStream` call, which in agent mode is the whole
-        // multi-turn run: an asset the agent sources at minute six is measured about ninety
-        // seconds later and still carries no picture facts for the remaining half hour, so
-        // `match_color` and `add_transitions` decline on it and its row has no shot words.
-        // Re-reading every turn would spend the prompt cache the fixed snapshot exists to
-        // protect, so this asks only about assets THIS RUN acquired that the timeline
-        // references and that the current snapshot has no rows for, at a turn boundary, at
-        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build)
-        // leaves the snapshot exactly as it was.
+        // multi-turn run, and the host scopes that read to what the timeline references AT
+        // START. So two kinds of footage carry no picture facts for the rest of the run: an
+        // asset the agent sources at minute six (measured about ninety seconds later), and —
+        // on a run that starts from an empty timeline — every bin asset it places at all.
+        // Without them `match_color`, `apply_look` and `add_transitions` decline and rows
+        // have no shot words. Re-reading every turn would spend the prompt cache the fixed
+        // snapshot exists to protect, so this asks only about placed assets the snapshot has
+        // no rows for (see `ledgerRefreshCandidates`), in ONE request, at a turn boundary, at
+        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build) leaves
+        // the snapshot exactly as it was.
         if (applied.applied && controls?.refreshLedger && ledgerRefreshes < MAX_LEDGER_REFRESHES) {
-          const placed = new Set(
-            working.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
-          );
-          const unmeasured = [...acquiredAssetIds].filter(
-            (assetId) =>
-              placed.has(assetId) && !(ledger?.shots ?? []).some((s) => s.assetId === assetId),
+          const unmeasured = ledgerRefreshCandidates(
+            placedBinAssetIds(working),
+            ledger,
+            acquiredAssetIds,
+            ledgerAskedAssetIds,
           );
           if (unmeasured.length > 0) {
             ledgerRefreshes += 1;
+            for (const assetId of unmeasured) ledgerAskedAssetIds.add(assetId);
             const refreshed = await controls.refreshLedger(unmeasured, runSignal);
             if (refreshed) {
               orchestratorLog.action('mid-run ledger refresh', {
@@ -10363,12 +10777,10 @@ export class Orchestrator {
               // What the run announced and never delivered, and what it never got working.
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
+              ...(effect.modelPlan ? { modelPlan: effect.modelPlan } : {}),
               neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
-              ...(asksForFile ? { deliverableFileRequested: true } : {}),
-              ...(asksToPreview ? { previewRequested: true } : {}),
-              ...(asksToRemember ? { preferenceRequested: true } : {}),
             }),
           );
         }
@@ -10745,14 +11157,20 @@ async function maskingOutcomeFromMeasurement(
         ? {}
         : { spotCheck: { verdict: looked.verdict, reason: looked.reason, frames: looked.frames } }),
     };
-    const note = `${outcome.summary} ${maskReviewSentence(report)}`;
+    // An edit that made no mask (`reframe_to_subject`) says what it did instead of a review.
+    const note = edit.result?.note ?? `${outcome.summary} ${maskReviewSentence(report)}`;
     return {
       ops: operations,
       note,
       summary: outcome.summary,
       status: 'completed',
       project: reviewOps.length === 0 ? masked : applyProjectPatch(ctx.project, final.patch),
-      data: { kind: 'mask_review', tool: call.name, clipId: edit.clipId, ...report },
+      data: edit.result?.data ?? {
+        kind: 'mask_review',
+        tool: call.name,
+        clipId: edit.clipId,
+        ...report,
+      },
     };
   } catch (cause) {
     if (cause instanceof UnusableMaskingPayloadError) {
@@ -10807,6 +11225,7 @@ const MASKING_PATCH_REASON: Readonly<Record<string, string>> = {
   remove_background: 'Remove background',
   track_mask: 'Track mask',
   create_shape_mask: 'Create shape mask',
+  reframe_to_subject: 'Reframe to follow the subject',
 };
 
 /**
@@ -11051,8 +11470,21 @@ function trimFailureReason(reason: string): string {
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
+  modelPlan: readonly ModelPlanItem[] = [],
 ): string {
   const lines: string[] = [];
+  // The model's own plan first, in its own words: it is the account of the request the
+  // editor watched being worked through. An item left open is unfinished work, stated as
+  // such; a blocked one carries the reason the model gave for why no tool could do it.
+  for (const item of modelPlan) {
+    if (item.status === 'done') continue;
+    const label = planItemLabel(item);
+    lines.push(
+      item.status === 'blocked'
+        ? `- ${label} — blocked${item.note ? `: ${item.note}` : ''}`
+        : `- ${label} — not done`,
+    );
+  }
   for (const step of planSteps) {
     if (step.status === 'completed') continue;
     lines.push(`- ${step.label} — ${step.status}`);
@@ -11174,22 +11606,6 @@ export function agentCompletionReport(args: {
    */
   contentEvidence?: boolean;
   /**
-   * True when the request asked for a rendered/exported file. The panel cannot produce one, so
-   * the report says where to get it instead of leaving the editor to notice the absence.
-   */
-  deliverableFileRequested?: boolean;
-  /**
-   * True when the request asked to be shown a preview before rendering. `render_preview`
-   * has no route from the panel, so the report says where the preview actually is.
-   */
-  previewRequested?: boolean;
-  /**
-   * True when the request stated a preference to remember for future edits. Checked against
-   * the applied ops: a run that never wrote memory is told so, in the report, instead of the
-   * instruction vanishing (run `cc907070` never called `remember_preference`).
-   */
-  preferenceRequested?: boolean;
-  /**
    * True when the editor stopped the run. The edits still landed and still need
    * accounting for; only the claim that the work is finished changes.
    */
@@ -11206,6 +11622,13 @@ export function agentCompletionReport(args: {
    * steps are NOT this.
    */
   planSteps?: readonly PlanStep[];
+  /**
+   * The plan the MODEL wrote with `update_plan`, as the run ended. Every item that is not
+   * `done` is listed under "Not done" in the model's own words — an open item as unfinished,
+   * a blocked one with the reason it gave. When present it replaces {@link planSteps}: the
+   * model owns the plan, so a drafted ledger it superseded is not a second account.
+   */
+  modelPlan?: readonly ModelPlanItem[];
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
@@ -11252,7 +11675,11 @@ export function agentCompletionReport(args: {
       : '';
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
-  const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
+  const notDone = notDoneBlock(
+    args.modelPlan ? [] : (args.planSteps ?? []),
+    args.neverSucceeded ?? [],
+    args.modelPlan ?? [],
+  );
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -11262,30 +11689,7 @@ export function agentCompletionReport(args: {
     args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
       ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
       : '';
-  // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
-  // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
-  const deliverable =
-    args.deliverableFileRequested === true
-      ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
-        'on your timeline; use the Export dialog to render them out.'
-      : '';
-  // The preview the brief asked to see. Run `cc907070` asked for one before the render,
-  // the one `render_preview` call was withheld, and the report never mentioned it.
-  const preview =
-    args.previewRequested === true
-      ? '\n\nThis also asks to see a preview first. The panel cannot render one — the ' +
-        'timeline monitor plays the current cut, and the Export dialog renders it.'
-      : '';
-  // "Remember this for future edits" is an instruction the run can drop without anyone
-  // noticing; the memory write is an ordinary op, so its absence is checkable here.
-  const remembered = args.ops.some((op) => op.type === 'set_ai_memory');
-  const memory =
-    args.preferenceRequested === true && !remembered
-      ? '\n\nYou asked for something to be remembered for future edits, and nothing was saved ' +
-        'to project memory this run. Tell the AI the preference again on its own, or set it ' +
-        'in the AI settings.'
-      : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

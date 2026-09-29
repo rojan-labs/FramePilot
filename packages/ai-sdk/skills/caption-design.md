@@ -1,10 +1,17 @@
 ---
 name: caption-design
-description: Create synchronized, readable, consistent captions from mapped transcript evidence, then choose an appropriate template and verify committed cue timing.
+description: Caption reference — speech captions from the mapped transcript, templates and track styling (or an editor's own caption spec), emphasis, placement off faces, and verifying timing and legibility; authored lines over silent footage are text overlays instead.
 tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, check_caption_legibility, get_frame, measure_subject]
 ---
 
 # Caption design
+
+**Captions here are speech.** Every cue comes from transcribed words: `caption_the_edit` writes
+them, and `add_caption_layer` also reads the transcript and takes no text. Lines the editor
+wrote for footage with no speech — diary lines, story captions, a quote card — are text
+overlays: see `text-overlays`, and give them one consistent style. A caption spec the request
+gives (font, size, colours, placement, pill, word animation, highlight colour) replaces the
+template defaults below: map it onto `set_track_caption_style` fields.
 
 ## Purpose
 
@@ -78,7 +85,7 @@ that they are unreadable, off the bottom of the frame, or sitting on someone's f
 
 ## Recovery advice
 
-If verification fails, re-run `caption_the_edit` — it re-derives every cue from the current timeline — rather than nudging stale cues. If no transcript exists, stop caption work and route to `edit-prep`.
+If verification fails, re-run `caption_the_edit` — it re-derives every cue from the current timeline — rather than nudging stale cues. If the footage has speech but no transcript, route to `edit-prep` (transcribe) first; if it has no speech, the lines are text overlays.
 
 ## Related skills
 

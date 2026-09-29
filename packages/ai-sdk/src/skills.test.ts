@@ -355,7 +355,7 @@ describe('stickers-and-callouts (plan/elements EL8.3)', () => {
     expect(body).toMatch(/soft/iu);
     // An element off the frame for its whole span is refused (assemble.ts).
     expect(body).toMatch(/outside the frame/iu);
-    // A request that asked for one fails when none is placed (critic elements_placed).
+    // A request that asked for one is not done until one is placed — the model's own plan.
     expect(body).toMatch(/asked for a sticker or a callout/iu);
   });
 });

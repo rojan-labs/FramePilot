@@ -118,8 +118,35 @@ def test_single_flight_returns_fresh_value_and_clears_completed_entry() -> None:
     assert calls == 2
 
 
+class _JoinWatch(dict[str, Any]):
+    """``SingleFlight._calls`` that signals when a second caller finds the in-flight call.
+
+    The concurrency tests release the owner only once the waiter has JOINED. Releasing right
+    after submitting it raced: under CI load the owner finished and cleared the flight before
+    the waiter's thread looked, so the waiter started a second call (calls == 2).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.joined = threading.Event()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        found = super().get(key, default)
+        if found is not None:
+            self.joined.set()
+        return found
+
+
+def _watched(flight: SingleFlight) -> _JoinWatch:
+    watch = _JoinWatch()
+    # The join is only observable from inside the flight.
+    flight._calls = watch
+    return watch
+
+
 def test_single_flight_collapses_concurrent_identical_calls() -> None:
     flight = SingleFlight()
+    watch = _watched(flight)
     started = threading.Event()
     release = threading.Event()
     calls = 0
@@ -135,6 +162,7 @@ def test_single_flight_collapses_concurrent_identical_calls() -> None:
         owner = pool.submit(flight.run, "same", compute)
         assert started.wait(timeout=2)
         waiter = pool.submit(flight.run, "same", compute)
+        assert watch.joined.wait(timeout=2)
         release.set()
         results = [owner.result(timeout=2), waiter.result(timeout=2)]
 
@@ -145,6 +173,7 @@ def test_single_flight_collapses_concurrent_identical_calls() -> None:
 
 def test_single_flight_shares_errors_and_allows_a_later_retry() -> None:
     flight = SingleFlight()
+    watch = _watched(flight)
     started = threading.Event()
     release = threading.Event()
     calls = 0
@@ -160,6 +189,7 @@ def test_single_flight_shares_errors_and_allows_a_later_retry() -> None:
         owner = pool.submit(flight.run, "same", fail)
         assert started.wait(timeout=2)
         waiter = pool.submit(flight.run, "same", fail)
+        assert watch.joined.wait(timeout=2)
         release.set()
         for pending in (owner, waiter):
             with pytest.raises(RuntimeError, match="provider failed"):

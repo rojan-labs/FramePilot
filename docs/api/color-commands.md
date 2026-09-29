@@ -10,9 +10,19 @@ ColorObjective
   → validated apply_color_grade patch + inverse patch
 ```
 
-The controller never selects a shot from prose. `this`, `these`, and `playhead` resolve through the
-revision-bound `EditorInteractionContext`; stale, missing, ambiguous, audio, and caption targets are
-rejected before an operation is emitted.
+The controller never selects a shot from prose. The shots are the ids named in `clipIds`, or else
+`this`, `these`, or `playhead`, resolved through the revision-bound `EditorInteractionContext`;
+stale, missing, ambiguous, audio, and caption targets are rejected before an operation is emitted.
+
+`clipIds` takes ids from `get_clips` and resolves through the target resolver's `explicit`
+referent, which ranks above the selection and refuses an id the project does not hold
+(`missing_explicit_target`). `match_reference` and `groupShots` take exactly one, the same rule
+`these` already obeyed; a matched shot's target evidence must measure the named clip. The tool
+used to accept no clip ids — selection state supplied the shots — which holds for a person at the
+editor and left an agent run, having no selection, unable to reach reference matching at all
+(issue #138; `professional_audio` made the same change for run `6cb12e30`). An ambiguous playhead's
+refusal now names `clipIds` as the way to settle it, and an id written into `target` is answered
+with the same pointer.
 
 ## Primary correction node
 
@@ -48,7 +58,15 @@ RGB/luma/saturation distribution in the run evidence store. Its returned handle 
 model. `match_reference` accepts a target and reference handle, then verifies:
 
 - both entries came from `measure_color`;
-- their timeline revision is still current;
+- both handles are still live in the run evidence store. An applied edit that can change the
+  picture (any grade included) retires every `measure_color` entry, because a grade does not bump
+  `timeline.revision`. A retired handle is refused `evidence_stale`, naming the tool whose edit
+  retired it and the clip to measure again. Only an id the run never issued is `evidence_missing`;
+- their `timeline.revision` is still current. This is the timeline's own clock, the one
+  `measure_color` stamps, and not the host authority revision `projectRevision` in the tool
+  context. The solved tools (`match_color`, `normalize_exposure`, `apply_look`) apply the same
+  two checks when they look a clip's reading up themselves, and name a retired reading as
+  "measured before <tool> changed the picture" instead of "nothing has measured";
 - target evidence names the clip resolved from live editor state;
 - all five channels contain means, tonal percentiles, and near-black/near-white ratios;
 - no other visible clip/caption overlapped the sampled window.

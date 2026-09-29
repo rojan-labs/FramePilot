@@ -29,6 +29,7 @@ from framepilot_engine.effects.speed_curve import (
     clip_timeline_duration,
     has_speed_ramp,
     integrate_rate,
+    normalize_ramp,
     rate_at,
     source_time_at,
 )
@@ -1658,6 +1659,24 @@ def _apply_set_clip_speed(
     return _replace_clip_at(timeline, loc, next_clip)
 
 
+def _fitted_source_span(points: list[SpeedPoint], slot: float, span: float) -> float:
+    """Mirror of ``operations.ts#fittedSourceSpan``: the ``s`` where
+    ``integrate_rate(points, 0, s) == slot``.
+
+    The solve follows the written curve to its last point or the current span, whichever
+    is later, and holds the rate only past both. Holding it from the current span was
+    wrong whenever the curve kept changing past it (harness run 11, 2026-09-29: 2.5x to
+    0.5x at 2.5 s over a 1.9 s slot overshot to 2.61 s of source that plays for 2.24 s).
+    """
+    ordered = normalize_ramp(points)
+    last_point = ordered[-1].source_time if ordered else 0.0
+    horizon = max(span, last_point)
+    whole = integrate_rate(points, 0.0, horizon)
+    if whole >= slot:
+        return source_time_at(points, 0.0, slot, horizon)
+    return horizon + (slot - whole) * rate_at(points, horizon)
+
+
 def _apply_set_clip_speed_ramp(
     timeline: Timeline, op: SetClipSpeedRamp, *, fps: float | None = None
 ) -> Timeline:
@@ -1686,19 +1705,16 @@ def _apply_set_clip_speed_ramp(
     next_clip = _clone_clip(clip).model_copy(update=update)
     if op.keep_duration and points and clip.source_end is not None:
         # Fit the curve into the slot the clip occupies: the source span becomes what the
-        # curve consumes over the current length — inverted while the footage suffices,
-        # extended at the held tail rate past it. ``end`` is untouched.
-        slot = clip.end - clip.start
-        span = clip.source_end - clip.source_start
-        whole = integrate_rate(points, 0.0, span)
-        consumed = (
-            source_time_at(points, 0.0, slot, span)
-            if whole >= slot
-            else span + (slot - whole) * rate_at(points, span)
+        # curve consumes over the current length, solved along the whole written curve
+        # (``_fitted_source_span``). ``end`` is untouched.
+        consumed = _fitted_source_span(
+            points, clip.end - clip.start, clip.source_end - clip.source_start
         )
-        return _replace_clip_at(
-            timeline, loc, next_clip.model_copy(update={"source_end": clip.source_start + consumed})
-        )
+        # Points past the fitted span are never played and the fit never read them; cut
+        # them as a split cuts a piece (mirrors operations.ts, harness run 4, 2026-09-28).
+        fitted = next_clip.model_copy(update={"source_end": clip.source_start + consumed})
+        fitted = fitted.model_copy(update={"speed_ramp": _rebase_speed_ramp(fitted, 0.0, consumed)})
+        return _replace_clip_at(timeline, loc, fitted)
     duration = clip_timeline_duration(next_clip)
     if duration is not None:
         exact_end = clip.start + duration

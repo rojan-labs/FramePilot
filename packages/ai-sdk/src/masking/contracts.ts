@@ -21,6 +21,12 @@ export const TRACK_MASK_TOOL_NAME = 'track_mask';
  * the editor's numbers, the host measures nothing and echoes the clip.
  */
 export const CREATE_SHAPE_MASK_TOOL_NAME = 'create_shape_mask';
+/**
+ * Issue #137: a reframe that follows a tracked subject. Host-measured because the track lives in
+ * a digest-pinned file under the project folder (`mask.tracking.artifact`) that only the desktop
+ * host reads; the result is ordinary x/y/scale keyframes, baked, not a live link (MO-14).
+ */
+export const REFRAME_TO_SUBJECT_TOOL_NAME = 'reframe_to_subject';
 
 /** The tools a host executor measures for. */
 export const MASKING_HOST_TOOL_NAMES: readonly string[] = [
@@ -29,6 +35,7 @@ export const MASKING_HOST_TOOL_NAMES: readonly string[] = [
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
   CREATE_SHAPE_MASK_TOOL_NAME,
+  REFRAME_TO_SUBJECT_TOOL_NAME,
 ];
 
 /** The host-measured tools whose result becomes a patch. */
@@ -37,6 +44,7 @@ export const MASKING_HOST_MUTATION_TOOL_NAMES: readonly string[] = [
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
   CREATE_SHAPE_MASK_TOOL_NAME,
+  REFRAME_TO_SUBJECT_TOOL_NAME,
 ];
 
 const UnitSchema = z.number().finite().min(0).max(1);
@@ -206,6 +214,48 @@ export const TrackMaskMeasurementSchema = z
   })
   .strict();
 export type TrackMaskMeasurement = z.infer<typeof TrackMaskMeasurementSchema>;
+
+/** `reframe_to_subject`'s arguments: the clip, and the tracked mask on it that marks the subject. */
+export const ReframeToSubjectArgsSchema = z
+  .object({ clipId: z.string().min(1), maskId: z.string().min(1) })
+  .strict();
+
+/**
+ * Most samples one reframe measurement may carry: an hour of clip at the six-per-second grid the
+ * host measures on. Bounds an untrusted payload's cost; a real one is far smaller.
+ */
+export const MAX_SUBJECT_SAMPLES = 21_600;
+
+/**
+ * Where the tracked subject is at one instant of the clip, as the host read it off the track.
+ *
+ * `frame` is a clip-relative frame at the project rate; `x`/`y` the subject's centre as a fraction
+ * of the source picture (it may sit a little outside 0..1 when the subject leaves the frame);
+ * `confidence` the track's own, averaged over the frames the sample stands for, and `0` where the
+ * track did not measure the subject at all.
+ */
+export const SubjectSampleSchema = z
+  .object({
+    frame: z.number().int().nonnegative(),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    confidence: UnitSchema,
+  })
+  .strict();
+export type SubjectSample = z.infer<typeof SubjectSampleSchema>;
+
+/** What the host measured for `reframe_to_subject`. */
+export const ReframeToSubjectMeasurementSchema = z
+  .object({
+    kind: z.literal('reframe_to_subject'),
+    clipId: z.string().min(1),
+    maskId: z.string().min(1),
+    /** The track the samples were read from; must still be the one the mask pins. */
+    artifact: z.object({ key: Sha256HexSchema, sha256: Sha256HexSchema }).strict(),
+    samples: z.array(SubjectSampleSchema).max(MAX_SUBJECT_SAMPLES),
+  })
+  .strict();
+export type ReframeToSubjectMeasurement = z.infer<typeof ReframeToSubjectMeasurementSchema>;
 
 /**
  * What every masking result reports about its own trustworthiness (AM3.1).

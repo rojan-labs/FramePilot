@@ -139,15 +139,17 @@ describe('add_clip refuses the same shot over the same moment', () => {
 
   /**
    * The duplicate guard keys on the source range too, so a DIFFERENT moment of the same
-   * file at the same instant passes it. It is refused anyway, one layer down: a clip id
-   * is derived from track + asset + start, so the second placement collides with the
-   * first's id. Documented rather than changed — two moments of one file stacked at one
-   * instant is not a placement this product supports, the second is invisible behind the
-   * first, and the guard is not the thing saying so.
+   * file at the same instant passes it — it is different picture. It used to be refused one
+   * layer down, by a clip-id collision, because the placer left it on the lane it named. The
+   * placer now counts picture on the named lane (AL45), so it goes in front on a lane of its
+   * own: a cutaway from elsewhere in one long take, which is what an editor means by it.
    */
-  it('is still refused from a different point in the file, by the clip-id rule', () => {
+  it('layers a different point in the file in front, on a lane of its own', () => {
     const once = place(project());
-    expect(() => place(once, { sourceStart: 12 })).toThrow(/Clip id already exists/);
+    const twice = place(once, { sourceStart: 12 });
+    const lanes = twice.timeline.tracks.filter((t) => t.clips.length > 0).map((t) => t.id);
+    expect(lanes).toEqual(['video_cutaway_1', 'video_1']);
+    expect(twice.timeline.tracks[0]?.clips[0]).toMatchObject({ sourceStart: 12, start: 0 });
   });
 });
 

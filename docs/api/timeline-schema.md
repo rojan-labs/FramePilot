@@ -209,6 +209,14 @@ end - start === (sourceEnd - sourceStart) / speed
 consumes the same footage in half the timeline time; `speed: 0.5` (slow-mo)
 stretches it to twice the timeline time.
 
+That range must fit the asset (AL42, #156). An operation that leaves a clip's `sourceEnd` more
+than one project frame past its audio or video asset's `durationSeconds` is refused
+(`source_past_media_end`, TS and Python). A fast retime, a fitted speed ramp, a trim and a
+placement are all checked. Stills and assets of unknown length are exempt. Only a clip the
+operation made read further into its asset is judged, so a project saved with an overrun still
+edits. Within that frame, `add_clip` ends on the last whole frame inside the media
+(`frame-grid.ts`), and the render plays silence and holds the last frame for whatever is left.
+
 Set/reset with the `set_clip_speed` operation (`packages/editor-core`):
 
 ```ts

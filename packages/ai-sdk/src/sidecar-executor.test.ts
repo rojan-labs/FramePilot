@@ -3,7 +3,7 @@
  * translation, honest failure on non-2xx / timeout / unsupported tools, and
  * Stop-signal cancellation. `fetch` is injected — fully offline.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import {
   analysisBody,
@@ -1769,6 +1769,130 @@ describe('createSidecarExecutor', () => {
     const executor = createSidecarExecutor({ baseUrl: 'http://x', fetchFn });
     const outcome = await executor.run(call('detect_scenes'), ctx, controller.signal);
     expect(outcome).toMatchObject({ status: 'cancelled' });
+  });
+
+  describe('a route the engine serialises (AL33)', () => {
+    /** One scope result for the request in `body`, as `/review/temporal-evidence` answers. */
+    const scopeBatch = (body: { requests: { requestId: string }[] }): unknown => {
+      const settings = {
+        identity: 'temporal-evidence:1920x1080@30:captions=true',
+        presetId: 'temporal-evidence',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        burnCaptions: true,
+      };
+      const sample = {
+        frame: 0,
+        channel: 'luma',
+        min: 0.1,
+        max: 0.9,
+        mean: 0.4,
+        p10: 0.2,
+        p50: 0.4,
+        p90: 0.8,
+        nearBlackRatio: 0,
+        nearWhiteRatio: 0,
+      };
+      return {
+        renderSettings: settings,
+        results: [
+          {
+            schemaVersion: 1,
+            requestId: body.requests[0]!.requestId,
+            projectRevision: project.timeline.revision ?? 0,
+            kind: 'scope',
+            samples: [sample],
+            renderSettings: settings,
+          },
+        ],
+      };
+    };
+
+    /**
+     * The engine's evidence route: one request at a time, each `workMs` of its own work
+     * after the one before it finished. Records how many requests were in flight at once.
+     */
+    function serialEngine(workMs: number): { fetchFn: typeof fetch; peak: () => number } {
+      let free: Promise<void> = Promise.resolve();
+      let inFlight = 0;
+      let peak = 0;
+      const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        const turn = free.then(() => new Promise<void>((resolve) => setTimeout(resolve, workMs)));
+        free = turn.catch(() => undefined);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            });
+            void turn.then(resolve);
+          });
+        } finally {
+          inFlight -= 1;
+        }
+        const body = JSON.parse(String(init?.body)) as { requests: { requestId: string }[] };
+        return { ok: true, status: 200, json: async () => scopeBatch(body) } as Response;
+      }) as unknown as typeof fetch;
+      return { fetchFn, peak: () => peak };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("starts each measure_color's timeout when it is sent, not while it waits for its siblings", async () => {
+      // Run 15: six measure_color calls in one step; the engine answered them in turn, and
+      // five of six timed out at 120 s waiting behind the others. Here each takes 80 ms of a
+      // 100 ms budget: posted together, the second would time out at 160 ms.
+      vi.useFakeTimers();
+      const engine = serialEngine(80);
+      const executor = createSidecarExecutor({
+        baseUrl: 'http://x',
+        fetchFn: engine.fetchFn,
+        timeoutMs: 100,
+      });
+      const settled = Promise.all(
+        ['clip_a', 'clip_b', 'clip_a'].map((clipId) =>
+          executor.run(call('measure_color', { clipId }), ctx),
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      const outcomes = await settled;
+      expect(outcomes.map((outcome) => outcome.status)).toEqual([
+        'completed',
+        'completed',
+        'completed',
+      ]);
+      expect(engine.peak()).toBe(1);
+    });
+
+    it('a call stopped while it waits for its turn never reaches the engine', async () => {
+      vi.useFakeTimers();
+      let sent = 0;
+      const engine = serialEngine(50);
+      const fetchFn = (async (url: unknown, init?: RequestInit) => {
+        sent += 1;
+        return engine.fetchFn(url as string, init);
+      }) as unknown as typeof fetch;
+      const executor = createSidecarExecutor({ baseUrl: 'http://x', fetchFn, timeoutMs: 1_000 });
+      const stop = new AbortController();
+      const first = executor.run(call('measure_color', { clipId: 'clip_a' }), ctx);
+      const stopped = executor.run(call('measure_color', { clipId: 'clip_b' }), ctx, stop.signal);
+      await vi.advanceTimersByTimeAsync(10);
+      stop.abort();
+      await expect(stopped).resolves.toMatchObject({ status: 'cancelled' });
+      expect(sent).toBe(1);
+      // The line still moves: the next call goes once the first has settled.
+      const next = executor.run(call('measure_color', { clipId: 'clip_b' }), ctx);
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(first).resolves.toMatchObject({ status: 'completed' });
+      await expect(next).resolves.toMatchObject({ status: 'completed' });
+      expect(sent).toBe(2);
+    });
   });
 
   it('reports a timeout as a failed call with the timeout budget', async () => {

@@ -36,8 +36,12 @@ import {
   TRACK_MASK_TOOL_NAME,
   TrackMaskMeasurementSchema,
   MaskCandidateIdSchema,
+  REFRAME_TO_SUBJECT_TOOL_NAME,
+  ReframeToSubjectArgsSchema,
+  ReframeToSubjectMeasurementSchema,
   type MaskReviewReport,
 } from '../masking/contracts.js';
+import { reframeToSubjectEdit, reframeToSubjectTarget } from '../masking/reframe-to-subject.js';
 import { parseCandidateId } from '../masking/candidate-id.js';
 import { attestMaskGeometry } from '../masking/geometry-provenance.js';
 import { USER_NUMBERS_NOT_TYPED, numbersWereTyped } from '../masking/geometry-provenance.js';
@@ -330,6 +334,7 @@ export function preflightMaskingCall(toolName: string, rawArgs: unknown, ctx: To
   if (toolName === CREATE_MASK_TOOL_NAME) createMaskIntent(rawArgs, ctx);
   else if (toolName === REMOVE_BACKGROUND_TOOL_NAME) removeBackgroundIntent(rawArgs, ctx);
   else if (toolName === CREATE_SHAPE_MASK_TOOL_NAME) createShapeMaskIntent(rawArgs, ctx);
+  else if (toolName === REFRAME_TO_SUBJECT_TOOL_NAME) reframeToSubjectTarget(ctx.project, rawArgs);
 }
 
 /** A host-measured masking result, ready for the orchestrator to assemble. */
@@ -352,6 +357,12 @@ export interface MaskingMeasuredEdit {
     /** The editor picked the candidate or typed the shape: never second-guessed. */
     readonly editorChose: boolean;
   };
+  /**
+   * The result the model reads, for an edit that is not a mask (`reframe_to_subject` keyframes a
+   * clip's transform): replaces the mask review sentence and report, which would describe a
+   * mask this edit never made.
+   */
+  readonly result?: { readonly note: string; readonly data: Readonly<Record<string, unknown>> };
 }
 
 /** Thrown when a host payload does not survive its schema. */
@@ -376,6 +387,18 @@ export function maskingOpsFromMeasurement(
   payload: unknown,
   ctx: ToolContext,
 ): MaskingMeasuredEdit {
+  if (toolName === REFRAME_TO_SUBJECT_TOOL_NAME) {
+    const parsed = ReframeToSubjectMeasurementSchema.safeParse(payload);
+    if (!parsed.success) throw new UnusableMaskingPayloadError();
+    const edit = reframeToSubjectEdit(ctx.project, rawArgs, parsed.data);
+    return {
+      operations: edit.operations,
+      clipId: parsed.data.clipId,
+      maskId: parsed.data.maskId,
+      needsReview: [],
+      result: { note: edit.note, data: edit.data },
+    };
+  }
   if (toolName === TRACK_MASK_TOOL_NAME) {
     const args = TrackMaskArgsSchema.parse(rawArgs);
     const parsed = TrackMaskMeasurementSchema.safeParse(payload);
@@ -872,6 +895,16 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     TrackMaskArgsSchema,
     ['analysis', 'write'],
   ),
+  hostMeasured(
+    REFRAME_TO_SUBJECT_TOOL_NAME,
+    'Reframe a clip whose shape differs from the frame (16:9 into 9:16) so the window FOLLOWS a ' +
+      'moving subject: reads the measured track of a tracked mask on that clip (maskId from ' +
+      'get_masks; track it first with create_mask track:true or track_mask) and writes smooth ' +
+      'x/y/scale keyframes at the zoom that fills the frame. Replaces the clip crop and any ' +
+      'x/y/scale keyframes; a punch_in afterwards zooms on top. Run it again after re-tracking.',
+    ReframeToSubjectArgsSchema,
+    ['analysis', 'write'],
+  ),
   mutateTool(
     {
       name: 'refine_mask',
@@ -989,8 +1022,11 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
   hostMeasured(
     CREATE_SHAPE_MASK_TOOL_NAME,
     'Split screen, mirror band, gradient and shape-preset masks (heart, star, polygon, speech ' +
-      'bubble, arrow, rounded frame). Placed on a candidateId from find_mask_targets, on the ' +
-      'frame (pass neither), or in a userBox ONLY with numbers the editor typed. side: which ' +
+      'bubble, arrow, rounded frame — a rounded frame keeps only a BORDER band around the ' +
+      'picture, so as a cutout it blacks out the middle; to show the picture inside a rounded ' +
+      'or shaped window use a shape preset with purpose cutout). Placed on a candidateId from ' +
+      'find_mask_targets, on the frame (pass neither: the part of the clip on screen, its crop), ' +
+      'or in a userBox ONLY with numbers the editor typed. side: which ' +
       'half a split keeps, or where a gradient is opaque; direction: a mirror band runs ' +
       'horizontal or vertical; count: star points or polygon sides. purpose, effect and edge ' +
       'as in create_mask. You never give coordinates.',
@@ -1004,7 +1040,9 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
         'Track matte and text-as-mask: use another clip (sourceClipId, e.g. a text overlay for video ' +
         'inside text) or a whole track (sourceTrackId) as this clip’s mask. channel: alpha (its ' +
         'shape), luma (its brightness) or either inverted. The source is then no longer drawn ' +
-        'on its own. Undo removes it.',
+        'on its own. The matte is the source as drawn at each instant, so its keyframes and ' +
+        'animation move the matte: a rounded rectangle from add_shape that scales up opens the ' +
+        'clip through a growing window. Undo removes it.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },

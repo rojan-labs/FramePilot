@@ -2,6 +2,8 @@
 
 - **Status:** Accepted. Amended 2026-09-25: the layer compositor is now the default in every
   build, production included (see "Amendment" below). RD3 still deletes the legacy path.
+  Amended 2026-09-27 (playback never waits on text) and 2026-09-29 (the agent's overlay
+  refusal is lifted).
 - **Date:** 2026-09-17
 - **Supersedes:** the **gating role** of ADR 0169 (a full-frame cutaway goes in front) and
   ADR 0170 (coverage is a relation between the layers): `canvasPreviewEligible`,
@@ -63,7 +65,7 @@ pixel in CI. At CI run 35172331641, 43 of 48 cases pass the unchanged gates (PSN
 - The agent's picture placement rules from ADR 0169 (front-lane placement, refusing stacked
   placements the old monitor could not show) were justified partly by the preview. That half of
   the justification is gone; whether to relax those refusals is an editing decision for the
-  AI layer and is **not** changed here.
+  AI layer and is **not** changed here. (The 2026-09-29 amendment below makes it.)
 - Preview correctness is now a CI measurement (PX4). A compositor change that breaks a passing
   case fails the job; one that fixes a listed case fails it too until the baseline is shrunk.
 
@@ -128,3 +130,53 @@ during playback only, the same way load shedding (PX2.8) already lowers resoluti
 playback. A caption one word-state late for a few frames is a smaller error than a frozen monitor,
 and it is never what the user stops on. Holding the frame made the monitor unusable exactly where
 captions are, which is where users look hardest.
+
+## Amendment (2026-09-29): the agent layers picture over picture
+
+The agent still refused a scaled, positioned, cropped, faded, blended or masked picture layer
+over other picture, and its tool descriptions and skills still said why: "the preview can only
+show one picture layer at a time". The maintainer's desktop run `88c8b27d` blocked three brief
+items on that sentence ("THE ROAD" behind the ridge, a mask-reveal through a car pillar, a 3-up
+split screen) and answered "every shot breaks the 115% scale limit" with "the blurred-fill
+treatment, which this preview can't composite". Decision 1 above made that false in every build
+on 2026-09-25; the refusal outlived its reason. The maintainer asked for the gaps to be closed end
+to end, which is the editing decision this ADR's consequences left open.
+
+**Decision.**
+
+1. **Any picture placement over picture is layered in front** (`createPicturePlacer`,
+   `ai-sdk/domain-tools/picture-layers.ts`): `add_clip`, `add_clips` and `move_clip` put a
+   see-through or scaled layer on a lane in front of what it covers, exactly as they already did
+   a full-frame cutaway. The later transform, opacity, blend and mask edits on such a layer were
+   never gated.
+2. **`add_clip` takes the geometry of a layered look**: `crop`, a rect of the source or `null` for
+   the whole picture fitted inside the frame. With it, the placer writes no cover crop over the
+   caller's choice, and the same shot at the same moment is not refused as an invisible duplicate
+   when its crop differs (a blurred-fill foreground over its cover-cropped copy).
+3. **`apply_color_grade` takes `type: "blur"`** (`params.amount`, 0..0.25), the clip blur the
+   Inspector already writes, so a blurred-fill background needs no new tool.
+4. **What stays refused, and why it is still real:**
+   - a FULL-FRAME placement that would swallow a cutaway whole (`hides_a_cutaway`, run
+     `137d8fd0`): that clip would never be seen. A window never triggers it, because a split
+     panel lands centred and is moved afterwards;
+   - the same frames at the same moment through the same crop: invisible work;
+   - `add_stock`'s placement (`cutawaysOnly`): it places a full-frame cutaway at a moment and
+     takes no geometry, so a stock clip that cannot be shown to hide the footage (an unmeasured
+     shape) would leave it showing round its edges. The refusal names the hole it could cut and
+     the route that layers it on purpose: the bin, then `add_clip`. The Stock panel's one-click
+     **Add** keeps its occupancy rule for the reason `buildAddStockOps` gives: a person clicking
+     Add did not ask to stack.
+5. **Coverage stays a relation (ADR 0170), and now means "hides".** The Critic's
+   `hidden_picture`, `visiblePictureSeconds`, the "hidden behind picture" lane digest and the
+   burial check count a clip in front as covering only when it hides what is behind it; a
+   covered clip with keyframes can be anywhere, so only a frame-filling layer hides it.
+   `reframe_coverage` does not call a fitted clip letterboxed when frame-filling picture sits
+   behind it for its whole span. The eval rubric's `stacked-picture-is-previewable` became
+   `stacked-picture-is-visible`.
+
+**Evidence.** `layered-picture-recipes.test.ts` builds a blurred fill and a 3-up split with the
+agent's real tool calls, validates and applies every patch, undoes the chain and asks the Critic;
+`test_layered_picture_render.py` renders the same projects through `grab_frame`. Blurred fill at
+360x640: the bars are picture (mean 126) and soft (mean horizontal step 0.16, std 2.4; 8.3 without
+the blur), the band is the whole sharp shot (21.9) on rows 219-420, exactly the 202.5-row fit.
+The 3-up puts each shot in its own third, edge to edge.

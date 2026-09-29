@@ -1,10 +1,14 @@
 ---
 name: vertical-reframe
 description: Convert aspect ratios (16:9 to 9:16, 1:1, 4:5) shot by shot — look at each source as shot, place a subject-aware crop, or pan the window across a wide shot; platform-safe placement and consistency.
-tools: [get_frame, get_clip, set_clip_crop, reframe_pan]
+tools: [get_frame, get_clip, set_clip_crop, reframe_pan, add_clip, apply_color_grade]
 ---
 
 # Vertical reframe
+
+**Framing targets the request gives per shot** ("face in the upper third", "bias toward the
+speaker", "horizon at 40%", "pan along the coastline") replace the defaults below. Your job is to find
+where that is in each source and hold it.
 
 ## Purpose
 
@@ -39,6 +43,8 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
 - `get_frame { assetId, sourceSeconds }` shows a source file as shot: the whole uncropped
   frame. Look there FIRST — the timeline only shows a placed clip through its crop, so the
   part of the frame the crop hides is exactly where a subject you are missing is.
+- Many clips to reframe? `get_frame { sources: [{ assetId }, …] }` shows up to 12 sources as
+  shot on one numbered sheet — see where every subject sits in one call, then crop each.
 - After reframing, `get_frame { timeSeconds }` shows the delivered frame; check the subject
   is in the window and clear of the platform UI zones.
 
@@ -51,10 +57,24 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
   (x: 0 left … 1 right), eased from one to the other over the clip. Use it for aerials and
   wide shots (a slow drift of 5–10% of the frame width per 2s adds life) and to keep up with
   a subject you watched move across the source. It replaces the clip's crop and its x/y/scale
-  keyframes, and its scale keyframes ARE the zoom that fills the frame — so do not punch_in
-  on a panned clip (a punch-in writes scale and would undo the reframe).
-- A subject that moves unpredictably cannot be followed automatically yet: pan between the
-  positions you saw at the start and end, and say that the framing is a pan, not a track.
+  keyframes, so pan FIRST. A `punch_in` afterwards multiplies the pan's zoom — it pushes in on
+  top of the pan while the window keeps moving, and never drops below the zoom that fills the
+  frame, so a slow pan with a punch on the same shot is two calls.
+- **A window that follows a moving subject:** track a mask on it (masking tools:
+  `create_mask` with `track: true`), then `reframe_to_subject { clipId, maskId }`. Without a
+  track, pan between the positions you saw and say the framing is a pan, not a track.
+- **Blurred fill** — the whole shot, never upscaled, over a soft copy of itself. Use it when a
+  crop would cut the subject or zoom past about 115%. Two copies of one shot, in this order:
+  1. **Background = the clip already cut in.** It fills the frame (its cover crop, or a pan's
+     zoom). Blur it: `apply_color_grade { clipId, type: "blur", params: { amount: 0.06 } }`.
+  2. **Foreground = a new copy, in FRONT.** `add_clip` the same asset with the same start, end
+     and sourceStart and `crop: null`. It lands on a new layer in front of the background,
+     the whole picture fitted (a 1920×1080 source is 1080×607 in a 1080×1920 frame, scale
+     0.5625), and its bars show the blur.
+
+  Never blur the foreground, and never add the copy without `crop: null`: it would fill the
+  frame too and hide the background. Blur on the wrong clip? `amount: 0` takes it off. Each
+  shot is now two clips, so trim or move both. Check one frame with `get_frame { timeSeconds }`.
 
 ## Professional heuristics
 

@@ -247,9 +247,11 @@ describe('agent mode', () => {
       run.steps.some((s) => /already in place|already done, and doing it again/.test(s.note)),
     ).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    // 32 since the five element checks joined the battery. `critic.test.ts` is what pins the
-    // set itself, by id and in order; this line only asserts the run carries a full report.
-    expect(run.critique.checks.length).toBe(32);
+    // 29: the five element checks joined the battery (32), issue #136 retired the four
+    // checks only request-word readers could trigger (shot_count, treatment_coverage,
+    // cutaway_count, elements_placed), and AL41 added text_collision. `critic.test.ts` is what pins the set itself, by id
+    // and in order; this line only asserts the run carries a full report.
+    expect(run.critique.checks.length).toBe(29);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -996,7 +998,7 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
       const line = arrangementLine(stacked(5));
       expect(line).toContain(
         'b_roll [video] empty — hidden behind picture 0–10s ' +
-          '(a full-frame clip added here lands on a new front layer)',
+          '(a clip added here lands on a new front layer)',
       );
       // The track doing the covering is in FRONT of it, so it says nothing extra.
       expect(line).toContain('v_main [video] 2 clips 0–10s;');
@@ -2024,7 +2026,38 @@ describe('summarizeReadResult carries a verification report the run can act on',
       ],
     });
     expect(note.split('\n')[0]).toBe('2 of 78 matching effects');
-    expect(note).toContain('stylize: vhs-tape, film-grain');
+    expect(note).toContain('stylize:\n- vhs-tape\n- film-grain');
+  });
+
+  it('says what each effect looks like and how long it runs by default', () => {
+    // Run d8d2e445 called `recall_evidence` on BOTH of its discover results only to read
+    // the descriptions and default lengths this digest dropped. Choosing between a grain
+    // and a leak needs the look and the length; the params can wait for the chosen one.
+    const long =
+      'A very long description that keeps going well past what one digest line should ever carry for a single catalogue entry.';
+    const note = summarizeReadResult('discover_effects', {
+      matched: 2,
+      returned: 2,
+      effects: [
+        {
+          effectId: 'golden-leak',
+          category: 'light',
+          description: 'Warm light spilling in from the frame edge.',
+          defaultDuration: 2,
+          params: [{ name: 'strength', min: 0, max: 1, default: 0.6 }],
+        },
+        { effectId: 'wordy', category: 'light', description: long, defaultDuration: 1.25 },
+      ],
+    });
+    expect(note).toContain(
+      'light:\n- golden-leak (default 2s) — Warm light spilling in from the frame edge.',
+    );
+    const wordy = note.split('\n').find((line) => line.startsWith('- wordy'))!;
+    expect(wordy.startsWith('- wordy (default 1.25s) — A very long description')).toBe(true);
+    expect(wordy.endsWith('…')).toBe(true);
+    expect(wordy.length).toBeLessThan(long.length);
+    // Params are not repeated in the digest; the payload keeps them for a recall.
+    expect(note).not.toContain('strength');
   });
 
   it('falls back to the JSON preview when a payload is not the shape it expects', () => {
@@ -2133,7 +2166,7 @@ describe('summarizeReadResult carries a verification report the run can act on',
       'no effects match (0 in catalog)',
     );
     expect(summarizeReadResult('discover_effects', { effects: [{ effectId: 'vhs' }] })).toBe(
-      '1 of 1 matching effects\nother: vhs',
+      '1 of 1 matching effects\nother:\n- vhs',
     );
     expect(
       summarizeReadResult('list_edit_boundaries', [
@@ -2985,7 +3018,8 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(32);
+    // The full battery; see the agent-mode count above for why it is 28.
+    expect(review.report.checks.length).toBe(29);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });
@@ -3159,8 +3193,16 @@ describe('route-scoped tool surface (E5)', () => {
     // the run never loaded is as absent here as anywhere), so the one way to reach a
     // withheld mutation has to stay open. It gathers nothing about the footage.
     expect(names).toContain('load_tools');
+    // …and so does `update_plan`: marking an item done, or blocked with the reason, is how a
+    // run that has done what it can says so. It gathers nothing either.
+    expect(names).toContain('update_plan');
     for (const name of names) {
-      if (name === 'recall_evidence' || name === 'load_tools' || EDIT_LOOK_TOOL_NAMES.has(name))
+      if (
+        name === 'recall_evidence' ||
+        name === 'load_tools' ||
+        name === 'update_plan' ||
+        EDIT_LOOK_TOOL_NAMES.has(name)
+      )
         continue;
       const tool = getTool(name)!;
       // The contract and the sourcing role, not the registry kind — that is the whole

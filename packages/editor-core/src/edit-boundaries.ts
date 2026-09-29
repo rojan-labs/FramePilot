@@ -40,6 +40,7 @@
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { TIME_EPSILON, buildTimelineMap, type ClipSpan } from './timeline-map.js';
+import { syntheticClipKind } from './synthetic-assets.js';
 
 /**
  * A real cut: two clips meeting on one track, with the footage available on
@@ -588,7 +589,15 @@ export function layerTransitionEligibility(
     return {
       ok: false,
       reason: 'is_a_cut',
-      detail: `The ${request.edge === 'in' ? 'start' : 'end'} of "${clip.id}" is a cut on its own layer (${secs(at)}). Use add_transition with fromClipId "${fromClipId}" and toClipId "${toClipId}".`,
+      // A shape or sticker butt-joined to another element on its lane is not an editorial cut
+      // the editor made: harness run 9 laid two callouts end to end on one layer and each one's
+      // In/Out was refused with only the crossfade-between-them remedy. Name the remedy that
+      // keeps each element's own entrance and exit: its own layer.
+      detail:
+        `The ${request.edge === 'in' ? 'start' : 'end'} of "${clip.id}" is a cut on its own layer (${secs(at)}). Use add_transition with fromClipId "${fromClipId}" and toClipId "${toClipId}"` +
+        (syntheticClipKind(clip.assetId) === null
+          ? '.'
+          : ' to cross from one to the other, or move one of them onto another layer (move_clip) so each keeps its own In and Out.'),
     };
   }
   const limit = (clip.end - clip.start) / 2;

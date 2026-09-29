@@ -1,5 +1,5 @@
 {
-  "spec": "A clip's renderable kind, whether its asset id is synthetic, whether it has a time-based source, and the lane type that hosts it. Read by packages/editor-core/src/synthetic-assets.test.ts and engine/python/tests/test_synthetic_assets.py; both runtimes must agree on every row.",
+  "spec": "A clip's renderable kind, whether its asset id is synthetic, whether it has a time-based source, whether it is drawn as a picture layer in its lane (a track matte can read it), and the lane type that hosts it. Read by packages/editor-core/src/synthetic-assets.test.ts and engine/python/tests/test_synthetic_assets.py; both runtimes must agree on every row.",
   "cases": [
     {
       "assetId": "__text__",
@@ -7,6 +7,7 @@
       "kind": "text",
       "synthetic": true,
       "hasTimeBasedSource": false,
+      "drawn": true,
       "laneType": "overlay"
     },
     {
@@ -15,6 +16,7 @@
       "kind": "caption",
       "synthetic": true,
       "hasTimeBasedSource": false,
+      "drawn": false,
       "laneType": "caption"
     },
     {
@@ -23,6 +25,7 @@
       "kind": "shape",
       "synthetic": true,
       "hasTimeBasedSource": false,
+      "drawn": true,
       "laneType": "overlay"
     },
     {
@@ -31,6 +34,7 @@
       "kind": "text",
       "synthetic": true,
       "hasTimeBasedSource": false,
+      "drawn": true,
       "laneType": "overlay"
     },
     {
@@ -39,6 +43,7 @@
       "kind": "video",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": true,
       "laneType": "video"
     },
     {
@@ -47,6 +52,7 @@
       "kind": "image",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": true,
       "laneType": "video"
     },
     {
@@ -55,6 +61,7 @@
       "kind": "audio",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": false,
       "laneType": "audio"
     },
     {
@@ -63,6 +70,7 @@
       "kind": "video",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": true,
       "laneType": "video"
     },
     {
@@ -71,6 +79,7 @@
       "kind": "video",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": true,
       "laneType": "video"
     },
     {
@@ -79,6 +88,7 @@
       "kind": "video",
       "synthetic": false,
       "hasTimeBasedSource": true,
+      "drawn": true,
       "laneType": "video"
     }
   ]

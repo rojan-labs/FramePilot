@@ -11,6 +11,10 @@ This is an ANALYSIS capability — it returns data and never mutates the
 timeline. As with the other analyzers, the log **parser** is pure
 (unit-testable without ffmpeg) and the subprocess call takes an injectable
 :data:`framepilot_engine.media.ffmpeg.Runner`.
+
+"Black" means dark in EVERY channel, so ``blackdetect`` is fed each pixel's brightest
+channel (HSV value, ``max(R, G, B)``), never luma. Luma weights blue at 7% under BT.709,
+so a saturated blue end card read as black and failed a legitimate export (#154).
 """
 
 from __future__ import annotations
@@ -37,8 +41,24 @@ _BLACK_DURATION_RE = re.compile(r"black_duration:(\d+(?:\.\d+)?)")
 DEFAULT_MIN_BLACK_SECONDS = 0.5
 #: Fraction of pixels that must be below the pixel threshold for a "black" frame.
 DEFAULT_PICTURE_THRESHOLD = 0.98
-#: Luminance threshold (0..1) below which a pixel counts as black.
+#: Brightest-channel threshold (0..1 of full scale) at or below which a pixel counts as black.
 DEFAULT_PIXEL_THRESHOLD = 0.10
+
+#: The plane ``blackdetect`` judges: per pixel, the brightest of R, G and B.
+#:
+#: - ``format=gbrp`` converts through swscale, which reads the frame's own matrix and range
+#:   tags (a BT.709 limited export decodes red to 255/0/0; an untagged file takes the BT.601
+#:   default that pre-#154 exports were encoded with), so the RGB is the picture's real colour.
+#: - Two ``lighten`` blends take the per-pixel maximum of the three planes: a fixed-function
+#:   max, no per-pixel expression evaluator, and no hue list or colour special case.
+#: - ``setparams=range=pc`` pins how ``pix_th`` maps: on a full-range gray plane blackdetect
+#:   cuts at ``pix_th * 255`` (0.10 -> code 25), which is exactly "brightest channel at most
+#:   10%". Left tagged ``tv`` it would cut at ``16 + pix_th * 219`` (code 37, 14.5% of RGB).
+_BRIGHTEST_CHANNEL_GRAPH = (
+    "format=gbrp,extractplanes=r+g+b[r][g][b];"
+    "[r][g]blend=all_mode=lighten[rg];"
+    "[rg][b]blend=all_mode=lighten,setparams=range=pc"
+)
 
 
 class BlackRange(BaseModel):
@@ -82,7 +102,11 @@ def parse_black_seconds(logs: str) -> float:
 
 
 def blackdetect_argv(path: Path, filter_params: str) -> list[str]:
-    """The ffmpeg argv for one ``blackdetect`` pass over ``path`` (shared with render QC)."""
+    """The ffmpeg argv for one ``blackdetect`` pass over ``path`` (shared with render QC).
+
+    ``blackdetect`` runs on the brightest-channel plane (:data:`_BRIGHTEST_CHANNEL_GRAPH`),
+    so ``pix_th`` bounds max(R, G, B), not luma.
+    """
     return [
         find_ffmpeg(),
         "-hide_banner",
@@ -90,7 +114,7 @@ def blackdetect_argv(path: Path, filter_params: str) -> list[str]:
         "-i",
         str(path),
         "-vf",
-        f"blackdetect={filter_params}",
+        f"{_BRIGHTEST_CHANNEL_GRAPH},blackdetect={filter_params}",
         "-an",
         "-f",
         "null",
@@ -112,7 +136,7 @@ def detect_black(
     :param path: Media file to analyse (assumed already sandbox-resolved).
     :param min_black_seconds: Minimum span length to report.
     :param picture_threshold: Fraction of black pixels for a frame to count.
-    :param pixel_threshold: Luminance below which a pixel counts as black.
+    :param pixel_threshold: Brightest-channel level (0..1) at or below which a pixel is black.
     :param runner: ffmpeg stderr runner; defaults to the real subprocess runner.
     :param timeout: Per-call timeout in seconds (bounds the subprocess).
     :returns: The detected black spans.

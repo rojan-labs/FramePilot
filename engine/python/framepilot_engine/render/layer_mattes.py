@@ -7,6 +7,16 @@ alone on a transparent frame, placement, masks and opacity included. That is the
 own layer for the source (``frame_plan.layer_matte_sources`` marks it ``matteOnly``: rendered for
 the matte, never composited itself, as Premiere's Track Matte Key and CapCut's text mask hide it).
 
+**Compositing.** The source's layers are drawn with the export's own per-layer compose
+(:func:`~framepilot_engine.render.bounded_composite.compose_layer_on`) onto a transparent RGBA
+frame, and the result's alpha is the matte. Not MoviePy's ``CompositeVideoClip.mask``: that
+composite gives each layer without a mask ``clip.with_mask()``, a solid mask of the layer's
+size at construction, and MoviePy's time-varying ``Resize`` leaves ``has_constant_size`` True,
+so a source that animates its scale kept its first frame's size in the matte while its position
+followed the animation (and a growing window slid out from under the clip, AL31). Composed
+here, each layer's alpha is its own picture at that instant: size, position, rotation, opacity
+and crop, exactly as the export draws it (alpha quantized to 8 bits, as the export's is).
+
 **Channels.** ``alpha`` is the source's composited alpha; ``luma`` is its Rec. 709 luma over
 transparent black (``luma(rgb) * alpha``), so a white title is opaque and a dark one is not;
 ``inverted-alpha`` and ``inverted-luma`` are ``1 - value``. Where the source draws nothing the
@@ -45,6 +55,11 @@ import numpy.typing as npt
 
 from framepilot_engine.render.key_mask import luma_of
 from framepilot_engine.render.mask_raster import FloatArray
+from framepilot_engine.timeline.synthetic_assets import (
+    PICTURE_LANE_TYPES,
+    clip_render_kind,
+    is_drawn_clip_kind,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -152,14 +167,13 @@ class LayerMatteResolver:
 
     A consumed layer (a clip's own layer, an under-layer for it, or anything on a consumed track)
     is added here instead of to the composite; :meth:`frame_at` composites a source's layers alone
-    on a transparent frame at a sequence time, lazily and once per source, and keeps the last
-    frame per source so several masks reading one source at one instant composite it once.
+    on a transparent frame at a sequence time, lazily, and keeps the last frame per source so
+    several masks reading one source at one instant composite it once.
     """
 
     size: tuple[int, int]
     by_clip: dict[str, list[Any]] = field(default_factory=dict)
     by_track: dict[str, list[Any]] = field(default_factory=dict)
-    _composites: dict[str, Any] = field(default_factory=dict)
     _last: dict[str, tuple[float, LayerMatteFrame]] = field(default_factory=dict)
 
     def add(self, track_id: str, clip_id: str, layer: Any) -> None:
@@ -178,35 +192,83 @@ class LayerMatteResolver:
         last = self._last.get(key)
         if last is not None and last[0] == time:
             return last[1]
-        layers = self.layers_of(source)
-        if not layers:
-            frame = empty_matte_frame(*self.size)
-        else:
-            composite = self._composites.get(key)
-            if composite is None:
-                from moviepy import CompositeVideoClip
-
-                # No bg_color: a transparent background, so the frame's alpha is the source's.
-                composite = CompositeVideoClip(layers, size=self.size)
-                self._composites[key] = composite
-            rgb = np.asarray(composite.get_frame(time), dtype=np.uint8)
-            mask = composite.mask
-            alpha = (
-                np.zeros(rgb.shape[:2], dtype=np.float64)
-                if mask is None
-                else np.asarray(mask.get_frame(time), dtype=np.float64)
-            )
-            frame = LayerMatteFrame(rgb=rgb[:, :, :3], alpha=alpha)
+        frame = composite_alone(self.layers_of(source), self.size, time)
         self._last[key] = (time, frame)
         return frame
+
+
+def composite_alone(layers: list[Any], size: tuple[int, int], time: float) -> LayerMatteFrame:
+    """``layers`` drawn as the export draws them, on a transparent frame, at sequence ``time``.
+
+    Layer order and the playing test are MoviePy's ``CompositeVideoClip`` (a stable sort by
+    ``layer_index``; ``is_playing``); each layer then composes through the export's own
+    :func:`compose_layer_on`, so its picture and its alpha are one frame at one size.
+    """
+    # Lazy, as MoviePy was here before: `mask_stack` imports this module without compositing.
+    from PIL import Image
+
+    from framepilot_engine.render.bounded_composite import compose_layer_on
+
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    for layer in sorted(layers, key=lambda candidate: candidate.layer_index):
+        if layer.is_playing(time):
+            canvas = compose_layer_on(layer, canvas, time)
+    pixels = np.asarray(canvas.convert("RGBA"), dtype=np.uint8)
+    return LayerMatteFrame(
+        rgb=np.ascontiguousarray(pixels[:, :, :3]),
+        alpha=pixels[:, :, 3].astype(np.float64) / 255.0,
+    )
 
 
 class LayerMatteRefusal(ValueError):
     """A track matte the export cannot draw (a missing or looping source); says what to do."""
 
 
+#: What a track matte refused for reading no picture is told to read instead.
+_SOURCE_REMEDY = (
+    "Point the track matte at a clip or track on a "
+    + " or ".join(sorted(PICTURE_LANE_TYPES, key=lambda lane: lane != "video"))
+    + " track: a video, a still, a text overlay or a shape."
+)
+
+
+def _source_draws_no_picture(
+    source: Any,
+    clips: dict[str, Any],
+    track_of: dict[str, Any],
+    tracks: dict[str, Any],
+    asset_kinds: dict[str, str | None],
+) -> str | None:
+    """Why a track matte's source draws no picture, or ``None`` when it draws one (AL31a).
+
+    A picture is what the compile loop draws in a lane's place (``DRAWN_CLIP_KINDS``): a whole
+    track is a source when its lane type hosts drawn kinds (``video``, ``overlay``: titles and
+    shapes live there), and one clip is a source when it sits on such a lane AND is itself
+    drawn. A song or a caption cue parked on a picture lane still draws nothing there (a cue is
+    burned by its own pass over the frame, never registered as a matte layer). The validator
+    refuses the same (``mask-validation.ts``).
+    """
+    lane = (
+        track_of.get(str(source.clip_id))
+        if source.kind == "clip"
+        else tracks.get(str(source.track_id))
+    )
+    if lane is not None and str(lane.type.value) not in PICTURE_LANE_TYPES:
+        return "a track that holds no picture"
+    if source.kind != "clip":
+        return None
+    clip = clips.get(str(source.clip_id))
+    if clip is None:
+        return None
+    kind = clip_render_kind(str(clip.asset_id), asset_kinds.get(str(clip.asset_id)))
+    if is_drawn_clip_kind(kind):
+        return None
+    return f"clip {str(clip.id)!r}, which draws no picture of its own"
+
+
 def assert_layer_sources(project: Any) -> None:
-    """Refuse, before any frame renders, a track matte whose source is missing or loops.
+    """Refuse, before any frame renders, a track matte whose source is missing, draws no
+    picture, or loops.
 
     The validator refuses the same on mask edits; this also covers a loop created by moving a
     clip onto a track that another of its layer masks reads.
@@ -214,6 +276,7 @@ def assert_layer_sources(project: Any) -> None:
     clips: dict[str, Any] = {}
     track_of: dict[str, Any] = {}
     tracks: dict[str, Any] = {}
+    asset_kinds = {str(asset.id): asset.kind for asset in project.assets}
     for track in project.timeline.tracks:
         tracks[str(track.id)] = track
         for clip in track.clips:
@@ -248,15 +311,10 @@ def assert_layer_sources(project: Any) -> None:
                     f"Mask {mask.id!r} on clip {clip_id!r} reads a clip or track that does not "
                     "exist. Point the track matte at an existing clip or track."
                 )
-            source_track = (
-                track_of.get(str(source.clip_id))
-                if source.kind == "clip"
-                else tracks.get(str(source.track_id))
-            )
-            if source_track is not None and str(source_track.type.value) != "video":
+            no_picture = _source_draws_no_picture(source, clips, track_of, tracks, asset_kinds)
+            if no_picture is not None:
                 raise LayerMatteRefusal(
-                    f"Mask {mask.id!r} on clip {clip_id!r} reads a track that holds no picture. "
-                    "Point the track matte at a clip or track on a video track."
+                    f"Mask {mask.id!r} on clip {clip_id!r} reads {no_picture}. {_SOURCE_REMEDY}"
                 )
         stack = reads(clip)
         visited: set[str] = set()
@@ -283,6 +341,7 @@ __all__ = [
     "LayerMatteResolver",
     "PicturePlacement",
     "assert_layer_sources",
+    "composite_alone",
     "empty_matte_frame",
     "matte_channel",
     "sample_plane",

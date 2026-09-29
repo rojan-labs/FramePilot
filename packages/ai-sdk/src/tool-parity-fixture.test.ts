@@ -54,6 +54,7 @@ describe('tool-parity fixture', () => {
         // Need live editor interaction state (selection, playhead, source monitor).
         'measure_color',
         'measure_subject',
+        'measure_loudness',
         'check_caption_legibility',
         'professional_color',
         'professional_audio',
@@ -84,6 +85,8 @@ describe('tool-parity fixture', () => {
         'create_mask',
         'remove_background',
         'track_mask',
+        // #137: reads a track file only the desktop host can read.
+        'reframe_to_subject',
         'refine_mask',
         'put_text_behind_subject',
         'get_masks',
@@ -105,6 +108,10 @@ describe('tool-parity fixture', () => {
         // honour it, so unlike `caption_the_edit` this one is NOT in
         // `UI_INDEPENDENT_HOST_TOOLS` either.
         'load_tools',
+        // The model's plan (`kernel/model-plan.ts`), for the same reason as `load_tools`: the
+        // conductor of a TS orchestrator run holds it and continues the run while an item is
+        // open. The sidecar runs no loop, and an MCP client brings its own agent.
+        'update_plan',
       ].sort(),
     );
   });

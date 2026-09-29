@@ -84,6 +84,7 @@ import {
   runSessionWarmup,
   VisualIndexClient,
   JsonValueSchema,
+  toJsonValue,
   boundedKeySegment,
   idempotencyKeyFor,
   KEY_DIGEST_CHARS,
@@ -3495,7 +3496,7 @@ function registerIpcHandlers(): void {
               const durableEvent = await runGatewayCoordinator.recordStreamEvent({
                 runId: durableRunId,
                 projectId: project.id,
-                event: JsonValueSchema.parse(staleEvent),
+                event: toJsonValue(staleEvent),
               });
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
@@ -3533,7 +3534,7 @@ function registerIpcHandlers(): void {
               const durableEvent = await runGatewayCoordinator.recordStreamEvent({
                 runId: durableRunId,
                 projectId: project.id,
-                event: JsonValueSchema.parse(refusedEvent),
+                event: toJsonValue(refusedEvent),
               });
               return { event: refusedEvent, durableSequence: durableEvent.sequence };
             }
@@ -3605,7 +3606,7 @@ function registerIpcHandlers(): void {
               const durableEvent = await runGatewayCoordinator.recordStreamEvent({
                 runId: durableRunId,
                 projectId: project.id,
-                event: JsonValueSchema.parse(staleEvent),
+                event: toJsonValue(staleEvent),
               });
               aiStreamHub.failDurable(durableRunId);
               return { event: staleEvent, durableSequence: durableEvent.sequence };
@@ -3685,7 +3686,7 @@ function registerIpcHandlers(): void {
             const durableEvent = await runGatewayCoordinator.recordStreamEvent({
               runId: durableRunId,
               projectId: project.id,
-              event: JsonValueSchema.parse(committedEvent),
+              event: toJsonValue(committedEvent),
             });
             return { event: committedEvent, durableSequence: durableEvent.sequence };
           }
@@ -3703,7 +3704,7 @@ function registerIpcHandlers(): void {
         const durableEvent = await runGatewayCoordinator.recordStreamEvent({
           runId: durableRunId,
           projectId: project.id,
-          event: JsonValueSchema.parse(transportEvent),
+          event: toJsonValue(transportEvent),
         });
         return { event: transportEvent, durableSequence: durableEvent.sequence };
       },

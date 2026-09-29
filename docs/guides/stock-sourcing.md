@@ -184,12 +184,12 @@ The AI agent can do this too:
 
 Try: _"add an establishing shot of a city skyline before the intro"_.
 
-The agent places stock as a cutaway: over your footage it puts the shot full
-frame on a layer in front, and when it can't be sure the shot hides what it covers
-it says so rather than working around it. It doesn't make picture-in-picture —
-that is a manual choice, from the **Overlay** button, until it has been measured
-for the agent. It also sees how many requests you have left, so it doesn't spend
-your month browsing.
+The agent places stock as a cutaway with `add_stock`: over your footage it puts
+the shot full frame on a layer in front, and when it can't be sure the shot hides
+what it covers it says so rather than working around it. For picture-in-picture
+or a split screen it downloads the shot to your bin and layers it with `add_clip`,
+which takes a crop, a size and a position. It also sees how many requests you
+have left, so it doesn't spend your month browsing.
 
 With no key configured, both tools fail with a stated reason. They never invent a
 result.
@@ -225,8 +225,6 @@ than lost. Downloads do **not** survive quitting the app.
 
 Recorded so their absence reads as a decision:
 
-- **No overlays from the agent.** Picture-in-picture is the **Overlay** button's
-  job for now; the agent places cutaways.
 - **No colour or locale filters** in the UI yet.
 - **No favourites or collections.**
 - **Downloaded stock isn't semantically indexed**, so `search_visual` won't find

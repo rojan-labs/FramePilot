@@ -18,7 +18,7 @@ import {
   type DisplaySize,
   type MaskShapePreset,
 } from '@framepilot/editor-core';
-import type { Project } from '@framepilot/timeline-schema';
+import type { Clip, Project } from '@framepilot/timeline-schema';
 import { ToolRefusalError } from '../tool-refusal.js';
 import type { MaskCandidate } from './contracts.js';
 import { attestMaskGeometry, type MaskGeometrySource } from './geometry-provenance.js';
@@ -119,10 +119,32 @@ function frameBox(preset: AiShapePreset, size: DisplaySize): PixelBox {
   }
 }
 
+/**
+ * The part of the source the viewer sees, in source pixels: the clip's crop, else the whole
+ * source.
+ *
+ * A mask lives in source pixels, and "the frame" a preset spans is what is on screen. Laid out
+ * on the whole source, a frame preset on a cropped clip — every 16:9 shot in a 9:16 reel — lands
+ * mostly off-picture: harness run 6's rounded frame on the cliff aerial (cropped to 32% of the
+ * source's width) kept only two bands of the picture and blacked out the hook's centre for 3.3 s.
+ * A pan's moving window (x/y/scale keyframes) is not a crop and is not followed here.
+ */
+function visibleWindow(clip: Clip, size: DisplaySize): PixelBox {
+  const crop = clip.crop;
+  if (crop === undefined) return { x: 0, y: 0, width: size.width, height: size.height };
+  return {
+    x: crop.x * size.width,
+    y: crop.y * size.height,
+    width: crop.width * size.width,
+    height: crop.height * size.height,
+  };
+}
+
 function placementOf(
   intent: CreateShapeMaskIntent,
   size: DisplaySize,
   candidate: MaskCandidate | undefined,
+  clip: Clip,
 ): { readonly box: PixelBox; readonly source: MaskGeometrySource; readonly onFrame: boolean } {
   const toPixels = (box: NormalizedBox): PixelBox => ({
     x: box.x * size.width,
@@ -145,8 +167,10 @@ function placementOf(
   if (intent.userBox !== undefined) {
     return { box: toPixels(intent.userBox), source: { kind: 'user_numbers' }, onFrame: false };
   }
+  const window = visibleWindow(clip, size);
+  const inWindow = frameBox(intent.preset, { width: window.width, height: window.height });
   return {
-    box: frameBox(intent.preset, size),
+    box: { ...inWindow, x: window.x + inWindow.x, y: window.y + inWindow.y },
     source: { kind: 'frame', preset: intent.preset },
     onFrame: true,
   };
@@ -236,7 +260,7 @@ export function buildShapePresetMaskOps(
   candidate: MaskCandidate | undefined,
 ): BuiltMask {
   const { clip, size } = clipWithSize(project, intent.clipId);
-  const { box, source, onFrame } = placementOf(intent, size, candidate);
+  const { box, source, onFrame } = placementOf(intent, size, candidate, clip);
   if (intent.preset === 'rounded_frame' && intent.purpose === 'hide') {
     throw new ToolRefusalError(
       'A rounded frame already keeps only its border, so "hide" has no meaning for it and ' +

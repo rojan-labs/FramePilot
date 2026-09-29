@@ -17,6 +17,8 @@ import {
   sourceFrameIndex,
   videoSourceTime,
 } from './frame-plan.js';
+import { applyPatch, type AnyOperation } from './patch.js';
+import { validatePatch } from './validator.js';
 
 const FRAME = { width: 1280, height: 720 } as const;
 
@@ -249,6 +251,74 @@ describe('framePlanAt', () => {
     ]);
   });
 
+  it('keeps the neighbour’s reframe on an under-layer, held across the cut (AL40)', () => {
+    // `test_an_under_layer_keeps_the_neighbours_reframe_held_across_the_cut`, same numbers.
+    const portrait = { width: 1080, height: 1920 } as const;
+    const fill = 1920 / 607.5;
+    const reframed = (
+      id: string,
+      start: number,
+      pan: readonly [number, number],
+      xs: readonly [number, number],
+    ): Clip =>
+      clip(id, 'v', start, start + 2, {
+        sourceStart: 4,
+        keyframes: [
+          { id: `${id}s0`, time: 0, property: 'scale', value: fill },
+          { id: `${id}s1`, time: 2, property: 'scale', value: fill },
+          { id: `${id}x0`, time: pan[0], property: 'x', value: xs[0] },
+          { id: `${id}x1`, time: pan[1], property: 'x', value: xs[1] },
+        ],
+      });
+    const incoming: Clip = {
+      ...reframed('b', 2, [0, 2], [0, 0]),
+      effects: [
+        {
+          id: 'b__transition',
+          type: 'transition',
+          params: { kind: 'luma-fade', durationSeconds: 0.6, fromClipId: 'a' },
+          keyframes: [],
+        },
+        {
+          id: 'b__transition_out',
+          type: 'transition_out',
+          params: {
+            kind: 'cross-dissolve',
+            durationSeconds: 0.5,
+            toClipId: 'c',
+            alignment: 'end',
+          },
+          keyframes: [],
+        },
+      ],
+    };
+    const timeline: Timeline = {
+      tracks: [
+        track('v', 'video', [
+          reframed('a', 0, [0, 1], [150, -200]),
+          incoming,
+          reframed('c', 4, [0.5, 2], [250, -250]),
+        ]),
+      ],
+    };
+    const geometry = (t: number, role: 'clip' | 'underlay', clipId: string) =>
+      framePlanAt(timeline, ASSETS, t, portrait).layers.find(
+        (layer) => layer.role === role && layer.clipId === clipId,
+      )?.geometry;
+
+    const afterCut = geometry(2.25, 'underlay', 'a');
+    expect(afterCut).toEqual(geometry(1.9, 'clip', 'a'));
+    expect(afterCut?.left).toBeCloseTo(540 - 3413.333 / 2 - 200, 2);
+    expect(afterCut?.top).toBeCloseTo(0, 9);
+    expect(afterCut?.width).toBeCloseTo(3413.333, 2);
+    expect(afterCut?.height).toBeCloseTo(1920, 9);
+
+    const beforeCut = geometry(3.75, 'underlay', 'c');
+    expect(beforeCut).toEqual(geometry(4.1, 'clip', 'c'));
+    expect(beforeCut?.left).toBeCloseTo(540 - 3413.333 / 2 + 250, 2);
+    expect(beforeCut?.height).toBeCloseTo(1920, 9);
+  });
+
   it('marks a layer exit that plays its entrance backwards, and nothing else (EL7)', () => {
     const exit = (id: string, kind: string, extra: Record<string, unknown> = {}) => ({
       id: `${id}__transition_out`,
@@ -450,6 +520,67 @@ describe('track mattes in the plan (MK8.2)', () => {
     expect(fill.mask?.layers[0]?.layer).toEqual({
       source: { kind: 'clip', clipId: 'title' },
       channel: 'luma',
+    });
+  });
+
+  it('an add_shape window on an overlay lane is accepted as a matte and drawn only for it (AL31a)', () => {
+    // The shape-mask opener end to end on the editor side: the patch the tool emits validates,
+    // and the plan draws the overlay-lane shape only as the fill's matte.
+    const base: Timeline = {
+      tracks: [
+        track('shapes', 'overlay', [
+          clip('box', 'shapes', 0, 4, {
+            assetId: '__shape__',
+            sourceStart: 0,
+            effects: [
+              {
+                id: 'box__shape',
+                type: 'shape',
+                params: {
+                  shape: 'rounded-rect',
+                  x: 50,
+                  y: 50,
+                  width: 60,
+                  height: 40,
+                  fill: '#FFFFFF',
+                  stroke: null,
+                  strokeWidth: 1,
+                  strokeStyle: 'solid',
+                  cornerRadius: 12,
+                },
+                keyframes: [],
+              },
+            ],
+            keyframes: [
+              { id: 'g0', time: 0, property: 'scale', value: 0.4 },
+              { id: 'g1', time: 4, property: 'scale', value: 1 },
+            ],
+          }),
+        ]),
+        track('v1', 'video', [clip('fill', 'v1', 0, 4)]),
+      ],
+    };
+    const patch = {
+      operations: [
+        {
+          type: 'add_mask',
+          clipId: 'fill',
+          mask: { kind: 'layer', id: 'tm', source: { kind: 'clip', clipId: 'box' } },
+        },
+      ] as AnyOperation[],
+    };
+    const validation = validatePatch(base, patch, { assets: ASSETS });
+    expect(validation.issues).toEqual([]);
+    const timeline = applyPatch(base, patch);
+    const layers = framePlanAt(timeline, ASSETS, 1, FRAME).layers;
+    const box = layers.find((layer) => layer.clipId === 'box')!;
+    const fill = layers.find((layer) => layer.clipId === 'fill')!;
+    expect(box.kind).toBe('shape');
+    expect(box.matteOnly).toBe(true);
+    expect(fill.matteOnly).toBeUndefined();
+    expect(fill.mask?.layers[0]?.layer).toEqual({
+      source: { kind: 'clip', clipId: 'box' },
+      channel: 'alpha',
     });
   });
 });

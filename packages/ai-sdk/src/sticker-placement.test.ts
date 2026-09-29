@@ -7,12 +7,14 @@ import { describe, expect, it } from 'vitest';
 import {
   STICKER_SOFT_ENLARGEMENT,
   applyProjectPatch,
+  elementRectAt,
   invertProjectPatch,
   stickerEnlargement,
   type Patch,
 } from '@framepilot/editor-core';
 import type { Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from './assemble.js';
+import { SAFE_AREA_INSET, critique } from './critic.js';
 import { makeProject } from './__fixtures__/project.js';
 import {
   STICKER_DEFAULT_SECONDS,
@@ -99,5 +101,71 @@ describe('stickerOpsFromCall', () => {
     expect(edit.validation.valid, JSON.stringify(edit.validation.issues)).toBe(true);
     const after = applyProjectPatch(before, edit.patch);
     expect(applyProjectPatch(after, invertProjectPatch(before, edit.patch))).toEqual(before);
+  });
+
+  describe('keeps the sticker in frame, and says when it leaves the safe area (#150)', () => {
+    const vertical = (): Project =>
+      makeProject({
+        resolution: { width: 1080, height: 1920 },
+        timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [] }] },
+      } as never);
+    const placedOn = (on: Project, args: Parameters<typeof stickerOpsFromCall>[2]) => {
+      const placed = stickerOpsFromCall(on, payload, args);
+      const edit = assembleEdit(on, [...placed.operations], 'Add sticker', 'agent');
+      expect(edit.validation.valid, JSON.stringify(edit.validation.issues)).toBe(true);
+      const after = applyProjectPatch(on, edit.patch);
+      return { placed, after, rect: elementRectAt(after, placed.clipId, args.start + 0.5)! };
+    };
+
+    it('moves a sticker placed partly off the frame just far enough in', () => {
+      const { rect, placed } = placedOn(vertical(), {
+        start: 1,
+        xPercent: 98,
+        yPercent: 1,
+        sizePercent: 20,
+      });
+      expect(rect.x + rect.width).toBeLessThanOrEqual(1 + 1e-6);
+      expect(rect.y).toBeGreaterThanOrEqual(-1e-6);
+      // Not pushed further than the frame: it still touches the edges it was asked for.
+      expect((1 - (rect.x + rect.width)) * 1080).toBeLessThan(2);
+      expect(rect.y * 1920).toBeLessThan(2);
+      expect(placed.safeAreaNote).toMatch(/outside the 10% safe area/);
+    });
+
+    it('names the centres that keep it inside the margin, and they do, by the critic', () => {
+      const edge = placedOn(vertical(), { start: 1, xPercent: 88, yPercent: 50, sizePercent: 10 });
+      const note = edge.placed.safeAreaNote!;
+      const match = /xPercent (\d+)–(\d+) and yPercent (\d+)–(\d+)/.exec(note)!;
+      expect(match).not.toBeNull();
+      expect(critique(edge.after).checks.find((c) => c.id === 'element_safe_area')?.status).toBe(
+        'warn',
+      );
+      for (const xPercent of [Number(match[1]), Number(match[2])]) {
+        const moved = placedOn(vertical(), { start: 1, xPercent, yPercent: 50, sizePercent: 10 });
+        expect(moved.placed.safeAreaNote).toBeUndefined();
+        expect(moved.rect.x).toBeGreaterThanOrEqual(SAFE_AREA_INSET - 1e-6);
+        expect(moved.rect.x + moved.rect.width).toBeLessThanOrEqual(1 - SAFE_AREA_INSET + 1e-6);
+        expect(critique(moved.after).checks.find((c) => c.id === 'element_safe_area')?.status).toBe(
+          'pass',
+        );
+      }
+    });
+
+    it('says nothing for a sticker placed where it was asked inside the margin, or by default', () => {
+      expect(placedOn(vertical(), { start: 1 }).placed.safeAreaNote).toBeUndefined();
+      const asked = stickerOpsFromCall(project(), payload, {
+        start: 2,
+        xPercent: 75,
+        yPercent: 25,
+        sizePercent: 20,
+      });
+      expect(asked.safeAreaNote).toBeUndefined();
+      expect(base(asked.operations, 'x')).toBe(480);
+    });
+
+    it('tells a sticker too big for the margin to shrink', () => {
+      const { placed } = placedOn(vertical(), { start: 1, sizePercent: 60 });
+      expect(placed.safeAreaNote).toMatch(/smaller sizePercent/);
+    });
   });
 });

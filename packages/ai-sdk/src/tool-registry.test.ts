@@ -286,6 +286,109 @@ describe('read tools', () => {
     });
   });
 
+  describe('update_plan', () => {
+    const plan = getTool('update_plan')!;
+    const read = (args: unknown): unknown => plan.read!(args, ctx);
+
+    it('returns the validated list, trimmed, with a blank note read as no note', () => {
+      expect(
+        read({
+          items: [
+            { task: '  Build the shot-list montage ', status: 'pending', note: '  ' },
+            { task: 'Grade warm', status: 'in_progress' },
+            { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+          ],
+        }),
+      ).toEqual({
+        items: [
+          { task: 'Build the shot-list montage', status: 'pending' },
+          { task: 'Grade warm', status: 'in_progress' },
+          { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+        ],
+      });
+    });
+
+    it('tells the model at call time to split a section into one item per treatment', () => {
+      // Harness run 16 folded "text behind subject, shape opener, split-screen, mask reveal"
+      // into one Masking item and blocked all four on segmentation, which only one needs.
+      // The contract said so; the description is what the model reads when it writes the list.
+      expect(plan.description).toContain(
+        'A section that names several treatments is one item per treatment, so blocking one never hides the rest.',
+      );
+    });
+
+    it('refuses a done item that does not name the edit that delivered it', () => {
+      // Harness run 7 marked an SFX layer done with no effect ever placed.
+      expect(() => read({ items: [{ task: 'SFX layer', status: 'done' }] })).toThrow(
+        /done item needs a note/,
+      );
+      expect(
+        read({ items: [{ task: 'SFX layer', status: 'done', note: 'add_music ×3 (whooshes)' }] }),
+      ).toEqual({ items: [{ task: 'SFX layer', status: 'done', note: 'add_music ×3 (whooshes)' }] });
+    });
+
+    it('refuses a blocked item with no reason', () => {
+      // "blocked" without a why is a way to end the run early with the work unexplained.
+      expect(() => read({ items: [{ task: 'Masking', status: 'blocked' }] })).toThrow(
+        /blocked item needs a note/,
+      );
+      expect(() =>
+        read({ items: [{ task: 'Masking', status: 'blocked', note: '   ' }] }),
+      ).toThrow(ZodError);
+    });
+
+    it('refuses an empty plan, a blank task, an unknown status, and extra keys', () => {
+      expect(() => read({ items: [] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: '   ', status: 'pending' }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'skipped' }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'done', id: 1 }] })).toThrow(ZodError);
+      expect(() => read({ items: [{ task: 'Grade', status: 'done' }], mode: 'merge' })).toThrow(
+        ZodError,
+      );
+    });
+
+    it('bounds the list and every line in it', () => {
+      const many = Array.from({ length: 41 }, (_, i) => ({ task: `t${i}`, status: 'pending' }));
+      expect(() => read({ items: many })).toThrow(ZodError);
+      expect(() => read({ items: many.slice(0, 40) })).not.toThrow();
+      expect(() => read({ items: [{ task: 'x'.repeat(161), status: 'pending' }] })).toThrow(
+        ZodError,
+      );
+      expect(() =>
+        read({ items: [{ task: 'Grade', status: 'blocked', note: 'x'.repeat(481) }] }),
+      ).toThrow(ZodError);
+    });
+
+    it('takes a done note that names its edits in full, and says the limit past it (AL44)', () => {
+      // Harness runs 8, 10, 13 and 18 each lost a turn to "items.0.note: Too big: expected
+      // string to have <=240 characters" on a first item's review-pass note.
+      const long = `contact sheets of all 20 sources; ${'x'.repeat(400)}`;
+      expect(long.length).toBeGreaterThan(240);
+      expect(() => read({ items: [{ task: 'Review', status: 'done', note: long }] })).not.toThrow();
+      expect(() =>
+        read({ items: [{ task: 'Review', status: 'done', note: 'x'.repeat(481) }] }),
+      ).toThrow(
+        'A note is at most 480 characters — shorten it to the edit that delivered the item, or why no tool can do it.',
+      );
+    });
+
+    it('tells the model a list that leaves items out keeps them (AL44)', () => {
+      expect(plan.description).toContain(
+        'an earlier item you leave out is kept as it was — an item leaves the plan only as done or blocked',
+      );
+      expect(plan.description).not.toContain('it replaces the last one');
+    });
+
+    it('is a serial, host-only session read that changes no timeline', () => {
+      // Serial: the last list wins, so two calls in one turn must land in the order written.
+      expect(plan.kind).toBe('read');
+      expect(plan.mutates).toBe(false);
+      expect(plan.serialOnly).toBe(true);
+      expect(plan.hostUiOnly).toBe(true);
+      expect(concurrencySafe(plan, { items: [{ task: 'a', status: 'pending' }] })).toBe(false);
+    });
+  });
+
   it('list_assets returns the bin and filters by kind/folderId', () => {
     const project = makeProject({
       folders: [{ id: 'folder_broll', name: 'B-roll', parentId: null }],
@@ -1292,22 +1395,19 @@ describe('mutating tools — build valid operations', () => {
     expect('time' in op.targets[0]!).toBe(false);
   });
 
-  it('never relocates PICTURE off the lane it was aimed at, even when it collides', () => {
-    // `picture-occupancy.ts`: the preview flattens picture clips from every track
-    // into one chain while the export composites stacked layers, so two picture
-    // clips overlapping IN TIME render one way and preview another (blocker #1,
-    // SUC-P1) — "overlap is measured in time, not by layer". Moving a colliding
-    // video to another lane therefore does not avoid the problem, it creates it and
-    // hides it until export. The refusal has to stand for picture, so the op keeps
-    // the named lane and the validator rejects it exactly as before.
+  it('puts PICTURE aimed at an occupied lane on a layer in front of it (AL45)', () => {
+    // The lane cannot hold both, and the preview composites every stack as the export
+    // does (ADR 0180), so picture over the named lane's own clip goes in front of it —
+    // what add_clip's description promises. Harness run 18 lost a split screen when this
+    // op kept the named lane and the validator refused it.
     const ops = build('add_clip', {
       trackId: 'video_1',
       assetId: 'asset_1',
       start: 1,
       end: 3,
     });
-    expect(ops.some((op) => op.type === 'add_layer')).toBe(false);
-    expect(ops[0]).toMatchObject({ type: 'add_clip', trackId: 'video_1' });
+    expect(ops[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1' });
+    expect(ops[1]).toMatchObject({ type: 'add_clip', trackId: 'video_cutaway_1' });
   });
 
   it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {

@@ -4,6 +4,7 @@ import {
   createLaneAllocator,
   laneWithRoomFor,
   nextLayerId,
+  placementBreaksTransitions,
   trackHasRoomFor,
 } from './lane-placement.js';
 
@@ -42,6 +43,67 @@ describe('trackHasRoomFor', () => {
     const t = track('t', 'overlay', [clip('a', 0, 4)]);
     expect(trackHasRoomFor(t, 4, 8)).toBe(true);
     expect(trackHasRoomFor(t, 0, 4)).toBe(false);
+  });
+});
+
+// AL43 (run 17): free space is not room when the new clip would break a neighbour's edge.
+describe('trackHasRoomFor keeps the lane’s transitions valid', () => {
+  const edge = (clipId: string, type: string, params: Record<string, unknown>) => ({
+    id: `${clipId}__${type}`,
+    type,
+    params,
+    keyframes: [],
+  });
+  const withEffects = (base: never, effects: unknown[]) =>
+    ({ ...(base as object), effects }) as never;
+  /** A title with an In and an Out that name no clip: its edges are not cuts. */
+  const entering = withEffects(clip('title', 17.5, 19.8), [
+    edge('title', 'transition', { kind: 'zoom-out', durationSeconds: 0.27 }),
+    edge('title', 'transition_out', { kind: 'fade', durationSeconds: 0.27 }),
+  ]);
+
+  it('refuses a span that butts against a clip whose In names no clip', () => {
+    const t = track('t', 'overlay', [entering]);
+    expect(trackHasRoomFor(t, 15.6, 17.5)).toBe(false);
+    expect(placementBreaksTransitions(t, 15.6, 17.5)).toBe(true);
+  });
+
+  it('refuses a span that starts where a clip with an Out naming no clip ends', () => {
+    const t = track('t', 'overlay', [entering]);
+    expect(trackHasRoomFor(t, 19.8, 22)).toBe(false);
+  });
+
+  it('refuses a span in the gap between two clips joined by a cross', () => {
+    // The cross names its neighbours; a clip between them would make it name the wrong one.
+    const from = withEffects(clip('from', 0, 4), [
+      edge('from', 'transition_out', { kind: 'fade', durationSeconds: 0.5, toClipId: 'to' }),
+    ]);
+    const to = withEffects(clip('to', 6, 10), [
+      edge('to', 'transition', { kind: 'fade', durationSeconds: 0.5, fromClipId: 'from' }),
+    ]);
+    const t = track('t', 'overlay', [from, to]);
+    expect(trackHasRoomFor(t, 4.5, 5.5)).toBe(false);
+  });
+
+  it('still takes a span with a gap before an In, or butting a clip with no edges', () => {
+    const t = track('t', 'overlay', [clip('plain', 10, 15), entering]);
+    expect(trackHasRoomFor(t, 15, 17)).toBe(true); // butts the plain clip, clears the In
+    expect(trackHasRoomFor(t, 5, 10)).toBe(true);
+  });
+
+  it('does not blame the placement for a transition that was already broken', () => {
+    const broken = withEffects(clip('b', 4, 8), [
+      edge('b', 'transition', { kind: 'fade', durationSeconds: 0.5, fromClipId: 'nobody' }),
+    ]);
+    const t = track('t', 'overlay', [clip('a', 0, 4), broken]);
+    expect(trackHasRoomFor(t, 10, 12)).toBe(true);
+  });
+
+  it('makes the allocator skip that lane for one where the clip is valid', () => {
+    const timeline: Timeline = {
+      tracks: [track('CAP', 'overlay', [entering]), track('TXT', 'overlay')],
+    };
+    expect(createLaneAllocator(timeline).allocate('CAP', 16.1, 17.5).trackId).toBe('TXT');
   });
 });
 

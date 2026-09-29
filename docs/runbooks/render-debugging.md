@@ -43,7 +43,10 @@ outside Electron. Capture the failing project and assets.
    (`inspect-media`).
 6. **Black frames** — black-frame detection tripped? Check clip `start`/`end` vs.
    `sourceStart`/`sourceEnd`, gaps left by `delete_range`, and mask/compositing layer
-   order (text-behind-object).
+   order (text-behind-object). "Black" means every channel is at or under 10% of full scale:
+   `analysis/black.py` feeds `blackdetect` max(R, G, B) (via `format=gbrp`, two `lighten`
+   blends and `setparams=range=pc`), not luma, so a saturated blue or red card is never black
+   (#154). If a coloured frame is flagged, check the graph in `blackdetect_argv` first.
 7. **Audio clipping** — clipping detected? Check `adjust_audio` volumes, music ducking,
    and overlapping audio clips summing too hot.
 8. **Render logs** — read `logs/` in the project folder for the failing job. Failures must
@@ -91,6 +94,50 @@ decode, the encoder probe - must call `find_export_ffmpeg()` in `media/ffmpeg.py
 ran with `ps -o args` during a render, or `test_media_ffmpeg.py` /
 `test_render_pts_reader.py::test_variable_rate_decode_runs_moviepys_ffmpeg_not_path_or_override`.
 
+## Recurring failure mode: a solved colour grade lands short (or long) by a steady fraction
+
+Symptom: `match_color` / `apply_look` produce the right direction but the export measures a
+fixed fraction off what the solver promised (#107: "warmer" delivered 70-83% of its +0.10).
+Do not fit a constant from float-RGB previews: the ledger's facts are `signalstats` codes of a
+LIMITED-range BT.709 file, and a reconstruction through an assumed matrix cannot tell a wrong
+matrix from a wrong renderer. Measure the export with the ledger's own graph:
+
+    cd engine/python
+    uv run python -m tests.color_response_measure --work <scratch dir> \
+        --media <short real clips, 2-3 s each> --json fit.json --raw raw.json
+    uv run python -m tests.color_response_measure --refit raw.json   # re-fit, no renders
+
+It exports 25 grade cells per clip at 480p through `export_video` (one at a time, well under
+1 GB), measures each with `shot_stats.measure_asset`, and first exports a pure-red probe to name
+the encode chain from evidence. Read `temperature_curve_efficiency` first: near 1.0 means the
+renderer does what `render/color.py` says and any miss is the solver's model; below 1.0 is
+clipping. Media goes into the scratch sandbox; never point `--work` at a real project folder.
+
+Exports (final and preview renders alike) encode **BT.709 limited range, tagged**
+(`encoders.BT709_OUTPUT_ARGS`, #154): the probe reads 61.9/103.0/238.8 against BT.709's
+63/102/240 (distance 1.5 codes; BT.601 is 23 away). Before 2026-09-29 they were BT.601
+limited and untagged (probe 81/90/239), so a raw file from that era is in another chain than
+its sources; re-express it as the script does. The leftover ~1-code drift is the DECODE, not
+the encode: the bundled imageio ffmpeg 7.1 (the one MoviePy reads with) turns red 63/102/240
+into R 253, where Homebrew's 8.1 gives 255. An exact-RGB input (a PNG) encodes to 63/102/240
+exactly (`tests/test_render_colour_encoding.py`). If an export's colours look shifted, run
+`ffprobe -show_entries stream=color_space,color_range,color_primaries,color_transfer` first:
+anything `unknown` means the tags were lost (a `-c:v copy` remux keeps them; a re-encode
+without these arguments does not). ffmpeg 7.1 copies the encoder's colour fields from the
+frames, so the `-color_*` flags alone leave primaries/transfer unknown; the `setparams`
+filter is what sets them.
+Black QC and black analysis judge the brightest channel, not luma. BT.709 luma of pure blue
+(0,0,255) is 7% (Y=32), under `pix_th=0.10`, so plain `blackdetect` failed an export ending on a
+pure-blue card with "ends on black" (navy 0,0,128 too, at Y=24). `blackdetect_argv` now converts
+to RGB through the file's own tags (`format=gbrp`; untagged files take BT.601, which is what
+pre-#154 exports used), takes max(R, G, B) with two `lighten` blends, and tags that plane
+`range=pc` so `pix_th=0.10` cuts at code 25 of 255. Tagged `tv`, blackdetect would cut at
+16 + 0.1 * 219 = code 37 instead. Real black, near-black 20/20/20, fades to black and thin
+white text on black keep their verdict (`tests/test_black_brightest_channel.py`). The pass
+costs about 2x plain `blackdetect` (63 s 1080p export: 1.2-2.1 s before, 2.9-3.3 s after, the
+two blends being the difference). Do not downscale to win that back: it changes the verdict
+on thin text.
+
 ## Recurring failure mode: "applies but doesn't render"
 
 A distinct class of bug from the checklist above — the op **validates and applies** (it
@@ -117,3 +164,71 @@ traversal guard.
 
 See [writing-tests.md](../guides/writing-tests.md) and
 [ci-cd.md](ci-cd.md) (CI renders + validates the fixture project on every PR).
+
+## Recurring failure mode: text spacing differs between the editor and the export
+
+Symptom: tracked text (a `letterSpacing` title or caption) wraps, centres or spaces its words
+differently in the export than in the editor, e.g. "THE CLIMB" exported as "THECLIMB" (AL32).
+
+Why: the preview draws CSS `letter-spacing`, which adds the spacing after EVERY character: the
+space between words and the last letter of a line included. The export's caption rasterizer
+(`render/captions.py`) builds the same box: `_token_width` gives every glyph its spacing, the
+last one included, and `_tracked_space_width` is the space plus its spacing, so two words sit
+`space + 2 x spacing` apart and a chip ends one spacing past its last letter, as the CSS box
+does. The AI layer's title fit (`overlay-fit.ts` `typedTitleWidthsPx`) reads the same box.
+
+Check: `uv run pytest tests/test_text_overlay_typography.py tests/test_title_metrics.py
+tests/test_title_fit.py`, once plainly and once with `DYLD_LIBRARY_PATH=/opt/homebrew/lib`
+(libraqm on, like Linux CI). If the rule changes on either side, change both renderers and the
+fit together, then regenerate the fit's reference widths with
+`uv run python -m framepilot_engine.render.title_metrics`.
+
+## Recurring failure mode: black bars only while a transition plays
+
+Symptom: a reel of reframed shots (a wide shot zoomed or panned to fill a vertical frame) shows
+letterbox bars for the length of a dissolve, luma fade, whip pan or light leak, and nowhere else.
+Measure it: rows whose mean luma is under 8 in a small `grab_frame`, sampled every frame across
+the ramp (AL40: 219 of 320 rows at the first frame of a 0.6 s luma fade, 0 once it had resolved).
+
+Why: a transition is stamped on butt-joined clips, so the shot on the other side of the cut is
+borrowed as an under-layer (`frame_plan.transition_underlays`, built by `compiler._underlay_layer`
+and drawn on the monitor from the frame plan's `underlay` layer). An under-layer must be drawn
+exactly as its clip draws itself. Anything it drops (keyframes, until AL40) shows only during the
+ramp, and only when the incoming picture is not yet opaque, which is why a punch-zoom hid it and a
+luma fade did not.
+
+Check: `uv run pytest tests/test_render_transition_underlay_reframe.py tests/test_frame_plan.py`
+and `vitest run src/frame-plan.test.ts` (editor-core) plus `src/preview/engine/layer-raster.test.ts`
+(web-editor, after rebuilding editor-core). The export, the Python plan, the TS plan and the
+monitor's raster step change together: `underlay_clock_offset` / `underlayClipTime` put the
+neighbour's keyframes on its own clip clock across the cut. Still not carried to an under-layer:
+the neighbour's opacity keyframes, mask stack and speed.
+
+## Recurring failure mode: "Accessing time t=… seconds, with clip duration=…"
+
+Symptom: an engine 500 from the loudness or audio evidence route (or, on sounds under ~90 ms, the
+export) with `OSError: Error in file X.mp3, Accessing time t=1.00-1.00 seconds, with clip
+duration=0.500000 seconds`. The file is a short sound effect. The clip may or may not read a
+little past it; that is not the cause (AL42, harness run 17).
+
+Why: MoviePy 2.1.2's `FFMPEG_AudioReader.get_frame` splits a request whose in-file samples span
+more than half its buffer, and recurses on the in-range MASK instead of the times
+(`moviepy/audio/io/readers.py:222-230`), so `True` is read as t = 1.0 s. `AudioFileClip` caps the
+buffer at a short file's own length, so a 0.45 s whoosh has a 22051-sample buffer and every
+32768-sample loudness block splits. Under 1 s it raises; up to ~1.37 s it silently returns the
+samples at 0 s and 1 s. Separately, the reader raises when a composite asks it for a block lying
+entirely past the file, which `CompositeAudioClip.is_playing` (inclusive end) does.
+
+Check: every `AudioFileClip` the engine opens must go through
+`render/audio_reads.bound_audio_reads` (the compiler's audio assets and processed stems, and
+`video_reader.ProbedVideoFileClip`'s sound). A new call site that skips it brings the bug back.
+`uv run pytest tests/test_source_past_end.py` covers the reader contract, a loudness window and an
+export over a clip that reads a frame past a 0.45 s file, and a video clip one frame past its file
+holding its last frame. To reproduce against a real project, call `acquire_temporal_evidence`
+with a `loudness` request over the whole programme. Instrumenting the reader's `get_frame` to
+print `tt.dtype` shows `bool` on the failing call.
+
+Related, and not a crash any more: a clip whose `sourceEnd` is past its asset plays silence and
+holds its last frame for the overrun (`compiler._hold_past_end`). The frame grid keeps new
+placements inside the media, and the validator refuses more than a frame past it
+(`source_past_media_end`), so an overrun in a project is legacy or hand-edited.

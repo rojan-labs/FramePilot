@@ -34,6 +34,12 @@ import {
   requestEcho,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
+import {
+  type ModelPlanItem,
+  modelPlanBriefingLines,
+  nextOpenItem,
+  planItemLabel,
+} from './model-plan.js';
 
 /**
  * The pacing line shown in every execution-stage briefing (apply / enhance / repair).
@@ -249,6 +255,12 @@ export function buildStateBriefing(
    * ledger and the ledger holds no timeline. The caller has the working project.
    */
   standing: readonly string[] = [],
+  /**
+   * The plan the model wrote with `update_plan` (`kernel/model-plan.ts`), which the
+   * conductor holds the run to. A parameter for the same reason as `standing`: it lives in
+   * the conductor's state, not in the task ledger.
+   */
+  modelPlan?: readonly ModelPlanItem[],
 ): string {
   const sections: string[] = [];
   // Is this text just the editor's request back again?
@@ -360,6 +372,18 @@ export function buildStateBriefing(
     );
   }
 
+  // The model's own plan, whole: `update_plan` takes the whole list on every call, so a
+  // model shown part of it would send part of it back (and hear the rest was kept, AL44).
+  // Beside OBJECTIVES because it answers the same question — what is left — in the model's
+  // words rather than the seed's.
+  if (modelPlan && modelPlan.length > 0) {
+    sections.push(
+      `YOUR PLAN — keep it current with update_plan (send every item each call)\n${modelPlanBriefingLines(
+        modelPlan,
+      ).join('\n')}`,
+    );
+  }
+
   const succeeded = state.operations.filter((o) => o.status === 'succeeded');
   const failed = state.operations.filter((o) => o.status === 'failed');
   if (succeeded.length > 0) {
@@ -407,7 +431,13 @@ export function buildStateBriefing(
     );
   }
 
-  if (state.nextAction) {
+  // While the model's plan has work open, the next step IS the next item: the model named
+  // it, in the request's own terms, and the run will not end while it is open. Preferred
+  // over a ledger-derived action, which can only name the seeded objective.
+  const planItem = modelPlan ? nextOpenItem(modelPlan) : undefined;
+  if (planItem) {
+    sections.push(`DO THIS NOW\n${planItemLabel(planItem)}`);
+  } else if (state.nextAction) {
     // The fifth echo, and the one this filter was missing.
     //
     // `recoveryAction` builds its instruction from the first outstanding objective, and an

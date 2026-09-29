@@ -226,8 +226,8 @@ describe('the frame grid holds over generated operation sequences', () => {
       const project = seedProject(fps);
       const op = proposeOffGridOperation(project.timeline, rng);
       if (!op) continue;
-      const once = quantizePatch(patchOf([op], 0), fps);
-      const twice = quantizePatch(once, fps);
+      const once = quantizePatch(patchOf([op], 0), fps, project.assets);
+      const twice = quantizePatch(once, fps, project.assets);
       expect(twice).toEqual(once);
       // And the second pass returns the SAME object, so the UI's validate-then-commit
       // double pass allocates nothing.
@@ -240,6 +240,6 @@ describe('the frame grid holds over generated operation sequences', () => {
     // must come back exactly as it was, not snapped to today's grid.
     const stale = clip('legacy', 1.234_567, 9.876_543);
     const patch = patchOf([{ type: 'restore_clips', trackId: 'video_1', clips: [stale] }], 0);
-    expect(quantizePatch(patch, 30)).toBe(patch);
+    expect(quantizePatch(patch, 30, [])).toBe(patch);
   });
 });

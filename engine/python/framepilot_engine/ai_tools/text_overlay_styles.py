@@ -112,3 +112,56 @@ def weight_the_family_has(family: object, weight: object) -> object:
     if entry is None or not isinstance(weight, int) or isinstance(weight, bool):
         return weight
     return min(int(entry["maxWeight"]), max(int(entry["minWeight"]), weight))
+
+
+#: A plain text overlay's look in caption terms (TS ``PLAIN_TEXT_OVERLAY_TYPOGRAPHY``): the fixed
+#: black stroke of a twelfth of the size (16/12 sixteenths) and a square box padded by two
+#: strokes. A typography arg on an overlay with no typography starts from this, as the
+#: Inspector's first edit does, so writing one field does not also drop the stroke.
+PLAIN_TEXT_OVERLAY_TYPOGRAPHY: dict[str, Any] = {
+    "outlineColor": "#000000",
+    "outlineWidth": 16 / 12,
+    "background": {"radius": 0, "paddingX": 1 / 6, "paddingY": 1 / 6},
+}
+
+#: The family a typed overlay is drawn in when none is stored (``render/text_overlay.py``).
+_TYPED_DEFAULT_FAMILY = "Inter"
+
+
+def italic_font_families() -> tuple[str, ...]:
+    """The bundled families that ship an italic file: the only ones either renderer slants."""
+    return tuple(
+        family
+        for family, entry in _font_manifest().items()
+        if isinstance(entry.get("italicFile"), str)
+    )
+
+
+def italic_refusal(font_style: object, family: object) -> str | None:
+    """Why an explicit italic would draw upright (TS ``assertItalicIsDrawn``), else ``None``."""
+    if font_style != "italic":
+        return None
+    drawn_in = family if isinstance(family, str) else _TYPED_DEFAULT_FAMILY
+    italic = italic_font_families()
+    if drawn_in in italic:
+        return None
+    return (
+        f'{drawn_in} ships no italic, so fontStyle "italic" would draw upright in the preview '
+        f"and the export alike. Pass fontFamily as one that has an italic: {', '.join(italic)}."
+    )
+
+
+def with_typography_args(typography: object, fields: dict[str, Any]) -> dict[str, Any]:
+    """``typography`` with each typography arg over its one field (TS ``withTypographyArgs``).
+
+    ``shadow: "none"`` removes the shadow; no typography yet starts from
+    :data:`PLAIN_TEXT_OVERLAY_TYPOGRAPHY`.
+    """
+    base = dict(PLAIN_TEXT_OVERLAY_TYPOGRAPHY if not isinstance(typography, dict) else typography)
+    shadow = fields.get("shadow")
+    base.update({key: value for key, value in fields.items() if key != "shadow"})
+    if shadow == "none":
+        base.pop("shadow", None)
+    elif shadow is not None:
+        base["shadow"] = shadow
+    return base

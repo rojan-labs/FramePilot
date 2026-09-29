@@ -627,6 +627,47 @@
       }
     },
     {
+      "name": "a fitted ramp follows its curve past the old span and keeps the slot (harness run 11)",
+      "operation": {
+        "type": "set_clip_speed_ramp",
+        "clipId": "clip_a",
+        "keepDuration": true,
+        "ramp": [
+          {
+            "id": "p0",
+            "sourceTime": 0,
+            "rate": 2.5,
+            "easing": "linear"
+          },
+          {
+            "id": "p1",
+            "sourceTime": 6,
+            "rate": 0.5,
+            "easing": "linear"
+          }
+        ]
+      },
+      "expect": {
+        "clipId": "clip_a",
+        "trackId": "video_main",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 0,
+        "sourceEnd": 5.523021464,
+        "speedRamp": [
+          {
+            "sourceTime": 0,
+            "rate": 2.5
+          },
+          {
+            "sourceTime": 5.523021464,
+            "rate": 0.658992845
+          }
+        ],
+        "tolerance": 1e-06
+      }
+    },
+    {
       "name": "splitting re-bases the right half's EFFECT keyframes onto its own clock",
       "operation": {
         "type": "split_clip",

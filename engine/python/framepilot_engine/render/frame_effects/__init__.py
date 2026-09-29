@@ -262,7 +262,10 @@ def apply_effect_layers(
             )
         return frame
 
-    return source.transform(transform, apply_to=[])
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
+    # A frame the size of the composite: its clip keeps the composite's size, measured by nobody.
+    return same_size_transform(source, transform, apply_to=[])
 
 
 # Family modules register their passes on import. Imported at the BOTTOM so the

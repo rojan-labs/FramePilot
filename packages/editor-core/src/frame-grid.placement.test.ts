@@ -76,7 +76,7 @@ describe('frame snapping on the host placement paths', () => {
     const placement = buildAddStockOps(before.timeline, [existing], stockVideo, 2);
     expect(placement).not.toBeNull();
 
-    const quantized = quantizePatch(patchOf(placement!.operations), fps);
+    const quantized = quantizePatch(patchOf(placement!.operations), fps, before.assets);
     const added = quantized.operations.find((op) => op.type === 'add_clip');
     expect(added).toBeDefined();
     const clip = added as Extract<AnyOperation, { type: 'add_clip' }>;
@@ -93,19 +93,20 @@ describe('frame snapping on the host placement paths', () => {
     expect(() => applyProjectPatch(before, quantized)).not.toThrow();
   });
 
-  it('reads the whole source even after the out-point snaps past the asset end', () => {
+  it('ends a full-source placement on the last whole frame inside its media', () => {
     const before = project([]);
     const placement = buildAddStockOps(before.timeline, [], stockVideo, 0);
-    const quantized = quantizePatch(patchOf(placement!.operations), fps);
+    const quantized = quantizePatch(patchOf(placement!.operations), fps, before.assets);
     const clip = quantized.operations.find((op) => op.type === 'add_clip') as Extract<
       AnyOperation,
       { type: 'add_clip' }
     >;
-    // Snapping the out-point up can carry `sourceEnd` under a frame past the real end of
-    // the media. That is intended and handled where it lands: `compiler.py`'s
-    // `_subclipped_source` drops a `source_end` at or beyond the asset duration and plays
-    // to the end. What must NOT happen is over-reading by more than the one frame.
-    expect(clip.sourceEnd! - stockVideo.durationSeconds!).toBeLessThan(1 / fps);
+    // AL42: 6.017 s is 180.51 frames, so the nearest frame (181) would read past the file.
+    // The asset arrives in the same patch (`add_asset`), and the clip ends at frame 180.
+    expect(onGrid(clip.end)).toBe(true);
+    expect(secondsToFrame(clip.end, fps)).toBe(180);
+    expect(clip.sourceEnd).toBeLessThanOrEqual(stockVideo.durationSeconds!);
+    expect(stockVideo.durationSeconds! - clip.sourceEnd!).toBeLessThan(1 / fps);
   });
 
   it('does not manufacture an overlap against an off-grid neighbour', () => {
@@ -115,7 +116,7 @@ describe('frame snapping on the host placement paths', () => {
     const before = project([{ id: 'c_1', start: 0, end: 1.9873 }]);
     const placement = buildAddStockOps(before.timeline, [existing], stockVideo, 1.9873);
     expect(placement).not.toBeNull();
-    const quantized = quantizePatch(patchOf(placement!.operations), fps);
+    const quantized = quantizePatch(patchOf(placement!.operations), fps, before.assets);
     // Validated against the timeline the patch is applied TO, which is what the store and
     // the undo history do — an overlap the snap manufactured shows up here or nowhere.
     const validation = validatePatch(before.timeline, quantized);

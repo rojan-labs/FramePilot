@@ -31,6 +31,15 @@ export * from './editor-run-lifecycle.js';
 export * from './editor-run-projection.js';
 export * from './picture-verification.js';
 export * from './working-state.js';
+// What a host needs to carry the model's plan into the next run (AL5): read the plans a
+// conversation's runs ended with, and validate ones that arrive over IPC.
+export {
+  type ModelPlanItem,
+  type ModelPlanRecord,
+  MAX_PRIOR_MODEL_PLANS,
+  modelPlanRecordsFromEvents,
+  parseModelPlanRecords,
+} from './model-plan.js';
 export * from './commit-ledger.js';
 export * from './replay/replay.js';
 export * from './proposers/index.js';

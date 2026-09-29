@@ -75,7 +75,13 @@ from pydantic import ValidationError
 from framepilot_engine.render.captions import (
     _FONT_HEIGHT_FRACTION as _CAPTION_FONT_HEIGHT_FRACTION,
 )
-from framepilot_engine.render.captions import _load_font, render_caption_raster, wrap_lines
+from framepilot_engine.render.captions import (
+    _load_font,
+    basic_layout_features,
+    measure_caption_layout,
+    render_caption_raster,
+    wrap_lines,
+)
 from framepilot_engine.timeline.models import CaptionStyle
 
 log = logging.getLogger(__name__)
@@ -408,22 +414,6 @@ def _hex_color(rgba: tuple[int, int, int, int]) -> str:
     return f"#{r:02x}{g:02x}{b:02x}{a:02x}"
 
 
-def _basic_features(font: Any) -> list[str] | None:
-    """The OpenType features that make libraqm draw what basic layout draws.
-
-    WHY: the desktop's Pillow lays text out with BASIC layout, which never ligates, and the
-    AI's title fit (``title_metrics``) measures glyph by glyph on that basis. Pillow builds
-    with libraqm (the Linux wheels) join "fi"/"fl" into one glyph — in a monospaced face such
-    as Press Start 2P that removes a whole cell, so "fly" drew a third narrower than every
-    other runtime and than the fit. Kerning is off for the same reason: Shrikhand's "fly"
-    kerned 4.5 % wider than the desktop draws it, past the frame margin the fit keeps.
-    ``None`` for a basic-layout font, which takes no features.
-    """
-    if getattr(font, "layout_engine", None) != ImageFont.Layout.RAQM:
-        return None
-    return ["-liga", "-clig", "-kern"]
-
-
 def render_text_overlay_image(
     text: str,
     frame_width: int,
@@ -470,7 +460,7 @@ def render_text_overlay_image(
     max_text_width = (
         max(1, max_width) if max_width is not None else int(frame_width * _MAX_WIDTH_FRACTION)
     )
-    features = _basic_features(font)
+    features = basic_layout_features(font)
     lines = wrap_lines(text.split(), font, max_text_width, features)
 
     stroke_width = max(1, size // 12)
@@ -596,6 +586,50 @@ def rasterize_text_overlay(
         font_weight=layout.font_weight,
     )
     return rotation_safe(image) if rotates else image
+
+
+def title_drawn_size(
+    text: str,
+    style_params: Mapping[str, Any],
+    frame_width: int,
+    frame_height: int,
+) -> tuple[int, int]:
+    """``(width, height)`` in pixels of what a title visibly draws: the box a fit keeps in frame.
+
+    A plain title's raster is tight to what it draws (ink, stroke, padding, chip), so it is its
+    own measure. A typed title's raster is the caption rasterizer's canvas, which keeps
+    transparent room on every side for motion, glow and shadow (``CaptionRaster.margin``): 36 px
+    round a 10 % title, 164 px once it has a drop shadow. The engine's title fit measured that
+    canvas and sized a shadowed "MOTION" at 7.8 % where the AI layer's fit
+    (``overlay-fit.ts``), measuring the letters, sized it at 10.5 % — so the size a
+    ``measure_subject`` answer carried was not the size the title tools would write.
+
+    So a typed title is measured as ``overlay-fit.ts`` ``typedTitleDrawnWidthPx`` reads it (and
+    as ``title_metrics`` records it): the wider of the box it wraps in — its words plus the chip
+    padding each side, :func:`measure_caption_layout` — and its letters as drawn without their
+    shadow, stroke and overhang included. The shadow is left out because the fit leaves it out:
+    a soft shadow reaching past the safe width is not a title running off the frame.
+
+    :param text: The title's text.
+    :param style_params: The ``text`` effect's params.
+    :param frame_width: Width of the delivered frame in pixels.
+    :param frame_height: Height of the delivered frame in pixels.
+    """
+    styled = text_overlay_caption_style(style_params, frame_height)
+    if styled is None:
+        image = rasterize_text_overlay(text, style_params, frame_width, frame_height)
+        return int(image.shape[1]), int(image.shape[0])
+    wrap = measure_caption_layout(text, frame_width, frame_height, style=styled).box_width
+    unshadowed = styled.model_copy(update={"shadow": None})
+    raster = render_caption_raster(text, frame_width, frame_height, style=unshadowed)
+    alpha = raster.image[..., 3]
+    columns = np.flatnonzero(alpha.max(axis=0))
+    rows = np.flatnonzero(alpha.max(axis=1))
+    if columns.size == 0:
+        # Hollow letters with no outline draw nothing: the caption's own box is all there is.
+        return int(wrap), int(raster.image.shape[0] - 2 * raster.margin)
+    ink_width = int(columns[-1] - columns[0] + 1)
+    return max(int(wrap), ink_width), int(rows[-1] - rows[0] + 1)
 
 
 def rotation_safe(image: np.ndarray) -> np.ndarray:

@@ -89,6 +89,106 @@ describe('get_frame — a source file as shot', () => {
   });
 });
 
+describe('get_frame — many sources on one sheet', () => {
+  // Run d8d2e445 was told to look at every clip before cutting, had 20 sources, looked at
+  // 3 (one picture per call) and put 29 clips on blind centre crops.
+  const sheetResponse = {
+    media_type: 'image/jpeg',
+    base64: 'AAECAw==',
+    width: 1024,
+    height: 600,
+    time_seconds: 0,
+    duration_seconds: 0,
+    tiles: [
+      {
+        index: 1,
+        asset_id: 'a_beach',
+        name: 'beach.mov',
+        source_seconds: 6.5,
+        duration_seconds: 13,
+      },
+      { index: 2, asset_id: 'a_car', name: 'car.mov', source_seconds: 2, duration_seconds: 9 },
+    ],
+  };
+
+  it('takes 1-12 sources, each with an optional source time', () => {
+    const tool = getTool('get_frame')!;
+    const args = { sources: [{ assetId: 'a_beach' }, { assetId: 'a_car', sourceSeconds: 2 }] };
+    expect(tool.parse(args)).toEqual(args);
+    expect(() => tool.parse({ sources: [] })).toThrow();
+    const thirteen = Array.from({ length: 13 }, (_, i) => ({ assetId: `a${String(i)}` }));
+    expect(() => tool.parse({ sources: thirteen })).toThrow();
+    expect(() => tool.parse({ sources: thirteen.slice(0, 12) })).not.toThrow();
+    expect(() => tool.parse({ sources: [{ assetId: '' }] })).toThrow();
+    expect(() => tool.parse({ sources: [{ assetId: 'a', sourceSeconds: -1 }] })).toThrow();
+    expect(() => tool.parse({ sources: [{ assetId: 'a', extra: 1 }] })).toThrow();
+  });
+
+  it('is exclusive with the edit and with a single source', () => {
+    const tool = getTool('get_frame')!;
+    const sources = [{ assetId: 'a_beach' }];
+    expect(() => tool.parse({ sources, timeSeconds: 1 })).toThrow(/exactly one/);
+    expect(() => tool.parse({ sources, assetId: 'a_car' })).toThrow(/exactly one/);
+    expect(() => tool.parse({ sources, sourceSeconds: 1 })).toThrow(/needs assetId/);
+  });
+
+  it('sends the sources in order and leaves an omitted time to the engine', () => {
+    const body = frameBody(project, {
+      sources: [{ assetId: 'a_beach' }, { assetId: 'a_car', sourceSeconds: 2 }],
+      maxDimension: 768,
+    });
+    expect(body).toEqual({
+      project,
+      sources: [{ asset_id: 'a_beach' }, { asset_id: 'a_car', source_seconds: 2 }],
+      max_dimension: 768,
+    });
+  });
+
+  it('attaches one image and lists the tiles in order so the model can refer back', () => {
+    const outcome = unwrapFrame(
+      { sources: [{ assetId: 'a_beach' }, { assetId: 'a_car' }] },
+      sheetResponse,
+    );
+    expect(outcome.status).toBe('completed');
+    expect(outcome.summary).toBe('Looked at 2 sources as shot on one sheet');
+    expect(outcome.images).toHaveLength(1);
+    expect(outcome.images?.[0]?.label).toBe(
+      '2 sources as shot (uncropped, numbered tiles): 1 a_beach @6.5s, 2 a_car @2.0s',
+    );
+    const data = outcome.data as { tiles: unknown[] };
+    expect(data.tiles).toEqual([
+      { tile: 1, assetId: 'a_beach', name: 'beach.mov', sourceSeconds: 6.5, durationSeconds: 13 },
+      { tile: 2, assetId: 'a_car', name: 'car.mov', sourceSeconds: 2, durationSeconds: 9 },
+    ]);
+    expect(JSON.stringify(outcome.data)).not.toContain('AAECAw==');
+  });
+
+  it('names a tile the engine could not render instead of hiding it', () => {
+    const outcome = unwrapFrame(
+      { sources: [{ assetId: 'a_beach' }, { assetId: 'a_car' }] },
+      {
+        ...sheetResponse,
+        tiles: [
+          sheetResponse.tiles[0],
+          { ...sheetResponse.tiles[1], error: 'Could not compile the timeline for a frame' },
+        ],
+      },
+    );
+    expect(outcome.summary).toBe(
+      'Looked at 2 sources as shot on one sheet (1 could not be rendered: tile 2 a_car)',
+    );
+  });
+
+  it('fails honestly when the engine returns a sheet with no tiles', () => {
+    const outcome = unwrapFrame(
+      { sources: [{ assetId: 'a_beach' }] },
+      { ...sheetResponse, tiles: [] },
+    );
+    expect(outcome.status).toBe('failed');
+    expect(outcome.images).toBeUndefined();
+  });
+});
+
 describe('supportsVision — who gets offered the tool', () => {
   it('recognises the multimodal families', () => {
     expect(supportsVision('anthropic', 'claude-sonnet-5')).toBe(true);

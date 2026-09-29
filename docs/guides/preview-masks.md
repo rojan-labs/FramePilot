@@ -138,13 +138,13 @@ A `layer` mask cuts a clip by another picture. The source — one clip, or every
 — is marked `matteOnly` in the frame plan on both sides and is never composited itself; it is
 rendered only for the matte:
 
-| Step                                                                  | Engine (`render/layer_mattes.py`, `compiler.py`)                                         | Monitor                                                                                 |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Which layers are the source                                           | `layer_matte_sources` in `frame_plan.py`; the compile hands them to `LayerMatteResolver` | `withTrackMattes` (`engine/track-mattes.ts`) takes them out of the frame's layer list   |
-| The source frame                                                      | `CompositeVideoClip(layers, size)`, no background: straight RGB + alpha                  | `matteSourceFrame`: the same layers, the same passes, composited on a transparent frame |
-| Where the clip's pixels land                                          | `picture_placement_at` (MoviePy's truncated resize and paste, PIL's rotation)            | the layer's own raster step (`resize`, `rotation`, `x`, `y`)                            |
-| Channel at the landed pixel (nearest), inverted after sampling        | `sampled_channel`                                                                        | `MASK_LAYER_FRAGMENT` (`masks/layer-mattes.ts`)                                         |
-| Finesse, then invert and opacity; combined in the stack like any mask | `apply_finesse` → `layer_alpha`                                                          | the key's finesse passes and tail (`gl/alpha-passes.ts`)                                |
+| Step                                                                  | Engine (`render/layer_mattes.py`, `compiler.py`)                                            | Monitor                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Which layers are the source                                           | `layer_matte_sources` in `frame_plan.py`; the compile hands them to `LayerMatteResolver`    | `withTrackMattes` (`engine/track-mattes.ts`) takes them out of the frame's layer list   |
+| The source frame                                                      | `composite_alone`: each layer's `compose_layer_on`, transparent frame: straight RGB + alpha | `matteSourceFrame`: the same layers, the same passes, composited on a transparent frame |
+| Where the clip's pixels land                                          | `picture_placement_at` (MoviePy's truncated resize and paste, PIL's rotation)               | the layer's own raster step (`resize`, `rotation`, `x`, `y`)                            |
+| Channel at the landed pixel (nearest), inverted after sampling        | `sampled_channel`                                                                           | `MASK_LAYER_FRAGMENT` (`masks/layer-mattes.ts`)                                         |
+| Finesse, then invert and opacity; combined in the stack like any mask | `apply_finesse` → `layer_alpha`                                                             | the key's finesse passes and tail (`gl/alpha-passes.ts`)                                |
 
 The CPU mapping is byte-exact: `layerMatteAlpha` reproduces the engine's float64 channel on every
 placement and channel of `tests/fixtures/mask-raster/layer.json` (identity, offset off the frame,

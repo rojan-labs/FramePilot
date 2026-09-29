@@ -1,48 +1,28 @@
 /**
- * Is a span of the timeline already occupied by picture media?
+ * Is a span of the timeline already occupied by picture media — and does a stacked clip hide
+ * what is behind it?
  *
  * ## Why this exists at all
  *
- * The preview flattens picture clips from **every** track into one time-ordered
- * sequence, while the export composites stacked picture layers properly. Two
- * picture clips overlapping in time therefore render one way and preview
- * another — the divergence documented as blocker #1 in
- * `plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md` §0.2, which `SUC-P1` exists to
- * close.
+ * The preview used to flatten picture clips from every track into one time-ordered sequence
+ * while the export composited stacked layers, so two overlapping picture clips previewed one
+ * way and exported another (`plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md` §0.2, SUC-P1).
+ * Anything that placed picture FOR the user therefore refused to create that overlap. Since
+ * ADR 0180 the program monitor composites the export's own frame plan in every build, so the
+ * divergence is gone; what remains here is placement policy and geometry.
  *
- * Until it does, anything that places picture media *for* the user rather than
- * *by* the user — the Stock panel's one-click Add, the agent's `add_stock` —
- * must refuse to create that overlap instead of quietly producing an edit that
- * looks wrong on export.
- *
- * ## Why it lives in editor-core
- *
- * Two callers need the identical answer in different processes: the renderer
- * (to disable a button with a reason) and the Electron main process (to refuse
- * an agent's placement before spending a download). Two copies would eventually
- * disagree, and the way they would disagree is that one of them starts allowing
- * the overlap.
- *
- * Overlap is measured in **time**, not by layer: which track the clips sit on
- * does not affect whether the preview can show both.
- *
- * ## What ADR 0169 changed
- *
- * The blanket answer above is still what `add_stock` and the Stock panel use:
- * they pick the track themselves, so "is this moment occupied?" is the whole
- * question for them. It is no longer the whole question for the AGENT, which
- * names its own track and can be given a new one. A layer that covers the frame
- * opaquely previews exactly as it exports — the preview shows the front-most
- * clip and so does the composite — so that case is a legal placement rather than
- * a divergence.
- *
- * ## What ADR 0170 changed
- *
- * "Covers the frame" turned out to be the wrong question, because the renderer FITS: a
- * source whose aspect does not match the frame is letterboxed and its bars are transparent
- * at export. Whether that matters depends on what is UNDERNEATH. {@link coverageVerdict}
- * is therefore a relation between the front clip, everything it covers and the frame, and
- * it is what the guard, the canvas preview and the eval rubric all ask.
+ * - **Occupancy** ({@link picturePlacementConflict}) is what the Stock panel's one-click
+ *   **Add** asks: a person clicking Add did not ask to stack, and can see the timeline to
+ *   choose. It lives here because the renderer (to disable a button with a reason) and the
+ *   Electron main process (to refuse before spending a download) must give the identical
+ *   answer. Overlap is measured in **time**, not by layer.
+ * - **Coverage** ({@link coverageVerdict}) is whether the clip in front HIDES what is behind
+ *   it: a relation between the front clip, everything it covers and the frame (ADR 0170),
+ *   because the renderer FITS and a letterboxed layer's bars are transparent. The agent's
+ *   placer uses it to decide whether a fresh placement needs a cover crop, whether a
+ *   full-frame lift would bury a cutaway, and whether `add_stock`'s cutaway would hide the
+ *   footage; the Critic uses it to find picture nobody sees. It no longer decides whether a
+ *   stack may exist (ADR 0180 amendment, 2026-09-29).
  * {@link isFullFrameOpaque} survives as its opacity half.
  */
 import type { Asset, Clip, CropRect, Timeline } from '@framepilot/timeline-schema';
@@ -50,8 +30,8 @@ import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 import { isElementAsset } from './element-assets.js';
 
 // ---------------------------------------------------------------------------
-// Full-frame opacity — the predicate that decides whether a stacked picture
-// layer previews the way it exports (ADR 0169)
+// Full-frame opacity — whether a stacked picture layer lets what is beneath it
+// through (ADR 0169)
 // ---------------------------------------------------------------------------
 
 /**
@@ -78,8 +58,8 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
  * Does the clip's mask stack cut its alpha (schema v22)?
  *
  * An enabled alpha-target mask cuts a shape out of the layer, so the layer beneath shows
- * through the hole — and the preview can only show one of the two. A disabled mask, or one
- * that only limits an effect, leaves the layer covering what it covered.
+ * through the hole. A disabled mask, or one that only limits an effect, leaves the layer
+ * covering what it covered.
  */
 const cutsAlpha = (clip: Pick<FullFrameOpaqueFields, 'masks'>): boolean =>
   (clip.masks ?? []).some((mask) => mask.enabled && mask.target.kind === 'alpha');
@@ -87,26 +67,14 @@ const cutsAlpha = (clip: Pick<FullFrameOpaqueFields, 'masks'>): boolean =>
 /**
  * Does this clip paint the WHOLE output frame, with nothing showing through it?
  *
- * ## Why one predicate decides this for two processes
+ * ## Who asks
  *
- * A picture layer stacked over another previews correctly and exports
- * identically **only** when the layer in front covers the frame opaquely: then
- * the preview's "show the front-most clip" and the export's "composite the
- * layers" produce the same pixels, and there is no divergence to guard against.
- * The moment the front layer is scaled, positioned, cropped, masked, faded or
- * blended, the export folds in what is underneath and the preview — which paints
- * exactly one picture layer — cannot.
- *
- * So this one answer decides two things that must never disagree:
- *
- * - the agent's placement guard (`ai-sdk/domain-tools/picture-layers.ts`), which
- *   allows a full-frame opaque overlay and refuses everything else;
- * - the canvas preview's eligibility test
- *   (`web-editor/editor/selectors-base.ts#canvasPreviewEligible`), which admits
- *   overlapping picture only when every clip in the overlap satisfies this.
- *
- * Two copies of the rule would drift, and the way they would drift is that the
- * guard starts allowing an overlay the preview cannot show.
+ * A layer stacked over another hides it only when nothing in its own compositing lets the
+ * frame beneath through. The moment it is scaled, positioned, masked, faded or blended, the
+ * composite folds in what is underneath — in the export and, since ADR 0180, in the monitor
+ * alike. The legacy canvas monitor's eligibility test
+ * (`web-editor/editor/selectors-base.ts#canvasPreviewEligible`, behind the kill switch until
+ * RD3) still reads it; the agent's placer reads it through {@link coverageVerdict}.
  *
  * ## What it reads, and why each field is disqualifying
  *
@@ -250,8 +218,8 @@ export function coverCropFor(
   return { x: 0, y: roundCrop((1 - height) / 2), width: 1, height };
 }
 
-/** Why the monitor and the export would disagree about a stack, in terms a refusal can use
-    without re-deriving the order the tests run in. */
+/** Why a stacked clip does not hide what is behind it, in terms a refusal can use without
+    re-deriving the order the tests run in. */
 export type CoverageVerdict =
   | { readonly hides: true }
   | {
@@ -300,8 +268,13 @@ const coveredLabel = (covered: ShapedClip): string =>
   covered.clip.id ?? covered.clip.assetId ?? 'the clip beneath';
 
 /**
- * Does the clip in front hide everything behind it, so the monitor and the export agree —
- * and when it does not, why?
+ * Does the clip in front hide everything behind it — and when it does not, why?
+ *
+ * This was written to decide whether the legacy one-layer monitor and the export agreed (ADR
+ * 0169/0170), and the arguments below are in those terms. The geometry is unchanged: "hides"
+ * is exactly "nothing behind it reaches the composite". Since ADR 0180 every stack previews as
+ * it exports, so callers use the answer for placement policy (a cover crop, a burial, a stock
+ * cutaway that must hide the footage) and for finding picture nobody sees.
  *
  * ## Why this is a RELATION and not a property of the front clip
  *
@@ -336,8 +309,8 @@ const coveredLabel = (covered: ShapedClip): string =>
  * @param front - The clip nearest the viewer, and its source shape.
  * @param behind - Everything it covers, front-to-back.
  * @param frame - The project's own resolution.
- * @returns `{ hides: true }` when the export can produce nothing the monitor does not
- *   already show, otherwise the reason it can.
+ * @returns `{ hides: true }` when nothing behind the front clip reaches the composite,
+ *   otherwise the reason something does.
  */
 export function coverageVerdict(
   front: ShapedClip,
@@ -393,7 +366,7 @@ export function coverageVerdict(
  * @param front - The clip nearest the viewer, and its source shape.
  * @param behind - Everything it covers, front-to-back.
  * @param frame - The project's own resolution.
- * @returns TRUE when the export can produce nothing the monitor does not already show.
+ * @returns TRUE when nothing behind the front clip reaches the composite.
  */
 export function hidesWhatIsBehind(
   front: ShapedClip,
@@ -403,10 +376,10 @@ export function hidesWhatIsBehind(
   return coverageVerdict(front, behind, frame).hides;
 }
 
-/** Asset kinds that flow through the preview's single picture chain. */
+/** Asset kinds that are picture: they composite as layers of the frame. */
 const PICTURE_ASSET_KINDS: ReadonlySet<string> = new Set(['video', 'image']);
 
-/** One picture clip's span, as the preview's single chain sees it. */
+/** One picture clip's span in time, whatever layer it is on. */
 interface PictureSpan {
   readonly start: number;
   readonly end: number;
@@ -436,8 +409,7 @@ function mergedPictureSpans(timeline: Timeline, assets: readonly Asset[]): reado
       const kind = kindById.get(clip.assetId);
       // Clips whose asset is unknown are treated as PICTURE. The failure modes
       // are not symmetric — wrongly refusing a placement costs one
-      // repositioning, wrongly allowing one ships an export that does not match
-      // the preview.
+      // repositioning, wrongly allowing one stacks a clip the user did not ask to stack.
       if (kind !== undefined && !PICTURE_ASSET_KINDS.has(kind)) continue;
       if (elements.has(clip.assetId)) continue;
       if (clip.end > clip.start) spans.push({ start: clip.start, end: clip.end });

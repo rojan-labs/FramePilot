@@ -55,12 +55,646 @@ already draw; `planAutomaticReframe`, exported and unused). ADR 0196. Branch
   — engine grabs/reviews AND the desktop monitor (capped at 1280 px, so every 1080×1920 project).
 - [x] **AR15** `set_clip_speed` `playback: "freeze" | "reverse"` (the Inspector's Speed panel
   already did both; the run reported a freeze-frame "not built").
+**Agent loop audit (2026-09-28, run `d8d2e445`: a 27k-character travel-reel brief ended after
+4 steps / ~95 s with "Not done yet: colour, speed, transitions, fade, masking & graphics, SFX &
+levels, deliverables" — and the run COMPLETED).** Cause: a reply with no tool call ended the run
+unless an off-by-default drafted plan still had steps; nothing let the MODEL say what was left,
+and the contract told it to "follow the returned playbook" so it built a generic montage instead
+of the brief's shot list. Scope gate: no new subsystem — one session tool beside `load_tools`,
+one reducer rule, contract lines. Rule: the model owns the plan, the loop honours it; nothing
+reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`.
+- [x] **AL1** `update_plan` session tool (TodoWrite-shaped, core, host-only like `load_tools`):
+  full-list replacement, `blocked` needs a reason; renders through the existing `plan` event.
+- [x] **AL2** Conductor: a model-owned plan with open items keeps the run going on a no-tool
+  reply; bounded by progress (applied ops + plan digest), not a latch; open items reported as
+  not done when it settles; the positional ledger never overwrites a model plan.
+- [x] **AL3** Briefing shows the model's plan and points DO THIS NOW at the first open item.
+- [x] **AL4** Contract: plan in the request's own terms; the ending rule is plan-aware; skills
+  are reference guidance, never the plan or a template (load_skill, manifest, pinned block).
+- [x] **AL6** `get_frame { sources }`: up to 12 sources as shot on one labelled, numbered
+  sheet (engine `render/source_sheet.py`, `/render/frame` `sources`). Evidence: run `d8d2e445`
+  ("look at every clip before cutting") saw 3 of 20 sources, one picture per call, and put 29
+  clips on blind centre crops. Omitted `sourceSeconds` = the middle of the source (the ledger's
+  representative frame is not on the document the route receives). Tiles are composited
+  uncached, four at a time: a live 12-source sheet on the real 20-clip project took 5.3-7.2 s,
+  was byte-identical to serial rendering (9.9-12.3 s), and evicted none of the cached timeline
+  windows. Skills (footage-intelligence, vertical-reframe, travel-montage) point at it.
+  Deferred: the MCP server's `get_frame` forwards only `timeSeconds` (no `assetId`/`sources`
+  yet); the action card says "Looking at the frame at" with no subject (`describe.ts`).
+- [x] **AL7** Shot ledger on an empty start: the mid-run refresh also asks about bin assets placed
+  mid-run that the snapshot has no rows for (once each; acquired footage still re-asked), same
+  3-refresh bound, one request per refresh. Evidence: run `d8d2e445` started empty, `apply_look`
+  found every clip unmeasured. Tests: `orchestrator-stream.test.ts` (empty start).
+- [x] **AL8** Late review: at the done declaration (no open plan item, no shortfall) the loop waits
+  once, ≤ `LATE_REVIEW_WAIT_MS` (60 s), for pending reviews; findings buy one steering turn
+  (`lateReviewSteering`); anything later is reported as before (ADR 0187 amendment). Tests:
+  `editor-run-adapter.test.ts`, `conductor.test.ts`, `review-findings.test.ts`. Not measured on a
+  live desktop run yet.
+- [x] **AL9** Effect catalogue digest carries description + default length per entry (+~16
+  tokens/entry, default call 82 -> 440 tokens); `apply_effect` says accents belong on a moment;
+  receipts name the effect and its range.
+- [x] **AL10** #139: `punch_in` on a clip whose scale is already keyframed (a `reframe_pan`
+  cover zoom, an earlier punch) multiplies that curve instead of replacing it; x/y untouched so
+  the pan keeps moving; a zoom-out below the cover is refused. Evidence: harness run 4 stripped
+  22 pans (19 remove_keyframes + 31 set_clip_crop) to punch in. TS + Python mirror; tests:
+  `reframe-pan.test.ts` (framePlanAt cover at sampled instants, window = pan × punch, undo),
+  `test_ai_tools.py`. Skills (vertical-reframe, keyframe-animation) updated. Not yet measured
+  on a live run.
+- [x] **AL11** Honest plan statuses: a `done` item must name the edit that delivered it; the
+  contract says an editor choice exists only in their message or an ask_user answer; a plan that
+  blocks an item is answered with the tool domains the run never loaded (run 8 blocked SFX without
+  loading `sourcing`; run 9 then sourced and placed three effects).
+- [x] **AL12** Review and render: fade to black excused at the engine's 0.10 black level and along an
+  authored ramp; review frames composited from on-screen clips (36.2 s → 11.6 s); one process-wide
+  heavy-build gate, one compile per `measure_color` scope, decoder threads capped for previews.
+- [x] **AL13** Crash: run events stored as their JSON projection (`toJsonValue`) — `measure_color`'s
+  undefined keys ended runs through the stream-event write.
+- [x] **AL14** Tool fixes found by harness runs 4–7: a fitted speed ramp cuts points past its span
+  (TS + Python); a text overlay box always stays in frame; a frame-placed shape mask uses the clip's
+  visible (crop) window, and `rounded_frame` says it keeps only a border; the reframe-coverage check
+  counts a pan's cover zoom as filling the frame; auto-applied narration is no longer "memory".
+- [x] **AL15** Live verification: harness runs 6–9 (Opus 5.5, the 27k brief, a copy of the real
+  project) all COMPLETED end to end (577–801 s, 200–255 ops, plan kept current); run 9 finished
+  every plan item except the export, which is honestly blocked (Export dialog).
+- [x] **AL5** #149: the model plan crosses run boundaries. Checkpoint carries `modelPlan` →
+  `resume.modelPlan`; plan events carry `{ objectiveKey, items }`, hosts pass `priorPlans`, and a
+  router `continues` run starts on that request's last plan; a new request starts empty. Tests:
+  `model-plan`, `conductor`, `orchestrator-auto`, `orchestrator-stream`, desktop `ai-stream`.
+  Not measured on a live desktop run yet.
+- [ ] **AL16** Found in AL5: desktop Resume replays nothing. `parseAgentOptions` (desktop
+  `ai-stream.ts`) drops `agentOptions.resume`, so the renderer's Resume runs as a fresh run on
+  `cp.goal`. The fix needs a bounded `resume` on the IPC contract (ops re-validated on replay),
+  which widens the IPC surface, so it needs a maintainer decision.
+- [x] **AL17** #138: `professional_motion` and `professional_color` take `clipIds` (the resolver's
+  `explicit` referent), as `professional_audio` did in 1ccb1fc0 — an agent run has no selection.
+  Ambiguity refusals and the wrong-kind `target` hint name `clipIds`; motion takes one id (a named
+  clip off the playhead: `continue` anchors on its latest keyframe, `animate_to` points at
+  `add_keyframes`); color's match/group take one. Tests: `professional-{motion,color}.test.ts`.
+- [x] **AL18** Honest upscale: `punch_in`/`reframe_pan` results state the clip's peak
+  magnification (output px per source px, `framePlanAt` geometry at project resolution) and say
+  plainly above `SOFT_UPSCALE_THRESHOLD` (1) that the picture is upscaled and soft; nothing is
+  refused. Evidence: harness run 8's soft road shot at 17 s (pan 1.78× × punch). Tests:
+  `magnification-note.test.ts` (incl. through the orchestrator). Not yet measured on a live run.
+- [x] **AL19** #150: element placement and loops. `set_element_animation`'s too-short refusal
+  gives the loop table's own arithmetic (clip length, what the loop needs, the slowest period that
+  fits, the other loops that fit, the longest In/Out) and a spin moves on any clip length (runs 7–9
+  each refused a spin whose period was longer than its 2.2–2.4 s shape). The "Outside the 10% safe
+  area" warnings on 2 shapes per run were false: the text `safe_area` check read a shape's percent
+  x/y as fractions, so it flagged one centred at (47, 46). Shapes are left to `element_safe_area`
+  now. `add_shape`/`set_shape_style` boxes and `add_sticker` art are kept inside the frame, and a
+  sticker placed outside the safe area gets a result that names the centre ranges that fit. Tests:
+  `loop-motion`, `elements`, `critic-elements`, `sticker-placement`, `orchestrator-stream`. Not
+  measured on a live run yet. Triage, still open: in run 9 two shapes sat end to end on one lane, so
+  each one's In/Out was refused as "a cut on its own layer".
+- [x] **AL20** #135 closed out. (1) The title fit measures what the caption rasterizer draws for
+  an overlay with typography: `letterSpacing` between glyphs, the italic file
+  (`TITLE_ITALIC_FACES`), the `outlineWidth` stroke and the chip padding the wrap keeps
+  (`overlay-fit.ts` `typedTitleWidthsPx`). "WEEKEND TRIP" in `tracked-caps` (0.24 em) draws 22 %
+  wider than its advances and could overflow a box the fit had accepted. Checked against
+  `render_caption_raster` in `test_title_metrics.py` (`TITLE_TYPED_REFERENCE_WIDTHS`).
+  (2) `add_text_layer`/`set_text_style` take per-field typography args (tracking, italic,
+  leading, case, letter opacity, outline, shadow), with a Python mirror and a parity fixture.
+  (3) Per-letter and per-word reveals moved to #152: they need a schema change and per-frame text
+  rasters in the export and on the desktop monitor. Tests: `overlay-fit`, `title-typography`,
+  `text-overlay-styles`, `test_title_metrics.py`, `test_ai_tools.py`. Not measured on a live run
+  yet.
+- [x] **AL22** #99: the post-edit review keeps what it measured. `createTemporalEvidenceAcquirer`
+  sends the plan in ~8-frame chunks under one deadline scaled from the measured ~726 ms/frame at
+  540x960 (ffdcf440) by frames and render size, floored at the old 300 s, capped at 900 s. A
+  deadline or failed chunk returns the results that landed with `incomplete`; the run reports the
+  rest as not checked, by frame (`describePartialTemporalReview`, `Partial review:` notice). An
+  unchecked moment is never a finding and never a clean review. Late-review wait unchanged. Tests:
+  `temporal-evidence-client`, `temporal-review`, `editor-run-adapter`. Not measured on a live run.
+- [x] **AL23** Negative tracking renders in the export. `captions._token_width`/`_draw_token_text`
+  drew nothing at or below 0, so the "heading" (-0.01 em) and "statement" (-0.02) text styles and
+  the Inspector's -10 % exported (and showed on the desktop monitor, which draws the same raster)
+  looser than the browser's CSS `letter-spacing`. Both renderers now draw it, clamped at -0.2 em
+  (`MIN_LETTER_SPACING_EM`, `captions.py` + `captionPreview.ts`); `overlay-fit.ts` tightens with it.
+  Render diff over all 68 caption templates + 60 text styles: exactly `heading` and `statement`
+  change. The agent's own `letterSpacing` arg stays 0-0.6 (widening it moves the tool description;
+  follow-up). Tests: `test_text_overlay_typography.py`, `test_title_metrics.py` (two negative typed
+  reference cases), `overlay-fit`, `captionPreview`. Same pass: a tracked word was stroked letter
+  by letter, each outline over the previous letter's fill (a stripe; visible at 0.03 em in `comic`,
+  `punchline`, `sticker` + 4 more): `_draw_token_text` now strokes every letter, then fills. Those
+  7 looks change (no golden encodes them); test
+  `test_a_tracked_outline_never_cuts_through_the_neighbouring_letter`.
+- [x] **AL24** The engine's title fit (`service._fit_title_size`, used only by
+  `/analyze/subject-layout` → `measure_subject`, whose size the title is then written at) disagreed
+  with `overlay-fit.ts`. (1) It measured the raster: a typed title's caption canvas has a transparent
+  margin (36 px; 164 with a shadow), so a shadowed "MOTION" fitted at 7.8 % vs the TS 10.5 %. Latent
+  for the agent today (`measure_subject`'s style takes no typography). (2) It probed the whole text on
+  a 100 % line against the 92 % width, non-monotonic: plain "WEEKEND TRIP" asked at 30 % → 9.1 % vs
+  13.2 %. Now `text_overlay.title_drawn_size` (max of wrap box and unshadowed ink, as `title_metrics`
+  records) judged per word over tenths, as the TS fit does; the subject-layout text box uses it too.
+  Tests: `test_title_fit.py` (cross-check against `title_metrics` + the TS arithmetic twin).
+- [x] **AL21** #137: `reframe_to_subject { clipId, maskId }` (masking domain, host-measured) bakes
+  a subject-following reframe into ordinary x/y/scale keyframes. There is no schema change and
+  no live link (MO-14 is still open). The desktop host reads the mask's digest-pinned
+  `track.json` and returns the subject's centre (`T(t) · G(t)`) at six samples a second. The
+  orchestrator re-checks the pin and the clip length, then runs `planAutomaticReframe` (cover
+  zoom, clamped and damped pan). The crop and keyframe replacement is `reframe_pan`'s. Refusals:
+  untracked mask (remedy `track_mask`), cut-out, clip already the frame's shape, stale track or
+  trim, subject never seen. Tests: `reframe-to-subject.test.ts` (the subject stays within 2 px
+  of the frame centre through `framePlanAt`, the frame is covered, undo, re-run, through the
+  orchestrator) and desktop `masking-executor.test.ts` (`track_mask` writes the artifact, then
+  `reframe_to_subject` reads it). Unit-verified only: no tracking pack or tracked project was
+  available for a live run.
+- [x] **AL25** #107: solved colour's white balance is render-calibrated. New
+  `engine/python/tests/color_response_measure.py` exports a grade grid through `export_video`
+  and reads each file with tier-0's own `signalstats` graph (plus a pure-red probe that names
+  the encode chain). Five real clips, 25 exports each: the renderer's curve is exact
+  (temperature 0.983-1.002, tint 0.991-1.001 of the derivation); the old
+  `WARMTH_PER_TEMPERATURE` 0.6936 was the wrong units — the ledger is limited-range BT.709,
+  `luma.mean` carries the 16-code floor, and temperature scales red/blue, not luma (measured
+  0.503-0.611 per `luma.mean`). `color-solver.ts` now models the response from the frame's
+  channel means (predicts all five within 2%), solves saturation before white balance (it
+  scales the cast), and `measure_color` readings are written in the ledger's units
+  (`ledgerMeasurementFromLight`). Rendered check: `apply_look warmer` +0.10 lands 0.094-0.097
+  (was 0.070-0.083). `measure-color-response.mjs` (never run, sidecar-bound) removed. Open, in a
+  follow-up issue: luma read as code/255, material clipping, WB→`satMean`, BT.601 exports.
+- [x] **AL26** #154: exports encode BT.709 limited range and carry the tags. `choose_encoder`
+  prepends `BT709_OUTPUT_ARGS` (`scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,
+  setparams=...` + `-colorspace/-color_primaries/-color_trc bt709 -color_range tv`) for every
+  encoder, final and preview; BT.709 at every size, SD included (tagged files decode by their
+  tags; one chain keeps 480p review renders comparable with sources). Probe through
+  `color_response_measure`: bt709-limited, 61.9/103.0/238.8 (was 81/90/239, BT.601); the ~1
+  code left is the bundled ffmpeg 7.1 decode (red → 253), not the encode. New
+  `test_render_colour_encoding.py` (ffprobe tags; PNG red/blue/grey → exact BT.709 codes ±1;
+  tag-honouring decode ±4). No golden changed: render/key/mask/matte goldens read the
+  compositor, not the encoder; `reels_testsrc2` aHash passes unchanged; PX4 compares
+  `grab_frame` (no encode) with the monitor. One fixture changed: `test_render_frame_accuracy`'s
+  pure-blue source is now dodger blue, because BT.709 puts (0,0,255) at luma 7% (Y=32), under
+  the black QC's 10% (BT.601 lifted it to Y=41), so that export failed "ends on black". Open:
+  a real pure-blue end card (≥0.2 s) now fails the same check; the review's black ratio
+  already called it black. Decide whether QC black should also require neutral chroma.
+  `color-solver.ts` note 4 ("the export is BT.601") is stale (TS, not touched here).
+- [x] **AL26a** #154 follow-up: black QC and black analysis judge max(R, G, B), not luma, so a
+  pure-blue/red/navy end card is no longer black (`blackdetect_argv`: `format=gbrp`, two
+  `lighten` blends, `setparams=range=pc` so `pix_th=0.10` cuts at code 25/255). Verified on
+  Homebrew 8.1 and bundled 7.1: the conversion honours BT.709 tags (red 255/0/0; forced BT.601
+  gives 233/0/2); real black, near-black 20, fade-to-black and thin white text on black keep
+  their verdict. Cost about 2x on a 63 s 1080p export (1.2-2.1 s → 2.9-3.3 s). New
+  `test_black_brightest_channel.py`; `test_render_frame_accuracy` is back to pure blue. The
+  agent's frame review uses the same rule: `temporal_evidence._frame_sample` computes `black_ratio`
+  from the brightest channel ≤ 0.10, so review no longer calls a pure-blue card black.
+- [x] **AL27** Harness run 10: `professional_audio` refused `stale_context` (@43 vs @45) after an
+  `adjust_audio` in the SAME step. The interaction snapshot was rebased once per step
+  (`toolContext`), not after each call's edit. `advanceToolContext` re-stamps it wherever a call
+  advances the working project (streaming, non-streaming and repair loops); a selection whose
+  clips moved is still refused. Pinned in `interaction-rebase.test.ts` (fails without the fix
+  with the run's exact error).
+- [x] **AL28** Typed text drew differently on hosts whose Pillow finds libraqm (Linux CI):
+  `captions.py` measured and drew whole words with kerning and ligatures, while the tracked
+  per-letter path, the desktop (BASIC layout) and the AI fit do not. `basic_layout_features` (moved
+  from `text_overlay._basic_features`) now reaches every caption/title measure and draw. The 184
+  text-rendering tests pass under both layouts (`DYLD_LIBRARY_PATH=/opt/homebrew/lib` enables
+  raqm locally; before the fix it reproduced CI's two failures).
+- [x] **AL29** Harness run 11: colour evidence lifecycle. `measure_color` readings taken at
+  timeline revision 40 were "nothing has measured" to `normalize_exposure`/`apply_look`/
+  `match_color` one step later, and `professional_color` answered `evidence_missing` for handles
+  `ev_12`…`ev_21` it had been given. Three causes. (1) `picture-facts.ts#currentRevision`
+  compared the reading's `timeline.revision` against `ctx.projectRevision`, the desktop's host
+  authority revision (a different counter), so no rendered reading ever matched on desktop; it
+  now reads `project.timeline.revision`, the clock `measure_color` stamps. The orchestrator's
+  `colorSolveNote` was also handed a context without the evidence store, so the note could not
+  see readings the operations used. (2) `normalize_exposure`'s grade legitimately retired every
+  `measure_color` entry (`EvidenceStore.invalidate`), and the colour controller answered a
+  retired handle as missing. Tombstones now keep the reading's clip and the tool that retired it;
+  `professional_color` refuses `evidence_stale` naming both, and the solved tools say "measured
+  before normalize_exposure changed the picture". (3) The receipt printed one file name per clip
+  for clips cut from one file; same-label lines from different clips fold to "(N clips)". Pinned
+  in `color-evidence-lifecycle.test.ts` (7 of 8 failed before, with the run's exact errors) and a
+  real-payload replay of run 11's ten readings (apply_look now grades 10 of 10). Open: a grade
+  retires EVERY colour reading, including shots it did not touch (see AL29a).
+- [ ] **AL29a** Retire a `measure_color` reading only when an applied edit can change the frames
+  it measured. `EvidenceStore.invalidate` drops every timeline-dependent entry on any picture op,
+  so `normalize_exposure` grading three passenger clips retired all ten road-shot readings and
+  the next colour tool asked for ten re-measures. Needs the applied ops (not just types) and
+  the measured frame window, widened for transitions that blend neighbouring clips. Parked:
+  GitHub #158.
+- [x] **AL30** Harness run 11: a fitted (`keepDuration`) `set_clip_speed_ramp` was refused
+  "timeline duration 1.8999999999999986s but its source range (2.6147955361309623s) at its speed
+  ramp implies 2.241388502385408s". The fit held the rate at the clip's OLD span (0.98x at 1.9 s)
+  while the written curve kept slowing to 0.5x at 2.5 s. `fittedSourceSpan` /
+  `_fitted_source_span` now solve along the curve to its last point, holding only past it. Pinned
+  with the run's clip and call in `operations.test.ts` and `test_operations.py` (both reproduced
+  the exact numbers before the fix) plus a cross-runtime parity case.
+- [x] **AL31** A track matte whose source animates its size did not follow it in the export:
+  a window scaling 0.4 -> 1.0 kept its t=0 width (37 px) while its position followed the
+  growth, then left the middle row. Cause: `LayerMatteResolver.frame_at` read MoviePy's
+  `CompositeVideoClip.mask`, which gives a layer without a mask `clip.with_mask()`, a solid
+  mask of the layer's size at construction; MoviePy's time-varying `Resize` leaves
+  `has_constant_size` True, so the mask never resized. Only opaque sources (video, opaque
+  images) were hit; shapes and titles carry their own alpha, which is resized. The matte is
+  now the export's own `compose_layer_on` of the source's layers on a transparent frame
+  (`layer_mattes.composite_alone`), one picture and one alpha per layer at each instant.
+  Pinned in `test_layer_mattes.py` (scale and scaleX windows failed before; a growing-shape
+  guard). The monitor was already right: the frame plan gives `matteOnly` layers per-instant
+  geometry and `matteSourceFrame` rasterizes each through its own step.
+- [x] **AL31a** Text overlays and shapes cannot be track-matte sources. They live on `overlay`
+  lanes (`add_shape`, titles), and both `mask-validation.ts` (`sourceTrack.type !== 'video'`)
+  and `layer_mattes.assert_layer_sources` refuse a source on a non-video track, although
+  `mask_with_layer` offers "a text overlay for video inside text". Allow `overlay` sources in
+  both runtimes (and check the frame plan's `matteOnly` marking and the monitor), with parity
+  tests. Outcome: the rule is now "the source draws a picture", from one shared definition
+  (`DRAWN_CLIP_KINDS` / `PICTURE_LANE_TYPES` in `synthetic-assets`, parity-tested through
+  `clip-kind.json`) used by the validator, the export check, the frame plan and the Mask tab
+  picker (which also only offered video tracks); audio/caption lanes and undrawn clips stay
+  refused. The frame plan and monitor needed no change. Pinned by overlay-lane text and
+  growing-shape renders in `test_layer_mattes.py`, validator, frame-plan and picker tests (all
+  red before); `mask_with_layer` now names the growing-shape opener (no golden moved: the
+  masking domain is not in the golden scenarios).
+- [x] **AL32** Harness run 12's tracked titles exported without their word spaces ("THE CLIMB"
+  as "THECLIMB", "GOLDEN HOUR", "DAY 01"; default face, 0.25 em). The preview's CSS
+  `letter-spacing` follows EVERY character, the space and a line's last letter included, so a
+  word gap is `space + 2 x spacing` and the box ends one spacing past the last letter (probed in
+  headless Chromium: "B" at 0.25 em is its advance + 25 px at 100 px). The export tracked only
+  between a word's own letters, so its word gap was a bare space: at 0.25 em no wider than a
+  letter gap (narrower in Anton). `captions._token_width` now tracks every glyph and the word
+  space is a tracked glyph (`_tracked_space_width`), so the chip, centring, wrap width, karaoke
+  wipe and `scale()` centre are the preview's box by construction; the ink is unchanged. The AI
+  fit (`overlay-fit.ts` `typedTitleWidthsPx`) and its Python twin read the same box; title
+  metrics regenerated with a tracked two-word reference ("THE CLIMB"). Pinned in
+  `test_text_overlay_typography.py` (word gap = letter gap + space + tracking; box carries the
+  last tracking; both failed before), both Pillow layouts.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68
 caption templates are time-varying; 720p build 5 ms / sample 7 ms median, 120 / 23 ms worst).
 Scope gate: no new subsystem; every fix is inside the existing monitor, sidecar route family and
 IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09-27`.
+- [x] **AL32a** Harness run 13 folded the brief's masking section (text-behind-subject, the
+  trunk-lid reveal, the shape-mask opener, the optional split) into ONE plan item, then blocked it
+  on the cut-out alone: the opener, buildable since AL31/AL31a, was never attempted or reported.
+  Contract: a section that names several treatments is one item per treatment, so blocking one
+  never hides the rest. Goldens re-recorded.
+- [x] **AL32b** Harness run 13: "CAMP · 7:40 A.M." (align left, x 30, no box width) drew as
+  "AMP…": `fitTextOverlayParams` returned early without a `boxWidthPercent`, skipping the
+  in-frame correction for the renderers' default 80% box. `DEFAULT_TEXT_BOX_WIDTH_PERCENT` is
+  exported from timeline-schema and the fit keeps THAT box in frame. Also: the TwelveLabs
+  single-flight tests released the owner before the waiter joined (CI calls == 2); they now wait
+  for the join.
+- [x] **AL32c** Harness run 14: the masking item was still one item and was blocked with "no tool
+  here animates a mask wipe", with masking loaded. The route (add_shape rounded-rect →
+  add_keyframes scale → mask_with_layer alpha) is now a recipe in `masking-and-compositing`
+  (duplicated lines trimmed to stay under the 8,000-char pinned cap) and pinned by
+  `shape-opener.test.ts`. Also: a set_text_style whose named fields already hold those values
+  answers "already has the … you gave, so nothing changed" (run 14 heard "name at least one of
+  … color, background" for a call naming both).
+- [x] **AL33** Desktop run `88c8b27d` (run 15) ran the laptop hot: five of six parallel
+  `measure_color` calls "timed out after 120s", three `get_frame` took 51–58 s, the final review
+  never finished. Cause: from the opener's track matte on (08:12), `picture_window` refused the
+  whole project, so every grab and scope compiled all 40 source readers (each opened twice, each
+  open an uncapped ffmpeg decode), and the evidence route answered the six scopes in turn while
+  every call's clock ran. Fixes: track mattes are windowed (AL31 made an idle source's matte the
+  empty frame, so leaving it out is exact); a frame read takes a slot of the process-wide heavy
+  gate like a build (`composition_cache.read_frame`); the executor sends its own evidence calls
+  one at a time and starts each timeout when sent (`ENGINE_SERIAL_ROUTES`). Measured on a clone
+  of the run's final project (rev 219, 65 clips): six scopes 48–262 s → 5–35 s (each call's own
+  clock ≤ 7.6 s), cold grab 38.9 s → 1.7 s; a burst of six scopes + eight grabs 269.9 s at 54%
+  of 10 cores → 36.6–40.1 s at 46% (≈1,320 → ≈180 core-seconds), peak ffmpeg processes 98 → 10,
+  sidecar threads 3,736 → 414. JPEGs byte-identical, scope samples equal. Guards: matted-shot
+  parity + reader-count tests (`test_render_picture_window.py`), per-thread slot count at every
+  decode, executor queue tests. Open: blend modes still composite the whole timeline (~43 s a
+  scope here); every reader is opened twice and each open decodes a first frame with ffmpeg's
+  default threads before the cap applies (~0.5 s and a core burst per reader); the desktop must
+  rebuild `@framepilot/ai-sdk` dist to pick up the executor change.
+- [x] **AL34** Desktop run `88c8b27d` blocked three brief items ("THE ROAD" behind the ridge, the
+  pillar mask-reveal, the 3-up split) and answered the 115% scale limit with "the preview can't
+  composite" a blurred fill. The limit went with ADR 0180 (every build composites); the refusal
+  and its text outlived it (ADR 0180 amendment 2026-09-29). The placer now layers any picture in
+  front (see-through, scaled, cropped, blended, masked); `add_clip` takes `crop` (null = whole
+  picture), and the same shot at the same moment through a different crop is not an invisible
+  duplicate; `apply_color_grade` takes `type: "blur"`. Kept: the full-frame burial refusal
+  (windows exempt), the same-frames/same-crop refusal, and `add_stock`'s cutaway rule
+  (`cutawaysOnly`, names the bin → `add_clip` route). Coverage now means "hides" in
+  `hidden_picture`, the lane digest and the burial check; `reframe_coverage` exempts clips backed
+  by frame-filling picture; rubric check → `stacked-picture-is-visible`. Evidence:
+  `layered-picture-recipes.test.ts` (blurred fill + 3-up via real tool calls, validate, apply,
+  undo, Critic) and `test_layered_picture_render.py` (grab_frame: blurred bars step 0.16 vs 8.3
+  unblurred, band rows 219–420 = the 0.5625 fit; each third its own shot). Skills
+  (`vertical-reframe` blurred-fill recipe, `broll-and-layering` PiP/split) and goldens regenerated.
+  Not measured: a live agent run on the brief.
+- [x] **AL35** Desktop run 88c8b27d set a brief that named Playfair/Inter/Caveat in the default
+  face "as you chose before": the stored ask_user decision's TITLE was the assistant's question
+  ("text overlays can't take a font family", false since ADR 0194) and its body said "Follow this
+  on later turns unless they change it". The writer now stores "The assistant asked: …" / "The
+  editor answered: …; that settles this question … a later request that asks for something else
+  is them changing it", and the digest heading and `session_context` scope every remembered
+  decision (covers entries already on disk). The same run said the library had no door/keys/
+  footsteps sounds without searching them: `audio-polish` now says a sound has no match only once
+  its own search came back empty.
+- [x] **AL35a** Harness run 15 (same 27k paste as runs 12–14 and desktop 88c8b27d) planned 11 items
+  from the SHORT draft at the top of the paste ("Text (minimal)") and dropped the full brief's masking,
+  stickers, captions, typography system and sound design. The paste holds a draft, the editor's "it
+  should cover every single detail", then the full brief. Contract: a message holding more than one
+  version of a brief asks for the latest, fullest one; what only the earlier states still applies.
+- [x] **AL36** Desktop run 88c8b27d: "I can't measure loudness here, so −14 LUFS and ≤ −1 dBTP
+  are not confirmed", while the engine had an unused EBU R128 `loudness` request behind
+  `/review/temporal-evidence`. New read-only `measure_loudness` (audio domain, `inspection` role
+  so it stays offered after the first patch, `hostUiOnly`, `ffmpegSeconds`-charged): mix or one
+  labelled role, whole timeline or a range; returns integrated LUFS, LRA, true peak (ebur128 4×
+  oversampled, of the mix clipped at full scale as the export writes it) and the sample peak
+  before the clip (new `samplePeakDbfs` on the loudness result), the gap to a stated target, and
+  the lever by name (flat `adjust_audio` gain per track; `professional_audio` compress before a
+  raise that would cross the ceiling; peak normalize does not land LUFS). Engine: a loudness
+  window may span 30 min at 60 fps (integrated loudness is programme-gated, so 300-frame pieces
+  cannot add up), streamed to the WAV a chunk at a time. `audio-polish` no longer says "there is
+  no loudness meter". Evidence: `loudness-measurement.test.ts` (window, refusals, reading,
+  executor route), `test_temporal_evidence.py` (a −20 dBFS 997 Hz stereo sine over 600 frames
+  reads −20 LUFS/−20 dBTP through real ffmpeg; a +6 dBFS mix reports sample peak +6.0 with the
+  true peak under 1); end to end on a scratch sidecar with the `beat-100bpm.wav` fixture: −28.9
+  LUFS / −15.1 dBTP, equal to ffmpeg ebur128 on the file, and −34.9 / −21.1 after a −6 dB
+  `adjust_audio`. Goldens +21 tokens/request (domain index + skill index). Not measured: a live
+  agent run on the brief.
+- [x] **AL37** Desktop run 88c8b27d: the self-check's "No jump cuts: 1 cut(s) join the same shot to
+  itself … at frame 1360" (a real five-frame skip: a keepDuration ramp segment of summit-view read
+  source 0→2.287 s, its sibling resumed at 2.5 s) arrived as a notification AFTER the model's
+  final reply. `onVerifyResult` only bought a fix turn for FAILED checks. Now a run that delivered
+  work and passes with WARNED checks spends the run's one fix turn (`verifyFixTurns`,
+  `MAX_VERIFY_FIX_TURNS`) hearing them: `verifyAdvisories` on the state, `advisories` on the
+  run_turn effect, a SELF-CHECK ADVICE block (fix a real one, leave an intended one and say why).
+  Not recorded as failed verifications, so a left advisory still settles `completed`; a reply
+  with no tool call goes straight to verify (plan/shortfall continuations skipped); the next
+  verify only reports. Never bought when cancelled, over the cost/time budget, at the per-run op
+  cap, or after the fix turn was spent. The jump-cut detail now names both clips and their source
+  in/out, and gives the continuous-source fix (re-place the incoming clip at the outgoing clip's
+  source end; a ramp's source end is given) for an unintended skip, the cutaway/trim fix for a
+  deliberate cut. Tests: 6 conductor cases (opens without FAIL rows, plain reply ends the run even
+  with open plan items (mutation-checked), left advisory → `completed`, no second turn, fix lands,
+  each guard), prompt block, critic wording. Deliberately updated: 4 streamAgent goldens and 6
+  golden/parity sessions gain one call (all "Picture covers the programme" from a delete_range on
+  the only picture track; every terminal status unchanged, `completed`); 12 call-count
+  assertions (orchestrator-stream, editor-run-adapter, output-room, run-quality, langchain token
+  accounting 340→510 tokens) now also assert the extra call carries the advice. Open: a failed-
+  check fix turn does not also carry the run's advisories; recorded `--replay` sessions that
+  ended with advice will ask the model one more time.
+- [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
+  "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
+  (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer
+  holds (text overlays take font families since ADR 0194/0195), and it was stretched to a
+  masking request it never answered. Contract: a recorded decision answers only its own
+  question with the tools of its day; a current request that asks otherwise is the editor
+  changing it. Goldens re-recorded.
+- [x] **AL38** The three heat causes AL33 left open, all on the grab/scope/export compile path.
+  Double opens: every source was opened twice and each open decoded a first frame at ffmpeg's default
+  threads (`compiler._open_moviepy_reader`, pre-AL38 compiler.py:2841-2875, then
+  `decoder_threads.cap_decoder_threads` :106-123 stopped that decoder to restart a capped one;
+  MoviePy's `FFMPEG_VideoReader.__init__` → `initialize()`, ffmpeg_reader.py:81). Now
+  `render/video_reader.py`: one cached MoviePy probe per file version, `decode_resolution` from it,
+  one `ProbedVideoFileClip` whose reader starts ffmpeg at the first `get_frame`, capped from its
+  first frame; the export's reader starts at frame 0 wherever the eager reader would have skipped
+  forward and keeps its short-read fallback, so its frames are unchanged. Frames rendered while compiling:
+  building a composite rendered frames it never used: MoviePy measures a transformed clip by rendering its frame 0
+  (`VideoClip.with_updated_frame_function`, VideoClip.py:924, and `VideoClip(frame_function=)`,
+  :116, behind every transform/subclip/resize), so each of a layer's dozen stages rendered the
+  chain beneath it at t=0 (a scope: 3.5 of 5.7 s, 1.2 s in one directional-blur pass). Now
+  `render/lazy_frames.py`: source clips and the compiler's frame-function clips take a time map's
+  or a same-size stage's size from their input, a crop's from MoviePy's own slice, and any other
+  size by MoviePy's frame-0 formula when first read. Blend modes: they composited the whole
+  timeline (`picture_window.whole_timeline_reason` :100-111) because `_composite_with_blend_modes`
+  ignores the first layer's mode (:2289) and `_blend_layer_over` holds the base past its end
+  (:2310). A non-playing layer is an exact identity there (lossless 8-bit float round trip, blend
+  at alpha 0 = base; checked for all 11 modes), so the windowed compile records the export's layer
+  order with the blended layers it skips, and `compiler.window_answers(composition, t)` accepts an
+  instant only where each blended layer still to play has a layer built in the window beneath it
+  lasting past t (exact ends); the grab and evidence paths ask it where they checked the window's
+  end. Windows use the export's own compositor. Still refused: a blend beside a frosted overlay the
+  window leaves out (the frost compositor rounds a blend differently), a blended burned caption.
+  Measured on the scratch clone of the rev-219 travel reel, exact CPU from the sidecar's
+  `/usr/bin/time` (ffmpeg children included), HEAD → +video_reader → +lazy_frames → +blend window:
+  six scopes + eight grabs 122.3 → 80.7 → 40.7 → 40.4 CPU-s, 37.3 → 29.3 → 17.6 → 17.4 s, peak
+  ffmpeg 11 → 12 → 6 → 6, threads 420 → 484 → 255 → 255; cold grab 1.87 s / 2.8 CPU-s → 1.70 / 1.4
+  → 0.84 / 1.1; a scope 7.6 s / 17.9 → 7.0 / 14.4 → 3.2 / 6.1. With one screen-blended title: cold
+  grab 43.1 s / 97.1 CPU-s / 44 ffmpeg → 22.9 / 51.9 → 5.7 / 5.9 → 0.83 / 1.2 / 1; scope 53.8 s /
+  144.2 → 43.6 / 103.2 → 12.3 / 14.3 → 3.2 / 6.1; the burst 45.6 s / 72.2 CPU-s / 3.5 GB sidecar →
+  18.0 / 40.4 / 0.8 GB (+lazy_frames → +blend window). Export of an 8.5 s fixture at 720p: 74.8 s /
+  90.1 CPU-s → 65.0 / 77.4 (compile 5.7 → 1.0 s); the whole reel's export compile 33.3 → 5.4 s.
+  Identical: all 14 burst outputs after each commit (JPEG bytes, scope JSON), all 14 blend outputs
+  against the whole-timeline compile, every raw composite frame of the whole reel (1,814) and of
+  six 10 s segments, both 255-frame export fixtures, and both exports' decoded frames (framemd5).
+  Guards: `test_render_video_reader.py` (pixels equal MoviePy's reader for three first-read orders
+  and short reads, one probe/reader/decoder start per grab, capped), `test_render_lazy_frames.py`
+  (export and window compiles decode nothing; 14/16 fail with eager measuring restored), blended
+  parity + fallback in `test_render_picture_window.py` (5 fail without the guard). Open: a crop is
+  declared, but a resize or rotate is still measured if read (the blend canvas and track-matte
+  `with_mask()` read it: one frame of that layer); captions still render their t=0 raster; the
+  export's held base under a blended layer and its ignored bottom-layer mode are kept (a window
+  falls back there) — whether the monitor draws them the same was not checked; the blend burst was
+  not run on pre-AL38 code (every request compiles 40 eager readers; single requests measured).
+- [x] **AL39** Harness run 16 (27k brief, Opus 5.5). (1) The run ended on "Sound design and mix
+  — blocked: No SFX in the bin" without ever loading `sourcing`; every `update_plan` result had
+  named it (the run-8 echo), and the text did not work. Now structural: on a no-tool reply whose
+  model plan has nothing pending/in progress, at least one `blocked` item, and loadable domains
+  never loaded (`AgentTurnResult.unloadedToolDomains`, from `kernel/model-plan.ts`
+  `unloadedDomainsForBlocked`, shared with the echo), the conductor continues ONCE
+  (`blockedItemsRetried`) with a DO THIS NOW naming the blocked items, each unloaded domain with its
+  `DOMAIN_SUMMARY`, and both answers (load_tools and retry, or reply without a tool call to leave
+  it blocked). Never when cancelled, over the cost/time budget, or out of steps; a second no-tool
+  reply ends normally. (2) "Masking: text behind subject, shape opener, split-screen, mask reveal
+  — failed: Segmentation Capability Pack not installed": the contract's one-item-per-treatment
+  sentence is now also in the `update_plan` description. (3) Blurred fill refused: the existing
+  bay-aerial clip was framed by `reframe_pan` (x/scale keyframes, no crop), so the duplicate
+  check's crop comparison saw none = none and refused the `crop: null` copy. A clip framed by
+  transform keyframes (all but opacity) is now a different picture from a new copy; a layered copy
+  named on its background's own lane (run 16 named v1) is placed in front
+  (`PictureCandidate.overOwnLane`) instead of colliding; every picture same-frames refusal appends
+  the blurred-fill route (by the call's crop and whether the other copy is placed or booked);
+  `vertical-reframe.md` states background = the clip already cut in, foreground = the `crop: null`
+  copy in front (5,268 chars). The run's `apply_color_grade` blur `amount: 0` was refused by the
+  editor-core op contract alone (renderers, tool input contract, Python mirror and description all
+  take 0 as off); 0 is now valid. There is no tool that removes a clip effect (`remove_effect`
+  deletes effect layers). Tests: 7 conductor cases (fires once, names domains and summaries, not
+  when all loaded / nothing blocked / items open / over budget / cancelled / out of steps), 3
+  model-plan helper cases, the d8d2e445 stream test now asserts the blocked-item turn (6 calls, was
+  5), the update_plan description, 5 run-16 replay cases in `layered-picture-recipes.test.ts` (pan
+  + blur + same-lane `crop: null` copy validates, lands in front, hides nothing, undoes to empty;
+  the refused copy's route is followed and succeeds; whole-picture variant; sound unchanged;
+  amount 0), `pictureOverlapAcross` own-lane case, blur contract accepts 0. Goldens: +26 tokens per
+  request (the description sentence), token figures only; the continuation and the skill change
+  no recorded session. Open: not re-run live on run 16's brief; a zero-amount blur stays listed on
+  the clip (Inspector row at 0%) since nothing removes a clip effect.
+- [x] **AL40** Harness run 16: in a 1080x1920 reel of 16:9 footage, every shot reframed to fill by
+  `reframe_pan` (x/y/scale keyframes, no crop), the luma fade into `bay_aerial` showed the outgoing
+  `dusk_road` letterboxed (180x320 grab: 219 black rows at 51.98 s, 148 at 52.3 s). Root cause:
+  a transition's under-layer (the neighbour's handle, `transition_underlays`) was placed with its
+  keyframes stripped, `neighbour.model_copy(update={"keyframes": []})`, in the export
+  (`compiler._underlay_layer`) and the frame plan (`frame_plan._underlay_layer`), and the monitor
+  mirrored it (`frame-plan.ts` `underlayLayer` passed `[]`; `layer-raster.ts` forced
+  `keyframes = []` for `underlay`, so it took the static-fit path). Crops were honoured; keyframed
+  reframes were not. The incoming clip itself was always right. Every catalog and legacy kind
+  shares the path; kinds whose incoming is opaque from the first frame (punch-zoom) hid it. Fix:
+  the under-layer reads the neighbour's transform on its own clip clock carried across the cut
+  (`underlay_clock_offset` = window start − neighbour start, twin `underlayClipTime`), so it holds
+  the last keyframe past the out-point and the first before the in-point; `_place_video_clip`
+  takes a `clock_offset` (0.0 for every other layer). Run 16, 187 grabs (every 0.5 s + every frame
+  of the 5 v1 transitions): 41 changed, all inside whip-pan-up/light-leak/luma-fade windows,
+  black rows 170/195/219 → 0; 146 byte-identical, including every sample outside a transition and
+  both punch-zoom windows. Tests: `test_render_transition_underlay_reframe.py` (luma-fade,
+  cross-dissolve, whip-pan-up, light-leak in, luma-fade end-aligned out: 329/480 black rows on
+  pre-fix code → 0; held framing mean diff 64.3 → < 1; frames outside the ramp byte-identical to
+  the cut with no transition), mirrored plan tests in `test_frame_plan.py`/`frame-plan.test.ts`,
+  and `layer-raster.test.ts` (pre-fix monitor: fitted at y 656). Critic: `reframe_coverage` judges
+  clips at their own instants and was right; no change. Open: the under-layer still ignores the
+  neighbour's opacity keyframes, mask stack and speed/ramp (it plays the handle at 1x), in both
+  export and monitor alike; no frame-plan parity vector has a keyframed neighbour (adding one
+  touches PX0-INVENTORY.md and the e2e preview-parity baseline, neither runnable here).
+- [x] **AL41** Harness run 16: at 59.5 s "SEPT 2026" (`text__layer_overlay_5_57144`, 57.13–59.97,
+  Manrope 600 1.6 %, tracked caps, y 48) drew across the second line of "Until next weekend."
+  (`text__text1_56680`, Playfair italic 5.5 %, two lines, y 42), and the self-check said "All
+  checks passed": nothing compared two text overlays with each other (`safe_area` judges each
+  against the frame; the element checks read only stickers and shapes). Fix: critic
+  `text_collision` (warn) beside `safe_area`. Every text overlay on a visible track that has no
+  non-opacity keyframes is laid out as the export draws it, by `overlay-fit.ts`
+  `drawnTextRects`. A typed overlay goes through the caption rasterizer's path: tracked words,
+  greedy wrap inside the box less chip padding, lines stacked at ascent + descent + 2 × stroke
+  with a sixth-of-size gap or `lineHeight`, `paddingY` chip, centred on xPercent/yPercent. Each
+  line's rect is its width by its x-height band, and a filled chip is one rect. A plain overlay
+  is one block of x-height lines, padded if a background fills it. Pairs that share at least a
+  frame and overlap by more than 0.1 em of the smaller size each way are reported. The finding
+  names both ids, their words and the shared span (numbers only inside quotes; the label is
+  constant), plus the remedy: `set_text_style` yPercent, `trim_clip`, or merge and
+  `delete_clip`. Needed the faces' vertical metrics: `title_metrics.py` now writes
+  `TITLE_FACE_LINES`/`TITLE_ITALIC_FACE_LINES` (`[ascent, descent, xHeight]` per file, 1/1000
+  em). This is additive: the glyph tables and reference widths are byte-identical. The full box
+  (line metrics + chip padding) was not used because it flagged the same run's "Weekend"/"TRIP"
+  opener, whose frames show the letters clear. Run 16's final project via the built dist:
+  exactly one warning, that pair ("57.133s–59.967s"); "Weekend"/"TRIP" and the glass-pill
+  lower lines pass. Tests: `critic.test.ts` (run-16 pair warns; stacked title + subtitle passes;
+  back-to-back and sub-frame overlap pass; filled chip and plain pairs; hidden track and
+  keyframed y skipped, opacity-only compared; never a fail), `overlay-fit.test.ts`
+  (`drawnTextRects` against the engine's own layout of three run-16 overlays: line count,
+  widths, chip size), the model-facing gate (names registered tools, no bare digits), and
+  `test_title_metrics.py` (committed line metrics match the fonts, one entry per file holds at
+  every weight, the arithmetic predicts `_layout_styled_caption`'s chip height and each line's
+  x-height band is inked). Open: captions are not compared (their place comes from the track
+  style and template); animated overlays are skipped; a plain overlay's height is a floor, so a
+  plain-title collision can go unreported; weight is bucketed up (Inter 600 read at 700, ~1.4 %
+  wide); not re-run live on run 16's brief.
+- [x] **AL42** Harness run 17: `measure_loudness` (`/review/temporal-evidence` loudness) failed
+  twice with a 500, "OSError: Error in file Swipe_Whoosh.mp3, Accessing time t=1.00-1.00
+  seconds, with clip duration=0.500000". Three audio clips read a little past their files
+  (a 0.447506 s whoosh as 0.4667 s; a 1.998229 s hit as 2.0 s, twice). The overrun was NOT the
+  crash: with every sourceEnd clamped inside its asset, run 17's final project still failed the
+  same way. Root cause is MoviePy 2.1.2's `FFMPEG_AudioReader.get_frame` (`readers.py:222-230`).
+  When one request's in-file samples span more than half the reader's buffer, it recurses on
+  `in_time[...]`, the boolean MASK, instead of `tt[...]`, so `True` is read as t = 1.0 s.
+  `AudioFileClip` caps the buffer at a short file's own length (22051 samples for the whoosh),
+  so every 32768-sample loudness block took that path. Files under 1 s raise; from 1 s to
+  ~1.37 s the reader silently returns the samples at 0 s and 1 s. The export's 2000-sample
+  blocks reach it only below ~90 ms. The reader also raises when a composite asks for a block
+  entirely past the file (`is_playing`'s end is inclusive, the reader's is not). Fixes:
+  (1) engine: `render/audio_reads.py` answers every read in pieces under half the buffer and
+  returns silence outside the file; the compiler (audio assets, processed stems) and the video
+  reader's sound install it on every `AudioFileClip`. `compiler._subclipped_source` now keeps a
+  natural-rate clip's full span past its file: it holds the last frame and plays silence. The
+  export used to show the layer beneath for that frame while the frame plan and preview held
+  the shot. (2) placement: `frame-grid.ts#snapAddClip` rounded the out-point to the nearest
+  frame and rescaled the source, and its docstring accepted the overrun. `quantizePatch` /
+  `normalizeOperationTimes` now take the media bin (required; an `add_asset` earlier in the
+  patch joins it). An out-point within one frame past a known audio/video length ends on the
+  last whole frame inside; further past is left to the validator. (3) validator (#156):
+  `source_past_media_end` in TS and Python, error beyond one project frame. It is judged on the
+  delta: only a clip the op made read further into its asset than the touched tracks already
+  did is reported, so legacy overruns can still be split, moved, trimmed shorter and restored,
+  and `restore_clips` is never checked. Stills and unknown lengths are exempt. The message
+  names the clip, the asset and its length, never the overrun, and offers trim_clip, a shorter
+  placement or a slower speed. Evidence: run 17's final project, loudness 0–1350: before,
+  OSError in 6 s; after, -13.8 LUFS, TP -1.8 dBTP. Tests: `test_source_past_end.py` (9;
+  6 fail before, including the exact run-17 OSError; export passes validation; a video one
+  frame past holds its last frame in grab and export), `frame-grid.media-end.test.ts` (7),
+  `validator.media-end.test.ts` (12, including #156's 3x retime and fitted ramp),
+  `test_patch_validation_media_end.py` (8). Fallout: editor-core 1772/1772, 120 ai-sdk files that
+  place clips or carry asset lengths 3242/3244; the 2 failures are `orchestrator.test.ts`
+  expecting 28 critic checks, a count AL41's `text_collision` raised to 29 and did not update.
+  Open: the frame plan's `source.frame` still names the frame index past a file's end (pixels
+  agree: the reader returns the last frame); MoviePy's reader is still used directly by
+  `tests/audio_strip_vectors.py`.
+- [x] **AL43** Harness run 17: three `add_shape` calls (arrow 15.6–17.5, pin 16.3–17.5, pin
+  `trackId: "STK"` 16.1–17.5) were refused with "Transition on clip 'text__CAP_17500' must
+  reference the adjacent earlier clip on track 'CAP' as fromClipId." Cause: `trackHasRoomFor`
+  (`lane-placement.ts`) asked only whether the span was free, and a butt-join counts as free. The
+  first two had no `trackId`, so `buildAddShapeOps` preferred CAP (it held `shape__CAP_15100`,
+  the only shape lane), and the allocator took it. The third named STK, which existed (made by
+  `add_track` that turn) but already held the arrow over 15.6–17.5. The allocator's rescue then
+  searched overlay lanes in order and took CAP. Either way the shape ended at 17.5, where
+  `text__CAP_17500` began with a zoom-out In naming no clip. The validator reads an In on a clip
+  whose start is a cut as a cross that must name the clip before it, so the patch was refused.
+  Fix: `trackHasRoomFor` also calls `placementBreaksTransitions`, which puts a bare probe clip on
+  the lane and asks the validator's own rule (`laneTransitionProblems`, exported from
+  `validator.ts`) whether the placement adds a transition problem. Problems already on the lane
+  do not count. Every lane picker reads this rule: the allocator (shapes, `add_text_layer`,
+  stickers, `add_clip`, caption cues), web-editor drops, stock and picture-layer placement. So an
+  element's In/Out, a cutaway's entrance/exit, and a cross's gap are all respected, and the clip
+  goes to another lane of the same role or a new one. `add_shape` now refuses a named `trackId`
+  that names no lane, a picture/audio lane or a locked lane (the shared builder used to reroute
+  those without telling the model); a busy graphics lane is still resolved by the allocator. The
+  `set_element_animation` butt-join refusals in the same run ("The end of text__CAP_6633 is a cut
+  on its own layer (8s)…") were not a placement defect. Both `add_text_layer` calls named
+  `trackId: "CAP"` (`add_text_layer` requires a `trackId`), the lane had room, and a butt against
+  a clip with no edge effects is valid. The refusal names the right remedy. Evidence: run 17's
+  final project with STK/STK2 removed, through the built dist: all three calls land on
+  `layer_overlay_6` and validate clean (before: CAP, refused). Tests: `lane-placement.test.ts` (a
+  butt against an In or an Out naming no clip is not room; neither is the gap of a cross; a plain
+  butt, a gap before an In, and a lane that was already broken still are; the allocator skips such
+  a lane) and `elements.test.ts` (run 17's CAP lane and the three calls validate off CAP; a named
+  fitting lane is honoured; an unknown, picture or locked `trackId` is refused). Open: an element
+  placed automatically can still butt a plain neighbour on its lane, and animating either one
+  later is then refused (move_clip is the remedy). `move_clip` of a clip that carries its own
+  In/Out is not checked against the destination lane's butts (the validator still refuses it).
+  Stickers keep the builder's fallback for a named lane they cannot use, because the host has
+  already copied the file by then; the result note names the lane they landed on.
+- [x] **AL44** Harness run 18: the model's plan held 24 items (18 done, four masking items
+  blocked, QA in progress, deliverables pending). Its last `update_plan` sent two (QA done,
+  deliverables blocked), and the result was "Plan saved (1 done, 1 blocked)". Cause: the
+  orchestrator's `update_plan` handler (`orchestrator.ts`) handed the call's list to the
+  conductor as the new plan (`withModelPlan`), so the call REPLACED the list. The four blocked
+  items and everything delivered vanished from the checklist, the "Not done" account and the AL5
+  continuation record, and nothing said so. Fix: `mergeModelPlan` (`kernel/model-plan.ts`) folds
+  each call into the plan the run holds. An earlier item the call omits is carried with its last
+  status and note, in its original place, matched by the label the briefing shows (markdown
+  stripped, otherwise exact). Omitted `done` items are carried too (the checklist and the
+  continuation record keep the delivered work) and give way first when the plan would pass 40.
+  A call whose omitted open/blocked items cannot fit is refused with fixed words. The echo names
+  what it kept. `HostCallContext.modelPlan` threads the conductor's plan into the turn, updated
+  per call. The description and the briefing header state the contract. Also: the note cap goes
+  240 → 480 with a refusal that states the limit and the fix, because runs 8, 10, 13 and 18 each
+  lost a turn to "items.0.note: Too big" on a review pass's done note. Tests: `model-plan.test.ts`
+  (run 18's two lists verbatim: all 24 kept, in order, with the echo; an omitted open item stays
+  open; a rewritten plan carries the old wording until settled; a full replacement is taken as
+  sent; markdown-stripped match; exact otherwise; done items give way when full; refusal when
+  open/blocked cannot fit), `orchestrator-stream.test.ts` (through the real loop: the second
+  call's echo, the continuation on the carried open item, the whole checklist, and "Not done"
+  naming the carried blocked and open items; it fails against the previous orchestrator),
+  `tool-registry.test.ts` (480-character note, the refusal text, the description). Goldens
+  regenerated (+18 tool-schema tokens). Open: "Sound design" was marked done in run 18 with no
+  `search_music`/`add_music` call. The done-note rule requires a note, not proof, and nothing
+  checks the note against the tools the run called.
+- [x] **AL45** Harness run 18: `add_clip { trackId: "V1", assetId: "asset_mountain_road", start:
+  18.878, end: 20.3, crop: <0.1055-wide strip> }`, and the same for road_driving (19.342) and
+  ridge_aerial (19.83), were refused as "Clips 'clip__V1_asset_mountain_road_18413' and
+  'clip__V1_asset_mountain_road_18878' overlap on track 'V1'", though `add_clip` promises to put
+  the shot on a layer in front of what it covers. ("Video 2" on the card is V1's display label,
+  not a front layer.) Cause: not AL39 or AL43. `pictureOverlapAcross`
+  (`domain-tools/picture-layers.ts`) skipped the candidate's own lane when it collected what a
+  placement covers, leaving same-track overlap to the validator. Only a same-shot copy
+  (`overOwnLane`, AL39's blurred fill, which is why the run's earlier bay_aerial call landed on
+  `video_cutaway_1`) was let through. At 18.4–20.3 s only V1 held picture, so the placer found no
+  conflict, kept V1, and the validator refused all three. Fix: the named lane's picture counts
+  like any other lane's. The placer passes the lane over (no room, and it cannot be in front of
+  itself) and reuses or opens a front layer. On the named lane the overlap is judged on the frame
+  grid the patch is snapped to, so a placement that only butts its neighbour once snapped stays on
+  the lane. `overOwnLane` and `sameFramesOnLane` are subsumed and removed. Tests:
+  `picture-layers.test.ts` (run 18's V1 and `video_cutaway_1` rebuilt; each of the three calls,
+  applied in turn through dispatch, validator and patch, lands in front of V1 and of the panels
+  before it with its crop; the first reuses `video_cutaway_1`; the whole split screen undoes to the
+  story cut; a snapped butt stays on V1; 7 fail before, validator overlap). Three tests that
+  pinned the old behaviour (`tool-registry.test.ts`, `text-overlay-duplicate.test.ts`, the
+  hidden-lane case) now pin the layered result. Fallout: ai-sdk domain tools, critic, stock,
+  registry and 33 other files that call `add_clip`: 2377 pass. Open: a picture placement that
+  does not overlap its named lane but butts a clip whose transition it would break still stays on
+  that lane and is refused by the validator (the no-conflict path does not ask `trackHasRoomFor`).
+  A picture clip named onto a non-picture lane that is occupied is likewise left to the validator.
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

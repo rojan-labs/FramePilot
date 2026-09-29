@@ -18,7 +18,12 @@ import {
 import type { Operation } from '@framepilot/editor-core';
 import { getTool } from '../tool-registry.js';
 import type { ToolContext } from '../tool-context.js';
-import { overflowingWords } from '../overlay-fit.js';
+import {
+  overflowingWords,
+  typedTitleDrawnWidthPx,
+  typedTitleFont,
+  typedTitleOf,
+} from '../overlay-fit.js';
 import { summarizeReadResult } from '../orchestrator.js';
 import { describeTextOverlayLook } from '../text-overlay-style-facts.js';
 
@@ -163,6 +168,9 @@ describe('add_text_layer fits a styled overlay to the frame', () => {
           boxWidthPercent: style.look.boxWidthPercent,
           fontFamily: style.look.fontFamily,
           fontWeight: style.look.fontWeight,
+          // Measured as drawn: the style's typography sends it through the caption rasterizer.
+          typography: style.look.typography,
+          background: style.look.background,
         },
         PORTRAIT,
       )[0]?.requiredBoxWidthPercent ?? 0;
@@ -238,5 +246,43 @@ describe('discover_text_overlay_styles', () => {
     expect(summarizeReadResult('discover_text_overlay_styles', { unexpected: true })).toContain(
       'unexpected',
     );
+  });
+});
+
+describe('add_text_layer fits a tracked style as it is drawn (#135)', () => {
+  /** Every word's drawn width against the box the params ended with, in the export's pixels. */
+  function drawnInsideBox(params: Record<string, unknown>, text: string): void {
+    const typed = typedTitleOf(params.typography, params.background)!;
+    expect(typed.letterSpacing).toBeGreaterThan(0);
+    const font = typedTitleFont(
+      { fontFamily: params.fontFamily as string, fontWeight: params.fontWeight as number },
+      typed,
+    );
+    const fontPx = Math.floor((PORTRAIT.height * (params.fontSizePercent as number)) / 100);
+    const boxPx = Math.floor((PORTRAIT.width * (params.boxWidthPercent as number)) / 100);
+    for (const word of text.toUpperCase().split(' ')) {
+      expect(typedTitleDrawnWidthPx(word, fontPx, font, typed), word).toBeLessThanOrEqual(boxPx);
+    }
+  }
+
+  it('leaves the harness\'s "WEEKEND TRIP" alone where its tracked words fit', () => {
+    // The run's call: tracked-caps, sizePercent 4, box 80, on a 1080×1920 frame.
+    const params = paramsOf(
+      addText({ style: 'tracked-caps', text: 'WEEKEND TRIP', sizePercent: 4 }, PORTRAIT),
+    );
+    expect(params.fontSizePercent).toBe(4);
+    expect(params.boxWidthPercent).toBe(getTextOverlayStyle('tracked-caps')!.look.boxWidthPercent);
+    drawnInsideBox(params, 'WEEKEND TRIP');
+  });
+
+  it('shrinks a headline whose tracking, not its letters, runs out of the frame', () => {
+    // At 7.5 % the untracked "WEEKEND" fits a 92 % box; drawn with 0.24 em between its
+    // letters it does not, so before #135 the fit accepted a title the export overflowed.
+    const params = paramsOf(
+      addText({ style: 'tracked-caps', text: 'weekend trip', sizePercent: 7.5 }, PORTRAIT),
+    );
+    expect(params.fontSizePercent).toBeLessThan(7.5);
+    expect(params.boxWidthPercent).toBeLessThanOrEqual(92);
+    drawnInsideBox(params, 'weekend trip');
   });
 });

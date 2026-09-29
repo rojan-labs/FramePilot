@@ -7,7 +7,7 @@ import subprocess
 from collections.abc import Callable
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import numpy as np
 import pytest
@@ -198,6 +198,10 @@ class _FakeSource:
         self.calls.append((start, end))
         return self
 
+    def with_duration(self, duration: float) -> _FakeSource:
+        self.duration = duration
+        return self
+
 
 def _clip_model(source_start: float, source_end: float) -> Clip:
     return Clip.model_validate(
@@ -247,6 +251,9 @@ def test_subclipped_source_clamps_out_point_past_decoded_duration() -> None:
     assert result is source
     # Out-point collapses to None ("to the end") rather than the overflowing value.
     assert source.calls == [(0.0, None)]
+    # AL42: and the layer still lasts the span it was asked for, past the file's end
+    # (silence for sound, the last frame held for picture).
+    assert result.duration == pytest.approx(16.93)
 
 
 def test_subclipped_source_keeps_a_genuinely_shorter_window() -> None:
@@ -2607,10 +2614,10 @@ class TestDecodeBudget:
     def test_decodes_an_oversized_source_down_to_the_budget(
         self, media_factory: Callable[..., Path]
     ) -> None:
-        from moviepy import VideoFileClip
+        from framepilot_engine.render.video_reader import ProbedVideoFileClip
 
         path = str(media_factory("big.mp4", size="640x480", with_audio=False))
-        reader = _open_source_reader(VideoFileClip, path, 160)
+        reader = _open_source_reader(ProbedVideoFileClip, path, 160)
         try:
             assert max(reader.size) == 160
             assert tuple(reader.size) == (160, 120)
@@ -2624,10 +2631,10 @@ class TestDecodeBudget:
         self, media_factory: Callable[..., Path]
     ) -> None:
         """Upscaling in the decoder would cost MORE than not budgeting at all."""
-        from moviepy import VideoFileClip
+        from framepilot_engine.render.video_reader import ProbedVideoFileClip
 
         path = str(media_factory("small.mp4", size="320x240", with_audio=False))
-        reader = _open_source_reader(VideoFileClip, path, 4000)
+        reader = _open_source_reader(ProbedVideoFileClip, path, 4000)
         try:
             assert tuple(reader.size) == (320, 240)
         finally:
@@ -2635,42 +2642,49 @@ class TestDecodeBudget:
 
     def test_no_budget_decodes_natively(self, media_factory: Callable[..., Path]) -> None:
         """The export path passes None and must keep reading camera masters."""
-        from moviepy import VideoFileClip
+        from framepilot_engine.render.video_reader import ProbedVideoFileClip
 
         path = str(media_factory("native.mp4", size="320x240", with_audio=False))
-        reader = _open_source_reader(VideoFileClip, path, None)
+        reader = _open_source_reader(ProbedVideoFileClip, path, None)
         try:
             assert tuple(reader.size) == (320, 240)
         finally:
             reader.close()
 
-    def test_closes_the_oversized_reader_it_replaces(
-        self, media_factory: Callable[..., Path]
+    def test_opens_the_source_once_and_decodes_nothing_until_asked(
+        self, media_factory: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The probe reader's ffmpeg child must not outlive the decision to replace it.
+        """AL38: one reader, at the budgeted size, and no ffmpeg decoder until a frame is read.
 
-        This function is the one place that opens a reader it then throws away,
-        so a leak here would be invisible to the caller's `opened` tracking —
-        it only ever sees what is returned.
+        The size comes from the source's probe, so no reader is opened just to measure it (the
+        compiler used to open one, decode its first frame with every core, and throw it away).
         """
-        from moviepy import VideoFileClip
+        from framepilot_engine.render import video_reader
 
         path = str(media_factory("probe.mp4", size="640x480", with_audio=False))
         opened: list[Any] = []
 
-        class _Tracking(VideoFileClip):  # type: ignore[misc]
+        class _Tracking(video_reader.ProbedVideoFileClip):
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(*args, **kwargs)
                 opened.append(self)
 
+        starts: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def recording_popen(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+            if "rawvideo" in cmd:
+                starts.append(list(cmd))
+            return real_popen(cmd, *args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "Popen", recording_popen)
         reader = _open_source_reader(_Tracking, path, 160)
         try:
-            assert len(opened) == 2
-            probe, kept = opened
-            assert kept is reader
-            # MoviePy drops the reader reference on close, after terminating its
-            # ffmpeg child — so `None` here is the evidence the process is gone.
-            assert probe.reader is None
+            assert opened == [reader]
+            assert tuple(reader.size) == (160, 120)
+            assert starts == [], "no decoder may start before a frame is asked for"
+            assert reader.get_frame(0.5).shape == (120, 160, 3)
+            assert len(starts) == 1
         finally:
             reader.close()
 
@@ -2719,19 +2733,6 @@ class TestDecodeBudget:
             close_clip_tree(composition)
 
 
-class _SizedReader:
-    """A VideoFileClip stand-in that records how it was opened."""
-
-    opened: ClassVar[list[tuple[str, tuple[int, int] | None]]] = []
-
-    def __init__(self, path: str, target_resolution: tuple[int, int] | None = None) -> None:
-        self.size = (3840, 2160)
-        _SizedReader.opened.append((path, target_resolution))
-
-    def close(self) -> None:
-        pass
-
-
 def test_decode_cap_follows_the_frame_the_crop_and_animation() -> None:
     from framepilot_engine.render.compiler import decode_cap_for_clip
 
@@ -2766,14 +2767,10 @@ def test_decode_cap_follows_the_frame_the_crop_and_animation() -> None:
 
 
 def test_source_reader_decodes_at_the_capped_size() -> None:
-    from framepilot_engine.render.compiler import _open_source_reader
+    from framepilot_engine.render.compiler import decode_resolution
 
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", 1920)
-    assert _SizedReader.opened[-1] == ("big.mov", (1920, 1080))
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", None)
-    assert _SizedReader.opened == [("big.mov", None)]
+    assert decode_resolution((3840, 2160), 0, 1920) == (1920, 1080)
+    assert decode_resolution((3840, 2160), 0, None) is None
 
 
 def test_fitted_decode_size_asks_ffmpeg_for_exactly_what_is_displayed() -> None:
@@ -2966,10 +2963,9 @@ def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) 
     MoviePy's size swap) is the upright HEIGHT. Stretching the upright width decoded it 96x96.
     The storage top-right secondary quadrant must land as one undistorted 36x64 corner block.
     """
-    from moviepy import VideoFileClip
-
     from framepilot_engine.media.ffmpeg import find_ffmpeg
     from framepilot_engine.render.compiler import _open_source_reader
+    from framepilot_engine.render.video_reader import ProbedVideoFileClip
     from tests.px4_parity_frames import VideoSpec, encode_video
 
     primary, secondary = (236, 44, 44), (44, 44, 236)
@@ -2977,7 +2973,9 @@ def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) 
         "rot-anam.mp4", 96, 72, 10.0, 0.3, primary, secondary, pixel_aspect_ratio=4 / 3, rotation=90
     )
     encode_video(find_ffmpeg(), tmp_path, spec)
-    clip = _open_source_reader(VideoFileClip, str(tmp_path / "rot-anam.mp4"), None, None, 4 / 3)
+    clip = _open_source_reader(
+        ProbedVideoFileClip, str(tmp_path / "rot-anam.mp4"), None, None, 4 / 3
+    )
     try:
         assert tuple(clip.size) == (72, 128)
         frame = np.asarray(clip.get_frame(0.1), dtype=np.int16)
@@ -2997,21 +2995,13 @@ def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) 
 
 def test_anamorphic_source_decodes_to_its_display_corrected_size() -> None:
     """PX2.9: MoviePy ignores the sample aspect ratio, so the reader is opened square-pixelled."""
-    from framepilot_engine.render.compiler import _open_source_reader
+    from framepilot_engine.render.compiler import decode_resolution
 
     # 3840x2160 storage with PAR 4/3 displays 5120x2160; fitted into 1920x1080 by height.
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", None, (1920, 1080), 4 / 3)
-    assert _SizedReader.opened[-1] == ("big.mov", (1920, 810))
+    assert decode_resolution((3840, 2160), 0, None, (1920, 1080), 4 / 3) == (1920, 810)
     # Unfitted and uncapped: still stretched, to even dimensions.
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", None, None, 4 / 3)
-    assert _SizedReader.opened[-1] == ("big.mov", (5120, 2160))
+    assert decode_resolution((3840, 2160), 0, None, None, 4 / 3) == (5120, 2160)
     # Capped on the display size, not the storage size.
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", 2560, None, 4 / 3)
-    assert _SizedReader.opened[-1] == ("big.mov", (2560, 1080))
+    assert decode_resolution((3840, 2160), 0, 2560, None, 4 / 3) == (2560, 1080)
     # Square pixels behave exactly as before.
-    _SizedReader.opened.clear()
-    _open_source_reader(_SizedReader, "big.mov", None, None, 1.0)
-    assert _SizedReader.opened == [("big.mov", None)]
+    assert decode_resolution((3840, 2160), 0, None, None, 1.0) is None

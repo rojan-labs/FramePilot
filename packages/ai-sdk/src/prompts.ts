@@ -233,8 +233,25 @@ const AGENT_CONTRACT_HEAD = [
   "The timeline you were given is the user's work so far — earlier runs and manual",
   'edits included. CONTINUE from it: adjust, extend, or fix what is there. If the',
   'current state looks wrong, fix the specific clips.',
-  'Editing craft lives in skills. Load each relevant playbook once before specialized',
-  'work, follow it for decisions and quality standards, and do not reload a pinned skill.',
+  // The model owns the plan and the loop honours it (`kernel/model-plan.ts`). Run
+  // `d8d2e445` built a generic montage for a brief with its own 24-shot list, then ended
+  // on a reply listing seven things it had not done — and nothing kept it going.
+  'PLAN. For a request with more than one part, call update_plan BEFORE your first edit',
+  'with the work the REQUEST asks for — one item per deliverable, in its own terms and',
+  'order (its sections, its shot list, its named treatments), not a generic recipe. A',
+  'section that names several treatments is one item per treatment, so blocking one never',
+  'hides the rest. A message that holds more than one version of a brief (a draft, then the',
+  'full one) asks for the latest, fullest version; what only the earlier states still applies.',
+  'Keep it current as you work (in_progress, then done — done only once',
+  'the edit that delivers it has been applied, with a note naming that edit); mark an item',
+  'blocked, with the reason,',
+  'only when no available tool can do it. The editor chose something only if their own',
+  'message or an ask_user answer says so — never write a choice they did not make.',
+  // Skills used to be "follow it for decisions", and the model followed one instead of the
+  // brief: a beat-grid montage recipe in place of the shot list the editor wrote.
+  "Skills are REFERENCE: how an experienced editor approaches a kind of work. The request's",
+  'specifics decide what is built; load a relevant skill once (never reload a pinned one)',
+  'to do a part well, never as the plan or as a template to fill.',
   // The counterpart to the skills line, and deliberately next to it: both are a
   // once-per-run load whose effect lasts the run. Without this the only account of
   // progressive disclosure (`tool-domains.ts`) is `load_tools`'s own description, and a
@@ -320,7 +337,9 @@ const AGENT_CONTRACT_TAIL = [
   'NEVER put a question to the editor in plain reply text: text cannot be clicked or',
   'answered and just ends the run; ask_user renders your options as selectable choices,',
   'pauses for their pick, and returns it to you so you continue from their answer.',
-  'Honor explicit editor guidance and recorded decisions over defaults.',
+  'Honor explicit editor guidance and recorded decisions over defaults. A recorded decision',
+  'answers only the question it was asked, with the tools of its day; where the current',
+  'request asks for something else, the request is the editor changing it — do what it asks.',
   'Only organize the media bin (manage_assets) if it is actually disorganized, and',
   'never spend a turn on it alone — pair it with, or skip straight to, a timeline edit.',
   // Order of work. Captions built before the cuts are settled describe footage
@@ -343,7 +362,8 @@ const AGENT_CONTRACT_TAIL = [
   'verify_transitions. If they report issues, fix them and check again.',
   'If you did not verify, say so plainly — "applied but not verified" — rather than',
   'claiming it is done. Reporting unfinished work as complete is worse than reporting',
-  'it as unfinished: the editor stops checking.',
+  'it as unfinished: the editor stops checking. But work an available tool can still do',
+  'is not something to report as unfinished — do it.',
   // Deliberately does NOT name a tool: which visual check is available depends on the
   // run's model (see LOOK_AT_YOUR_WORK_INSTRUCTION). The RULE is the same either way.
   'A timeline verifier cannot judge lighting, colour, typography, motion feel, or whether',
@@ -351,7 +371,11 @@ const AGENT_CONTRACT_TAIL = [
   'If you could not obtain a picture of it, say the edit is visually unreviewed and name',
   'those unchecked qualities; never say "all checks passed", "prepared", or "final" on',
   'timeline-state checks alone.',
-  'When the goal is achieved, reply with a short summary and DO NOT call any tool — that ends the run.',
+  // Plan-aware, because the conductor is: a reply with no tool call while an item is
+  // pending or in progress continues the run rather than ending it.
+  'A reply without a tool call ends the run only when no plan item is pending or in',
+  'progress; while one is open, the run continues. When the goal is achieved and every',
+  'item is done or blocked, reply with a short summary and DO NOT call any tool.',
 ];
 
 /**
@@ -395,8 +419,29 @@ export function agentSteeringBlock(message: string | undefined): string {
  * the cut is not on the table, and that the loop is bounded so "try something else" is
  * not a strategy. Rendered only while the run is in the `repair` stage.
  */
-export function agentVerifyFixBlock(enabled: boolean): string {
+export function agentVerifyFixBlock(
+  enabled: boolean,
+  /**
+   * The self-check's advisories, when this is the advisory fix turn (AL37). Their block is a
+   * different instruction: nothing FAILED, the run is otherwise done, and leaving an advisory
+   * that is intended is a legitimate answer — so it must not say "fix exactly those".
+   */
+  advisories?: readonly { readonly label: string; readonly detail: string }[],
+): string {
   if (!enabled) return '';
+  if (advisories !== undefined && advisories.length > 0) {
+    return [
+      '',
+      '',
+      'SELF-CHECK ADVICE: the edit passed its deterministic self-check, with these advisories:',
+      ...advisories.map((check) => `- ${check.label}: ${check.detail}`),
+      'Each one is a possible problem the checks cannot judge for you. Where one is a real',
+      'mistake, fix it with the smallest edit that clears it. Where it is intended, leave it',
+      'and say why in one line. Do not re-plan the cut or make unrelated edits. When you are',
+      'done, reply without a tool call: that ends the run, and the self-check then only',
+      'reports.',
+    ].join('\n');
+  }
   return [
     '',
     '',
@@ -438,7 +483,7 @@ export function agentActionRecoveryBlock(enabled: boolean): string {
  */
 export function agentSkillsBlock(bodies: readonly string[]): string {
   if (bodies.length === 0) return '';
-  return `\n\nSkills you loaded for this work — follow these playbooks:\n\n${bodies.join(
+  return `\n\nSkills you loaded — reference for doing parts of this request well; the request decides what you build:\n\n${bodies.join(
     '\n\n---\n\n',
   )}`;
 }

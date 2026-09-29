@@ -268,6 +268,57 @@ describe('mask validator rules', () => {
     expect(feathered.issues[0]!.message).toMatch(/finesse controls/);
   });
 
+  it('lets a track matte read a title or a shape on an overlay lane, and refuses what draws no picture (AL31a)', () => {
+    const synthetic = (id: string, assetId: string, trackId: string) => ({
+      id,
+      assetId,
+      trackId,
+      start: 0,
+      end: 4,
+      sourceStart: 0,
+      sourceEnd: 4,
+      effects: [],
+      keyframes: [],
+    });
+    const withLanes: Timeline = {
+      tracks: [
+        ...timeline().tracks,
+        {
+          id: 'o1',
+          type: 'overlay',
+          clips: [synthetic('title', '__text__', 'o1'), synthetic('box', '__shape__', 'o1')],
+        },
+        { id: 'a1', type: 'audio', clips: [synthetic('song', 'song', 'a1')] },
+        { id: 'o2', type: 'overlay', clips: [synthetic('stray', 'song', 'o2')] },
+        { id: 'c1', type: 'caption', clips: [synthetic('cue', '__caption__', 'c1')] },
+      ],
+    };
+    const assets: Asset[] = [...measured, { id: 'song', path: 'song.wav', kind: 'audio' } as Asset];
+    const reading = (source: Record<string, string>) =>
+      validate(
+        withLanes,
+        [{ type: 'add_mask', clipId: 'c1', mask: { kind: 'layer', id: 'tm', source } }],
+        { assets },
+      );
+    // Video inside text, and the shape-mask opener: both sources live on an overlay lane.
+    expect(reading({ kind: 'clip', clipId: 'title' }).valid).toBe(true);
+    expect(reading({ kind: 'clip', clipId: 'box' }).valid).toBe(true);
+    expect(reading({ kind: 'track', trackId: 'o1' }).valid).toBe(true);
+    // Audio and caption lanes hold no picture; a song parked on an overlay lane draws none.
+    for (const source of [
+      { kind: 'track', trackId: 'a1' },
+      { kind: 'clip', clipId: 'song' },
+      { kind: 'track', trackId: 'c1' },
+      { kind: 'clip', clipId: 'cue' },
+      { kind: 'clip', clipId: 'stray' },
+    ]) {
+      const refused = reading(source);
+      expect(codes(refused)).toEqual(['error:invalid_mask']);
+      expect(refused.issues[0]!.message).toMatch(/no picture/);
+      expect(refused.issues[0]!.message).toMatch(/on a video or overlay track/);
+    }
+  });
+
   it('refuses a trim that plays source frames the matte does not cover, and a matte made for another size', () => {
     const base = timeline([matte('subject')]);
     expect(validate(base, [{ type: 'trim_clip', clipId: 'c1', start: 0.5, end: 4 }]).valid).toBe(

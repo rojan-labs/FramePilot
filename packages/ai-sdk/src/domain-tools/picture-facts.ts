@@ -23,6 +23,7 @@
  * (`assetStart`/`assetEnd` vs `start`/`end`) and every block states `timeBase`.
  */
 import type { Project } from '@framepilot/timeline-schema';
+import { ledgerMeasurementFromLight } from '@framepilot/editor-core';
 import type { ColorMeasurement as SolverMeasurement } from '@framepilot/editor-core';
 import type { ToolContext } from '../tool-context.js';
 import { indexFor } from '../project-index.js';
@@ -36,6 +37,7 @@ import { shotWords } from '../kernel/context/shot-words.js';
 import {
   ColorMeasurementSchema,
   type ColorMeasurement as EvidenceMeasurement,
+  type ExpiredColorEvidence,
 } from '../color-evidence.js';
 
 // ---------------------------------------------------------------------------
@@ -312,13 +314,6 @@ export interface ResolvedMeasurement {
   readonly occlusionFree: boolean;
 }
 
-/** BT.709 chroma divisors and the 8-bit scale `signalstats` reports U/V on. */
-const BT709_CB_DIVISOR = 1.8556;
-const BT709_CR_DIVISOR = 1.5748;
-const CHROMA_8BIT_SCALE = 255;
-const CHROMA_NEUTRAL = 128;
-const CHROMA_HALF_RANGE = 128;
-
 function medianOf(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
   const sorted = [...values].sort((a, b) => a - b);
@@ -341,10 +336,12 @@ function channelStat(
 /**
  * Convert a `measure_color` evidence payload into the solver's measurement shape.
  *
- * The evidence route measures RGB, luma and saturation; the solver reads luma, raw 8-bit
- * U/V and warmth. The conversion is the BT.709 forward transform — the exact inverse of
- * the one `color-solver.ts` documents — applied to the channel medians, so both sides of a
- * match that mixes an evidence reading with a ledger reading are on one scale.
+ * The evidence route measures RGB, luma and saturation on the float frame; the solver
+ * reads the ledger's units — limited-range BT.709 signalstats codes. The conversion is
+ * `ledgerMeasurementFromLight` in `color-solver.ts`, applied to the channel medians, so
+ * both sides of a match that mixes an evidence reading with a ledger reading are on one
+ * scale. Until #107 this wrote FULL-range units, which the ledger is not: a mixed match
+ * compared warmth on scales 255/224 apart and luma with and without the 16-code floor.
  *
  * `undefined` when a whole-frame channel is missing: an incomplete reading must not be
  * completed with a zero, which reads as a black, desaturated shot.
@@ -374,15 +371,7 @@ export function measurementFromEvidence(
   // the measured `luma` channel already is — so it is read for completeness of the guard
   // above rather than used twice here.
   void green;
-  const uMean = CHROMA_NEUTRAL + (CHROMA_8BIT_SCALE * (blue - lumaMean)) / BT709_CB_DIVISOR;
-  const vMean = CHROMA_NEUTRAL + (CHROMA_8BIT_SCALE * (red - lumaMean)) / BT709_CR_DIVISOR;
-  const warmth = Math.max(-1, Math.min(1, (vMean - uMean) / CHROMA_HALF_RANGE));
-  return {
-    luma: { mean: lumaMean, p10: lumaP10, p90: lumaP90 },
-    chroma: { uMean, vMean, satMean },
-    warmth,
-    contrastIdx: lumaP90 - lumaP10,
-  };
+  return ledgerMeasurementFromLight({ lumaMean, lumaP10, lumaP90, red, blue, satMean });
 }
 
 /** The ledger's tier-0 facts already ARE the solver's shape; this is the projection. */
@@ -402,9 +391,27 @@ function measurementFromLedger(clip: PictureClip | undefined): SolverMeasurement
   };
 }
 
-/** The revision a rendered measurement must carry to still describe this timeline. */
-function currentRevision(project: Project, ctx: ToolContext): number {
-  return ctx.projectRevision ?? project.timeline.revision ?? 0;
+/**
+ * The revision a rendered measurement must carry to still describe this timeline.
+ *
+ * `project.timeline.revision` and nothing else, because that is the clock `measure_color`
+ * stamps: the sidecar executor sends the working project's `timeline.revision` and the
+ * engine echoes it back (`sidecar-executor.ts#planSidecarCall`). The colour controller checks
+ * the same field (`color-controller.ts#readMeasurement`).
+ *
+ * This used to prefer `ctx.projectRevision`, which is a different counter: the HOST
+ * AUTHORITY revision the desktop passes to reject stale interaction snapshots, fixed at turn
+ * start. On the desktop the two never agree (harness run 11: readings at timeline revision
+ * 40, host revision in the teens), so every rendered reading was skipped and all three
+ * solved colour tools said "nothing has measured" clips measured one step earlier. The unit
+ * tests passed only because their fixtures set both counters to the same number.
+ *
+ * A grade does not bump `timeline.revision` (only a mapping change does), so this check
+ * alone cannot retire a reading a grade made untrue; the run's evidence store does that
+ * (`EvidenceStore.invalidate`), and {@link staleMeasurementFor} says so when it has.
+ */
+function currentRevision(project: Project): number {
+  return project.timeline.revision ?? 0;
 }
 
 /**
@@ -427,7 +434,7 @@ export function measurementFor(
   slice: PictureSlice,
   clipId: string,
 ): ResolvedMeasurement | undefined {
-  const revision = currentRevision(ctx.project, ctx);
+  const revision = currentRevision(ctx.project);
   for (const entry of ctx.evidence?.entries?.() ?? []) {
     if (entry.source !== 'measure_color') continue;
     const parsed = ColorMeasurementSchema.safeParse(entry.data);
@@ -448,12 +455,38 @@ export function measurementFor(
   return { clipId, measurement: fromLedger, provenance: 'ledger', occlusionFree: false };
 }
 
+/**
+ * The `measure_color` reading of `clipId` the run took and has since RETIRED, when that is
+ * why {@link measurementFor} found no rendered reading. The latest one wins.
+ *
+ * A solved colour tool that finds no reading used to say "nothing has measured" it — true
+ * of a clip nobody measured, false of one measured a step ago whose reading an applied grade
+ * then retired. Harness run 11 got the false sentence for ten clips measured seconds
+ * earlier. The remedy is the same call; the reason is not, and a model told "never measured"
+ * about a clip it measured concludes the tool is broken rather than that its edit moved it.
+ *
+ * Ask only once {@link measurementFor} has found nothing: a clip measured again since keeps
+ * its old tombstone, and its live reading is the answer. `undefined` when no reading of the
+ * clip was ever retired.
+ */
+export function staleMeasurementFor(
+  ctx: ToolContext,
+  clipId: string,
+): ExpiredColorEvidence | undefined {
+  const expired = ctx.evidence?.expiredEntries?.() ?? [];
+  for (let index = expired.length - 1; index >= 0; index -= 1) {
+    const entry = expired[index]!;
+    if (entry.source === 'measure_color' && entry.clipId === clipId) return entry;
+  }
+  return undefined;
+}
+
 /** The skin reading of a clip's rendered measurement, when the run has one. */
 export function skinFor(
   ctx: ToolContext,
   clipId: string,
 ): { red: number; green: number; blue: number; coverage: number } | undefined {
-  const revision = currentRevision(ctx.project, ctx);
+  const revision = currentRevision(ctx.project);
   for (const entry of ctx.evidence?.entries?.() ?? []) {
     if (entry.source !== 'measure_color') continue;
     const parsed = ColorMeasurementSchema.safeParse(entry.data);

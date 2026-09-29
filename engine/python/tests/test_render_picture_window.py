@@ -12,19 +12,30 @@ from __future__ import annotations
 import io
 import math
 import subprocess
-from collections.abc import Iterator
+import threading
+from collections.abc import Callable, Iterator
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import moviepy
 import numpy as np
+import numpy.typing as npt
 import pytest
+from pydantic import TypeAdapter
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
-from framepilot_engine.render.compiler import compile_timeline
+from framepilot_engine.render import frame_grab as frame_grab_module
+from framepilot_engine.render import video_reader
+from framepilot_engine.render.compiler import PictureWindowMiss, compile_timeline, window_answers
+from framepilot_engine.render.compiler import compile_timeline as compile_timeline_for_real
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
     FRAME_WINDOW_CACHE,
+    HEAVY_BUILD_GATE,
+    MAX_CONCURRENT_HEAVY_BUILDS,
+    REVIEW_WINDOW_CACHE,
+    BuildGate,
     composition_key,
 )
 from framepilot_engine.render.frame_grab import _resolve_preset, grab_frame
@@ -35,7 +46,16 @@ from framepilot_engine.render.picture_window import (
 )
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
+from framepilot_engine.render.resources import close_clip_tree as real_close_clip_tree
 from framepilot_engine.timeline.models import Clip, Project
+from framepilot_engine.validation import temporal_evidence as evidence_module
+from framepilot_engine.validation.temporal_evidence import (
+    RangeEvidenceRequest,
+    ScopeEvidenceRequest,
+    TemporalEvidenceCancelled,
+    TemporalEvidenceRequest,
+    acquire_temporal_evidence,
+)
 
 FPS = 30
 #: Asset kinds as the asset index reports them for :func:`_edit`.
@@ -249,6 +269,80 @@ def _edit(caption_style: dict[str, Any] | None = None, **video_overrides: Any) -
     )
 
 
+def _matted_edit(source: dict[str, Any], captions: dict[str, Any] | None = None) -> Project:
+    """:func:`_edit` with shot C cut by a track matte reading ``source`` (AL33).
+
+    The matte is a title on the titles track that starts before C and ends inside it, so C
+    has instants where its source plays and instants where every source layer is idle — the
+    case the window used to refuse. It grows while it plays (AL31: the matte follows it).
+    """
+    data = _edit(captions, C={"masks": [{"id": "tm", "kind": "layer", "source": source}]})
+    payload = data.model_dump(mode="json", by_alias=True)
+    # A source-space mask is resolved against the measured media size.
+    for asset in payload["assets"]:
+        if asset["kind"] == "video":
+            asset["media"] = {"width": 160, "height": 96}
+    titles = next(track for track in payload["timeline"]["tracks"] if track["id"] == "titles")
+    titles["clips"].append(
+        _clip(
+            "matte_title",
+            "__text__",
+            "titles",
+            1.9,
+            2.6,
+            effects=[
+                {
+                    "id": "matte_text",
+                    "type": "text",
+                    "params": {"text": "MATTE", "fontSizePercent": 30},
+                    "keyframes": [],
+                }
+            ],
+            keyframes=[
+                {"id": "g0", "time": 0.0, "property": "scale", "value": 0.6},
+                {"id": "g1", "time": 0.7, "property": "scale", "value": 1.4},
+            ],
+        )
+    )
+    return Project.model_validate(payload)
+
+
+#: The matte source, as a clip and as its whole track (the track also holds ``title``).
+MATTE_SOURCES = {
+    "clip": {"kind": "clip", "clipId": "matte_title"},
+    "track": {"kind": "track", "trackId": "titles"},
+}
+#: Instants of :func:`_matted_edit` either side of the matte source's span inside shot C.
+MATTE_TIMES = (0.95, 1.95, 2.0, 2.3, 2.59, 2.6, 2.7, 2.95)
+
+
+#: Blended variants of :func:`_edit` (AL38), by the clips given a mode. A multiplied title over
+#: the picture; a screened shot on the picture's own track, which the export blends over B's
+#: frame HELD while it plays (nothing beneath it lasts); the bottom layer blended, whose mode the
+#: export ignores while it plays and lends to B's dissolve under-layer; and three at once.
+BLENDED_EDITS: dict[str, dict[str, str]] = {
+    "title": {"title": "multiply"},
+    "same-track": {"C": "screen"},
+    "bottom-layer": {"A": "lighten"},
+    "several": {"title": "screen", "B": "overlay", "D": "difference"},
+}
+
+
+def _with_blend(modes: dict[str, str], *, frosted_title: bool = False) -> Project:
+    """:func:`_edit` with ``modes`` set on the named clips (and, optionally, a frosted title)."""
+    payload = _edit().model_dump(mode="json", by_alias=True)
+    for track in payload["timeline"]["tracks"]:
+        for clip in track["clips"]:
+            if clip["id"] in modes:
+                clip["blendMode"] = modes[clip["id"]]
+            if frosted_title and clip["id"] == "title":
+                clip["effects"][0]["params"].update(
+                    background="#ffffff29",
+                    typography={"background": {"radius": 0.3, "paddingX": 0.6, "blur": 0.4}},
+                )
+    return Project.model_validate(payload)
+
+
 def _index(project: Project, base: Path) -> AssetIndex:
     return index_assets([asset.model_dump() for asset in project.assets], base_dir=base)
 
@@ -280,6 +374,16 @@ PARITY_TIMES = (
     3.5,
     119 / FPS,
 )
+
+
+#: Instants each variant's window must answer, and instants where the export holds a frame (or
+#: ignores a mode) so it must not.
+BLENDED_WINDOWED: dict[str, tuple[set[float], set[float]]] = {
+    "title": (set(PARITY_TIMES), set()),
+    "same-track": ({0.0, 0.5, 1.2, 3.5}, {2.2, 2.5}),
+    "bottom-layer": ({2.5, 3.5}, {0.0, 0.5}),
+    "several": ({0.0, 0.5, 2.5}, {3.5}),
+}
 
 
 class TestWindowedFrameIsTheExportFrame:
@@ -315,6 +419,119 @@ class TestWindowedFrameIsTheExportFrame:
             finally:
                 close_clip_tree(part)
 
+    @pytest.mark.parametrize("source", sorted(MATTE_SOURCES))
+    def test_a_track_matte_frame_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, source: str
+    ) -> None:
+        """AL33: a shot cut by a track matte is windowed, and its frame is still the export's.
+
+        Both while the matte's source plays (it is in the window and consumed as the matte)
+        and after it ends (it is left out, and the matte is the same empty frame).
+        """
+        project = _matted_edit(MATTE_SOURCES[source])
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        full = compile_timeline(
+            project, index, preset, burn_captions=True, max_decode_dimension=budget
+        )
+        try:
+            reference = {t: np.asarray(full.get_frame(t)).copy() for t in MATTE_TIMES}
+        finally:
+            close_clip_tree(full)
+        # The matte is not a no-op here: C shows only through the title's letters.
+        assert not np.array_equal(reference[2.3], reference[2.7])
+
+        for t in MATTE_TIMES:
+            window = picture_window_at(project, t, _kinds(index))
+            assert window is not None, t
+            part = compile_timeline(
+                project,
+                index,
+                preset,
+                burn_captions=True,
+                max_decode_dimension=budget,
+                window=window,
+            )
+            try:
+                assert part.duration is None or t < part.duration, t
+                np.testing.assert_array_equal(np.asarray(part.get_frame(t)), reference[t], str(t))
+            finally:
+                close_clip_tree(part)
+
+    @pytest.mark.parametrize("name", sorted(BLENDED_EDITS))
+    def test_a_blended_frame_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, name: str
+    ) -> None:
+        """AL38: a blend mode is windowed wherever the export holds nothing, and only there.
+
+        Every instant is checked twice: the windowed compile, where it answers, against the whole
+        timeline; and the grab, which falls back to the whole timeline where it does not.
+        """
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        project = _with_blend(BLENDED_EDITS[name])
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        full = compile_timeline(
+            project, index, preset, burn_captions=True, max_decode_dimension=budget
+        )
+        try:
+            reference = {t: np.asarray(full.get_frame(t)).copy() for t in PARITY_TIMES}
+        finally:
+            close_clip_tree(full)
+
+        answered: set[float] = set()
+        for t in PARITY_TIMES:
+            window = picture_window_at(project, t, _kinds(index))
+            assert window is not None, t
+            try:
+                part = compile_timeline(
+                    project,
+                    index,
+                    preset,
+                    burn_captions=True,
+                    max_decode_dimension=budget,
+                    window=window,
+                )
+            except PictureWindowMiss:
+                part = None
+            try:
+                if part is not None and window_answers(part, t):
+                    answered.add(t)
+                    np.testing.assert_array_equal(
+                        np.asarray(part.get_frame(t)), reference[t], str(t)
+                    )
+            finally:
+                close_clip_tree(part)
+            frame = grab_frame(
+                project, media_dir, t, image_format="png", max_dimension=GRAB_DIMENSION
+            )
+            decoded = np.asarray(Image.open(io.BytesIO(frame.data)).convert("RGB"))
+            np.testing.assert_array_equal(decoded, reference[t][..., :3], f"grab {t}")
+        windowed, held = BLENDED_WINDOWED[name]
+        assert windowed <= answered, "the window must answer where the export holds nothing"
+        assert not (held & answered), "the window must not answer where the export holds a frame"
+
+    def test_a_blend_beside_a_frosted_overlay_left_out_takes_the_whole_timeline(
+        self, media_dir: Path
+    ) -> None:
+        """The frost compositor rounds a blend differently; a window without it must refuse."""
+        project = _with_blend({"C": "screen"}, frosted_title=True)
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        window = picture_window_at(project, 0.2, _kinds(index))
+        assert window is not None and "title" not in window.clip_ids
+        with pytest.raises(PictureWindowMiss):
+            compile_timeline(
+                project,
+                index,
+                preset,
+                burn_captions=True,
+                max_decode_dimension=budget,
+                window=window,
+            )
+
     def test_grab_frame_returns_the_whole_timeline_frame(self, media_dir: Path) -> None:
         pytest.importorskip("PIL")
         from PIL import Image
@@ -340,12 +557,12 @@ class TestWindowedFrameIsTheExportFrame:
 
 
 class _OpenedReaders:
-    """Every ``VideoFileClip``/``AudioFileClip`` the compiler opens, by file name."""
+    """Every video reader and ``AudioFileClip`` the compiler opens, by file name."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.video: list[tuple[str, dict[str, Any]]] = []
         self.audio: list[str] = []
-        real_video, real_audio = moviepy.VideoFileClip, moviepy.AudioFileClip
+        real_video, real_audio = video_reader.ProbedVideoFileClip, moviepy.AudioFileClip
 
         def video(path: str, *args: Any, **kwargs: Any) -> Any:
             self.video.append((Path(path).name, kwargs))
@@ -355,8 +572,8 @@ class _OpenedReaders:
             self.audio.append(Path(path).name)
             return real_audio(path, *args, **kwargs)
 
-        # `compile_timeline` imports both from `moviepy` when it runs, so the spies are seen.
-        monkeypatch.setattr(moviepy, "VideoFileClip", video)
+        # `compile_timeline` reads both when it runs, so the spies are seen.
+        monkeypatch.setattr(video_reader, "ProbedVideoFileClip", video)
         monkeypatch.setattr(moviepy, "AudioFileClip", audio)
 
     @property
@@ -402,6 +619,18 @@ class TestOnlyTheWindowIsOpened:
         assert len(opened.video) == first
         assert FRAME_WINDOW_CACHE.hits == hits + 1
 
+    def test_a_grab_of_a_matted_shot_opens_only_that_shot(
+        self, media_dir: Path, opened: _OpenedReaders
+    ) -> None:
+        """AL33: one track matte in the project no longer opens every clip for every grab."""
+        misses = COMPOSITION_CACHE.misses
+        grab_frame(_matted_edit(MATTE_SOURCES["clip"]), media_dir, 2.3)
+
+        # C (z.mp4) and its title matte (no file); never A, B, D or the music.
+        assert opened.files == {"z.mp4"}
+        assert opened.audio == []
+        assert COMPOSITION_CACHE.misses == misses
+
     def test_the_export_compile_is_untouched(self, media_dir: Path, opened: _OpenedReaders) -> None:
         project = _edit()
         index = _index(project, media_dir)
@@ -415,16 +644,25 @@ class TestOnlyTheWindowIsOpened:
 
 
 class TestFallsBackToTheWholeTimeline:
-    def test_a_blend_mode_composites_everything(
+    def test_a_blend_mode_is_windowed_until_the_export_holds_a_frame(
         self, media_dir: Path, opened: _OpenedReaders
     ) -> None:
-        project = _edit(C={"blendMode": "screen"})
-        assert picture_window_at(project, 0.5, KINDS) is None
+        """AL38: a screened shot no longer makes every grab composite the whole timeline.
 
-        misses = FRAME_WINDOW_CACHE.misses
+        At 0.5s only A plays and A lasts past it, so the window answers with A's reader alone.
+        At 2.5s the screened C plays over nothing that lasts (A and B have ended): the export
+        blends it over B's last frame, held, which the window leaves out, so it falls back.
+        """
+        project = _with_blend({"C": "screen"})
+        assert picture_window_at(project, 0.5, KINDS) is not None
+
         grab_frame(project, media_dir, 0.5)
+        assert opened.files == {"x.mp4"}
+
+        misses = COMPOSITION_CACHE.misses
+        grab_frame(project, media_dir, 2.5)
         assert opened.files == {"x.mp4", "y.mp4", "z.mp4"}
-        assert FRAME_WINDOW_CACHE.misses == misses
+        assert COMPOSITION_CACHE.misses == misses + 1
 
     def test_an_instant_past_the_windowed_picture_is_the_full_frame(self, media_dir: Path) -> None:
         """A natural-rate clip whose source runs out before its timeline span does.
@@ -458,6 +696,230 @@ class TestFallsBackToTheWholeTimeline:
         assert COMPOSITION_CACHE.misses == misses + 1
 
 
+def _review_requests() -> list[TemporalEvidenceRequest]:
+    """A post-edit review of :func:`_edit`, shaped like ``temporal-review.ts`` plans one.
+
+    Representative frames plus five-frame windows around the A→B cut (its dissolve borrows A's
+    handle as an under-layer), inside the dissolve, the B→C cut, the effect layer's end and the
+    last frame; a comparison across the first cut; a scope across it.
+    """
+    common = {"schemaVersion": 1, "projectRevision": 0, "reason": "review"}
+    adapter: TypeAdapter[TemporalEvidenceRequest] = TypeAdapter(TemporalEvidenceRequest)
+    raw: list[dict[str, Any]] = [
+        {"kind": "frame", "requestId": f"frame_{f}", "atFrame": f, "metrics": ["luma"]}
+        for f in (0, 60, 105, 119)
+    ]
+    raw += [
+        {
+            "kind": "range",
+            "requestId": f"range_{c}",
+            "startFrame": c - 2,
+            "endFrame": min(120, c + 3),
+            "sampleEveryFrames": 1,
+            "checks": ["black_frames", "flash_frames"],
+        }
+        for c in (30, 36, 60, 75, 119)
+    ]
+    raw.append(
+        {
+            "kind": "comparison",
+            "requestId": "across_the_cut",
+            "leftFrame": 29,
+            "rightFrame": 31,
+            "check": "transition_continuity",
+            "maxDifference": 1,
+        }
+    )
+    raw.append(
+        {
+            "kind": "scope",
+            "requestId": "scope_cut",
+            "startFrame": 28,
+            "endFrame": 33,
+            "channels": ["luma", "saturation", "skin_red"],
+            "legalMin": 0.0625,
+            "legalMax": 0.92,
+        }
+    )
+    return [adapter.validate_python({**common, **request}) for request in raw]
+
+
+class TestTemporalReviewSamplesAreTheExportFrames:
+    """The post-edit review composites the clips on screen, and measures the export's frames.
+
+    Run ``d8d2e445``'s review compiled all 29 clips for 16 frames (32.8s of 36.2s); it now
+    compiles one window per run of frames. Pinned here: every sampled frame is the whole
+    timeline's to the pixel, and every result the reviewer judges is unchanged.
+    """
+
+    @pytest.mark.parametrize("captions", [PLAIN_CAPTIONS, FROSTED_CAPTIONS], ids=["plain", "frost"])
+    def test_every_sample_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, captions: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = _edit(captions)
+        requests = _review_requests()
+        sampled: dict[str, dict[int, npt.NDArray[np.uint8]]] = {}
+        real_frame_sample = evidence_module._frame_sample
+        real_scope_values = evidence_module._scope_values
+        run = "windowed"
+
+        def frame_sample(frame_index: int, pixels: npt.NDArray[np.uint8]) -> Any:
+            sampled.setdefault(run, {})[frame_index] = pixels.copy()
+            return real_frame_sample(frame_index, pixels)
+
+        def scope_values(frame_index: int, pixels: npt.NDArray[np.uint8], channels: Any) -> Any:
+            sampled.setdefault(f"{run}-scope", {})[frame_index] = pixels.copy()
+            return real_scope_values(frame_index, pixels, channels)
+
+        monkeypatch.setattr(evidence_module, "_frame_sample", frame_sample)
+        monkeypatch.setattr(evidence_module, "_scope_values", scope_values)
+
+        misses = COMPOSITION_CACHE.misses
+        windowed = acquire_temporal_evidence(project, media_dir, requests)
+        # Every instant of this edit has a window: nothing compiled the whole timeline.
+        assert COMPOSITION_CACHE.misses == misses
+        assert REVIEW_WINDOW_CACHE.misses > 0
+
+        run = "whole"
+        with monkeypatch.context() as whole_only:
+            whole_only.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+            whole = acquire_temporal_evidence(project, media_dir, requests)
+        # The review's whole timeline is cached; the full-resolution scope's is the batch's own.
+        assert COMPOSITION_CACHE.misses == misses + 1
+
+        for kind in ("", "-scope"):
+            expected, actual = sampled[f"whole{kind}"], sampled[f"windowed{kind}"]
+            assert sorted(actual) == sorted(expected)
+            for frame_index, pixels in expected.items():
+                np.testing.assert_array_equal(actual[frame_index], pixels, f"{kind} {frame_index}")
+        assert windowed.model_dump() == whole.model_dump()
+
+    def test_a_review_opens_only_the_shots_it_samples_and_no_sound(
+        self, media_dir: Path, opened: _OpenedReaders
+    ) -> None:
+        requests = [
+            request
+            for request in _review_requests()
+            if isinstance(request, RangeEvidenceRequest) and request.start_frame == 34
+        ]
+        acquire_temporal_evidence(_edit(), media_dir, requests)
+
+        # Frames 34-38 sit inside B's dissolve: B (y.mp4) and A's handle beneath it (x.mp4).
+        assert opened.files == {"x.mp4", "y.mp4"}
+        assert opened.audio == []
+
+
+class TestScopeMeasurementWindow:
+    """A scope (``measure_color``) samples its shot's first, middle and last frames.
+
+    Planned per contiguous run those were three composites of the same shot at full
+    resolution, each opening its own reader of it (run-3: six readers, ~2 GB resident, for one
+    measurement). One window over the three instants gives the same frames.
+    """
+
+    def _scope(self) -> list[TemporalEvidenceRequest]:
+        """Shot B whole, as ``measure_color`` asks: frames 30 (A→B), 45 (B) and 60 (B→C)."""
+        scope = next(r for r in _review_requests() if isinstance(r, ScopeEvidenceRequest))
+        return [scope.model_copy(update={"start_frame": 30, "end_frame": 61})]
+
+    def _track_compiles(self, monkeypatch: pytest.MonkeyPatch) -> tuple[list[Any], list[Any]]:
+        """Every composite the evidence module compiles, and every one it closes."""
+        compiled: list[Any] = []
+        closed: list[Any] = []
+
+        def compile_timeline(*args: Any, **kwargs: Any) -> Any:
+            composition = compile_timeline_for_real(*args, **kwargs)
+            compiled.append(composition)
+            return composition
+
+        def close_clip_tree(clip: Any) -> None:
+            closed.append(clip)
+            real_close_clip_tree(clip)
+
+        monkeypatch.setattr(f"{evidence_module.__name__}.compile_timeline", compile_timeline)
+        monkeypatch.setattr(f"{evidence_module.__name__}.close_clip_tree", close_clip_tree)
+        return compiled, closed
+
+    def test_a_scope_compiles_one_windowed_composite_for_its_three_instants(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        compiled, _closed = self._track_compiles(monkeypatch)
+        result = acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        # Three instants with three different sets of clips on screen; one union holds them.
+        assert len(compiled) == 1
+        # And it measures the whole timeline's frames, number for number.
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        whole = acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        assert result.model_dump() == whole.model_dump()
+
+    def test_a_scope_of_a_matted_shot_compiles_only_its_window(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch, opened: _OpenedReaders
+    ) -> None:
+        """AL33: ``measure_color`` on a project with a track matte reads its shot, not them all.
+
+        Run 15's six scopes each compiled the whole 65-clip timeline at full resolution
+        because one opener clip carried a track matte; five timed out at 120 s.
+        """
+        compiled, _closed = self._track_compiles(monkeypatch)
+        project = _matted_edit(MATTE_SOURCES["clip"])
+        scope = self._scope()[0].model_copy(update={"start_frame": 64, "end_frame": 87})
+        result = acquire_temporal_evidence(project, media_dir, [scope])
+        assert len(compiled) == 1
+        assert opened.files == {"z.mp4"}
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        whole = acquire_temporal_evidence(project, media_dir, [scope])
+        assert result.model_dump() == whole.model_dump()
+
+    def test_scope_composites_are_closed_before_the_batch_returns(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full-resolution scope readers must not linger in a cache after the measurement.
+
+        Covers the windowed composite and the whole-timeline one a scope falls back to.
+        """
+        compiled, closed = self._track_compiles(monkeypatch)
+        misses = (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses)
+        acquire_temporal_evidence(_edit(), media_dir, self._scope())
+        monkeypatch.setattr(evidence_module, "_review_windows", lambda *_a, **_k: {})
+        acquire_temporal_evidence(_edit(), media_dir, self._scope())
+
+        assert len(compiled) == 2
+        assert all(any(c is composition for c in closed) for composition in compiled)
+        assert (REVIEW_WINDOW_CACHE.misses, COMPOSITION_CACHE.misses) == misses
+
+    def test_two_scopes_of_one_shot_in_a_batch_share_one_composite(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        compiled, closed = self._track_compiles(monkeypatch)
+        first = self._scope()[0]
+        again = first.model_copy(update={"request_id": "scope_again", "channels": ["luma"]})
+        batch = acquire_temporal_evidence(_edit(), media_dir, [first, again])
+        assert len(batch.results) == 2
+        assert len(compiled) == 1
+        assert closed == compiled
+
+    def test_a_cancelled_wait_for_a_build_slot_is_a_cancelled_batch(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Waiting behind another build must not make a batch the caller dropped uncancellable."""
+        compiled, _closed = self._track_compiles(monkeypatch)
+        gate = BuildGate(1)
+        monkeypatch.setattr(evidence_module, "HEAVY_BUILD_GATE", gate)
+        assert gate.acquire()  # another build holds the only slot
+        try:
+            polls = iter(range(1_000_000))
+            # Not cancelled at the entry checks; cancelled by the time it waits for the slot.
+            with pytest.raises(TemporalEvidenceCancelled):
+                acquire_temporal_evidence(
+                    _edit(), media_dir, self._scope(), lambda: next(polls) > 3
+                )
+        finally:
+            gate.release()
+        assert compiled == []  # it never built
+        assert gate.acquire(lambda: True) is True  # and took no slot with it
+        gate.release()
+
+
 class TestPictureWindowPlanning:
     """The window's arithmetic, without media."""
 
@@ -472,15 +934,18 @@ class TestPictureWindowPlanning:
         assert window is not None
         assert window.clip_ids == {"A", "B", "title", "cue1"}
 
-    def test_a_track_matte_composites_everything(self) -> None:
-        matte = {
-            "id": "m",
-            "kind": "layer",
-            "enabled": True,
-            "source": {"kind": "clip", "clipId": "A"},
-        }
-        project = _edit(C={"masks": [matte]})
-        assert picture_window_at(project, 2.5, KINDS) is None
+    def test_a_track_matte_is_windowed_with_the_source_playing_beside_it(self) -> None:
+        project = _matted_edit({"kind": "clip", "clipId": "matte_title"})
+        # The source plays at 2.3s, so it joins its reader's window ...
+        playing = picture_window_at(project, 2.3, KINDS)
+        assert playing is not None and playing.clip_ids == {"C", "cue2", "matte_title"}
+        # ... and at 2.8s it is idle: an idle source draws the empty matte, so it stays out.
+        idle = picture_window_at(project, 2.8, KINDS)
+        assert idle is not None and idle.clip_ids == {"C", "cue2"}
+
+    def test_a_blended_picture_is_planned_and_a_blended_caption_is_not(self) -> None:
+        assert picture_window_at(_with_blend({"C": "screen"}), 2.5, KINDS) is not None
+        assert picture_window_at(_with_blend({"cue2": "screen"}), 2.5, KINDS) is None
 
     def test_a_gap_composites_everything(self) -> None:
         project = _edit(D={"start": 3.5, "end": 4.0, "sourceEnd": 1.5})
@@ -518,3 +983,85 @@ class TestPictureWindowPlanning:
         )
         assert window != full
         assert window == reordered
+
+
+class TestHeavyWorkIsBoundedAcrossTheSidecar:
+    """AL33: no composite decodes a frame without a slot of the process-wide gate.
+
+    The gate used to bound builds only, so every concurrent grab and review decoded at once;
+    run 15 had six colour measurements, a background review and the model's grabs in flight
+    together. Counted here, not timed: at each top-level decode, how many slots are held.
+    """
+
+    def test_concurrent_grabs_and_a_review_decode_only_while_holding_a_slot(
+        self, media_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        held = 0
+        peak = 0
+        mine: dict[int, int] = {}  # slots each thread holds
+        decodes: list[int] = []  # at each decode, the slots its own thread holds
+        guard = threading.Lock()
+        real_acquire, real_release = HEAVY_BUILD_GATE.acquire, HEAVY_BUILD_GATE.release
+
+        def acquire(cancelled: Any = None) -> bool:
+            nonlocal held, peak
+            took = real_acquire(cancelled)
+            if took:
+                with guard:
+                    held += 1
+                    peak = max(peak, held)
+                    me = threading.get_ident()
+                    mine[me] = mine.get(me, 0) + 1
+            return took
+
+        def release() -> None:
+            nonlocal held
+            with guard:
+                held -= 1
+                me = threading.get_ident()
+                mine[me] = mine.get(me, 0) - 1
+            real_release()
+
+        def counted_compile(*args: Any, **kwargs: Any) -> Any:
+            composition = compile_timeline_for_real(*args, **kwargs)
+            decode = composition.get_frame
+
+            def get_frame(t: float) -> Any:
+                with guard:
+                    decodes.append(mine.get(threading.get_ident(), 0))
+                return decode(t)
+
+            composition.get_frame = get_frame
+            return composition
+
+        # Instance attributes: the caches hold this very gate object and call its methods.
+        monkeypatch.setattr(HEAVY_BUILD_GATE, "acquire", acquire)
+        monkeypatch.setattr(HEAVY_BUILD_GATE, "release", release)
+        monkeypatch.setattr(frame_grab_module, "compile_timeline", counted_compile)
+        monkeypatch.setattr(evidence_module, "compile_timeline", counted_compile)
+        # A revision of its own, so every composite below is compiled (and counted) here.
+        project = _edit(A={"opacity": 0.99})
+        errors: list[BaseException] = []
+
+        def run(work: Any) -> None:
+            try:
+                work()
+            except BaseException as exc:  # pragma: no cover - surfaced by the assert below
+                errors.append(exc)
+
+        jobs: list[Callable[[], object]] = [
+            partial(grab_frame, project, media_dir, t) for t in (0.2, 0.5, 1.2, 2.3, 3.3, 3.8)
+        ]
+        jobs.append(partial(acquire_temporal_evidence, project, media_dir, _review_requests()))
+        threads = [threading.Thread(target=run, args=(job,)) for job in jobs]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert errors == []
+        # Every grab and every review frame decoded, each under a slot its own thread held ...
+        assert len(decodes) >= len(jobs)
+        assert min(decodes) >= 1
+        # ... and never more at once than the gate allows, however many calls arrived.
+        assert peak <= MAX_CONCURRENT_HEAVY_BUILDS

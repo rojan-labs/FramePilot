@@ -507,7 +507,9 @@ function stockLaneOperations(
  *
  * The size is the base `scale` keyframe at time 0, the same keyframes the on-canvas handles
  * write, so a placed overlay and a hand-sized one are the same data. Manual only: the agent's
- * `add_stock` keeps its cutaway rule until picture-in-picture from the agent is measured.
+ * `add_stock` places cutaways and keeps its cutaway rule, because it takes no geometry; the
+ * agent layers a downloaded clip as picture-in-picture through `add_clip` with a `crop` and
+ * keyframes (ADR 0180 amendment, 2026-09-29).
  *
  * @param timeline - Current timeline.
  * @param assets - The project's asset bin (an asset already in it is not added twice).

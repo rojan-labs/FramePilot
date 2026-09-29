@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 119,
+  "toolCount": 122,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -108,6 +108,44 @@
             "type": [
               "string"
             ]
+          },
+          "crop": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "height",
+              "width",
+              "x",
+              "y"
+            ],
+            "properties": {
+              "height": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "width": {
+                "type": [
+                  "number"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "x": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              },
+              "y": {
+                "type": [
+                  "number"
+                ],
+                "minimum": 0
+              }
+            }
           },
           "end": {
             "type": [
@@ -817,12 +855,96 @@
               "Young Serif"
             ]
           },
+          "fontStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "italic",
+              "normal"
+            ]
+          },
           "fontWeight": {
             "type": [
               "integer"
             ],
             "minimum": 100,
             "maximum": 900
+          },
+          "letterSpacing": {
+            "type": [
+              "number"
+            ],
+            "minimum": -0.2,
+            "maximum": 0.6
+          },
+          "lineHeight": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.7,
+            "maximum": 3
+          },
+          "outlineColor": {
+            "type": [
+              "string"
+            ]
+          },
+          "outlineWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 8
+          },
+          "shadow": {
+            "anyOf": [
+              {
+                "type": [
+                  "object"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "blur",
+                  "color",
+                  "offsetX",
+                  "offsetY"
+                ],
+                "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "color": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "offsetX": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  },
+                  "offsetY": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  }
+                }
+              },
+              {
+                "type": [
+                  "string"
+                ]
+              }
+            ]
           },
           "sizePercent": {
             "type": [
@@ -907,6 +1029,23 @@
           "text": {
             "type": [
               "string"
+            ]
+          },
+          "textOpacity": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "textTransform": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "lowercase",
+              "none",
+              "uppercase"
             ]
           },
           "trackId": {
@@ -1250,6 +1389,7 @@
               "string"
             ],
             "enum": [
+              "blur",
               "color_grade",
               "lut",
               "transform"
@@ -2507,6 +2647,33 @@
             ],
             "minimum": 0
           },
+          "sources": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "assetId"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "sourceSeconds": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": 0
+                }
+              }
+            }
+          },
           "timeSeconds": {
             "type": [
               "number"
@@ -3028,6 +3195,56 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "measure_loudness": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "endSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "maxTruePeakDbtp": {
+            "type": [
+              "number"
+            ],
+            "maximum": 0
+          },
+          "role": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dialogue",
+              "mix",
+              "music",
+              "sfx"
+            ]
+          },
+          "startSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "targetLufs": {
+            "type": [
+              "number"
+            ],
+            "minimum": -70,
+            "maximum": 0
           }
         }
       }
@@ -3674,6 +3891,16 @@
               }
             }
           },
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "groupShots": {
             "type": [
               "boolean"
@@ -3824,6 +4051,16 @@
           "intent"
         ],
         "properties": {
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "constraintPolicy": {
             "type": [
               "string"
@@ -4517,6 +4754,34 @@
                 "maximum": 1
               }
             }
+          }
+        }
+      }
+    },
+    "reframe_to_subject": {
+      "kind": "analysis",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "maskId"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "maskId": {
+            "type": [
+              "string"
+            ]
           }
         }
       }
@@ -6333,12 +6598,96 @@
               "Young Serif"
             ]
           },
+          "fontStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "italic",
+              "normal"
+            ]
+          },
           "fontWeight": {
             "type": [
               "integer"
             ],
             "minimum": 100,
             "maximum": 900
+          },
+          "letterSpacing": {
+            "type": [
+              "number"
+            ],
+            "minimum": -0.2,
+            "maximum": 0.6
+          },
+          "lineHeight": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.7,
+            "maximum": 3
+          },
+          "outlineColor": {
+            "type": [
+              "string"
+            ]
+          },
+          "outlineWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 8
+          },
+          "shadow": {
+            "anyOf": [
+              {
+                "type": [
+                  "object"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "blur",
+                  "color",
+                  "offsetX",
+                  "offsetY"
+                ],
+                "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "color": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "offsetX": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  },
+                  "offsetY": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  }
+                }
+              },
+              {
+                "type": [
+                  "string"
+                ]
+              }
+            ]
           },
           "sizePercent": {
             "type": [
@@ -6417,6 +6766,23 @@
           "text": {
             "type": [
               "string"
+            ]
+          },
+          "textOpacity": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "textTransform": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "lowercase",
+              "none",
+              "uppercase"
             ]
           },
           "xPercent": {
@@ -7280,6 +7646,61 @@
               "number"
             ],
             "minimum": 0
+          }
+        }
+      }
+    },
+    "update_plan": {
+      "kind": "read",
+      "mutates": false,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "task"
+              ],
+              "properties": {
+                "note": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "status": {
+                  "type": [
+                    "string"
+                  ],
+                  "enum": [
+                    "blocked",
+                    "done",
+                    "in_progress",
+                    "pending"
+                  ]
+                },
+                "task": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            }
           }
         }
       }

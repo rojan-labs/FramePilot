@@ -80,7 +80,7 @@ describe('color grade domains', () => {
   });
 
   it('refuses a transform grade, a pathless LUT, and out-of-domain parameters', () => {
-    rejects('apply_color_grade', { type: 'transform' }, /Use color_grade or lut/i);
+    rejects('apply_color_grade', { type: 'transform' }, /Use color_grade, lut or blur/i);
     rejects(
       'apply_color_grade',
       { type: 'lut', params: { name: 'teal' } },
@@ -168,7 +168,7 @@ describe('provider-facing schemas advertise the runtime rules', () => {
   it('publishes only the color types the renderer implements', () => {
     const parameters = contractedToolParameters(getTool('apply_color_grade')!);
     const type = (parameters.properties as Record<string, { enum?: string[] }>).type;
-    expect(type.enum).toEqual(['color_grade', 'lut']);
+    expect(type.enum).toEqual(['color_grade', 'lut', 'blur']);
   });
 });
 

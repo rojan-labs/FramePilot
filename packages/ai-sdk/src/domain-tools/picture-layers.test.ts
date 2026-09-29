@@ -1,21 +1,17 @@
 /**
- * ADR 0169 — a full-frame cutaway goes IN FRONT; everything else is still refused.
+ * Where agent picture placements land (ADR 0169, 0170, and ADR 0180's 2026-09-29 amendment).
  *
- * ADR 0140 refused every stacked agent picture placement, because the preview
- * flattened picture from every track into one chain and the export composited it,
- * so the editor approved a frame the render did not produce. The refusal was
- * right about the divergence and wrong about its extent: a layer that covers the
- * whole frame opaquely previews EXACTLY as it exports, because "show the
- * front-most clip" and "composite the layers" agree when nothing shows through.
+ * ADR 0140 refused every stacked agent placement and ADR 0169 every one that was not
+ * full-frame, because the monitor painted one picture layer. It composites every stack now,
+ * so what this file pins is where a placement goes and what is still a real defect:
  *
- * What this file pins:
- *
- * - a full-frame placement over existing picture lands on a layer in front of
- *   what it covers, opening one in the SAME patch when there is none;
- * - one batch (and one turn) opens one layer, not one per clip;
- * - a placement that could not preview honestly — cropped, blended, animated —
- *   is still refused, still as a `refusal` rather than bad arguments, still
- *   carrying `picture_over_picture`;
+ * - any placement over existing picture — full-frame, cropped, blended, animated,
+ *   unmeasured — lands on a layer in front of what it covers, opening one in the SAME patch
+ *   when there is none, and one batch opens one layer, not one per clip;
+ * - `add_clip`'s own `crop` (null = the whole picture) is the geometry of a layered look;
+ * - a full-frame placement that would swallow a cutaway whole is refused (`hides_a_cutaway`);
+ * - `add_stock`'s `cutawaysOnly` placer keeps refusing a cutaway that would not hide what it
+ *   covers (`picture_over_picture`);
  * - the compound patch applies and inverts as a unit.
  */
 import { describe, expect, it } from 'vitest';
@@ -24,7 +20,10 @@ import { applyPatch, invertPatch, type AnyOperation } from '@framepilot/editor-c
 import { getTool } from '../tool-registry.js';
 import { ToolInvocationError, operationsForCall } from '../tool-dispatch.js';
 import { assembleEdit } from '../assemble.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import {
+  backedByFullFramePicture,
+  createPicturePlacer,
   hiddenPictureClips,
   pictureOverlapAcross,
   tracksCoveredByPictureInFront,
@@ -142,14 +141,47 @@ describe('pictureOverlapAcross', () => {
     expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
   });
 
-  it('ignores overlap on the SAME track — that is the validator’s message to give', () => {
+  it('counts picture on the lane the candidate names — the lane cannot hold both (AL45)', () => {
+    // A different shot over the named lane's clip: run 18's split-screen panels on V1.
     const hits = pictureOverlapAcross(baseProject(), {
       trackId: 'video_1',
       assetId: 'asset_v2',
       start: 2,
       end: 6,
     });
-    expect(hits).toEqual([]);
+    expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
+  });
+
+  it('counts its own lane for a layered copy of the clip that lane holds (run 16)', () => {
+    // A blurred-fill foreground named on its background's lane: the lane cannot hold both.
+    const hits = pictureOverlapAcross(baseProject(), {
+      trackId: 'video_1',
+      assetId: 'asset_v',
+      start: 2,
+      end: 6,
+    });
+    expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
+  });
+
+  it('on the named lane, judges overlap on the frame grid the patch is snapped to', () => {
+    // 9.99s snaps to 10s at 30 fps: it butts against clip_a once snapped, a sequence edit.
+    expect(
+      pictureOverlapAcross(baseProject(), {
+        trackId: 'video_1',
+        assetId: 'asset_v2',
+        start: 9.99,
+        end: 12,
+      }),
+    ).toEqual([]);
+    // A whole frame inside the neighbour is an overlap.
+    expect(
+      pictureOverlapAcross(baseProject(), {
+        trackId: 'video_1',
+        assetId: 'asset_v2',
+        start: 9.9,
+        end: 12,
+      }).map((hit) => hit.clipId),
+    ).toEqual(['clip_a']);
   });
 
   it('does not fire for a text overlay, a caption, or an audio bed over picture', () => {
@@ -395,10 +427,11 @@ describe('a full-frame placement over existing picture goes in front', () => {
       { trackId: 'video_main', assetId: 'asset_v2', start: 2, end: 6, sourceStart: 0 },
       project,
     );
-    expect(stacked.map((op) => op.type)).toEqual(['add_clip']);
-    // `video_main` holds the picture, so the candidate conflicts with nothing across
-    // tracks and the validator owns the same-track overlap, as it always did.
-    expect((stacked[0] as { trackId: string }).trackId).toBe('video_main');
+    // `video_main` holds the picture it covers (AL45), and the only lane in front of it is
+    // hidden, so a front layer is opened rather than landing where nothing renders.
+    expect(stacked.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+    expect(stacked[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1' });
+    expect((stacked[1] as { trackId: string }).trackId).toBe('video_cutaway_1');
   });
 
   it('lays a whole batch onto ONE opened layer', () => {
@@ -518,11 +551,12 @@ describe('a full-frame placement over existing picture goes in front', () => {
 });
 
 /**
- * A clip the preview cannot show honestly over another is still refused — because
- * for THOSE the export really does fold in what is underneath, and the monitor
- * paints one picture layer.
+ * ADR 0180 (amendment 2026-09-29): the monitor composites every stack, so a placement that
+ * does NOT hide what it covers — cropped, letterboxed, blended, animated, masked, unmeasured —
+ * is layered in front like any other. Desktop run `88c8b27d` blocked three brief items and
+ * the 115% answer on the refusal these tests used to pin.
  */
-describe('a stacked placement that is not full-frame opaque is still refused', () => {
+describe('a stacked placement that is not full-frame goes in front too', () => {
   /** `clip_b` on the BACK lane, carrying whatever makes it non-opaque. */
   const withCompositing = (spec: Omit<ClipSpec, 'id' | 'assetId' | 'start' | 'end'>): Project =>
     projectWith([
@@ -541,32 +575,22 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
   const move = (project: Project): AnyOperation[] =>
     buildOps('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 4 }, project);
 
-  it('a CROP is no longer a reason on its own — it is geometry, and this one covers', () => {
-    // 0.8 of a 16:9 source in a 16:9 frame is still fitted to full height and 86% of the
-    // width... which does NOT contain the base, so it leaks. What changed is the reason
-    // given and the way out offered.
-    expect(() => move(withCompositing({ crop: { x: 0.1, y: 0, width: 0.8, height: 1 } }))).toThrow(
-      /is 1920x1080 and the 1920x1080 frame fits it with \d+px bars/,
-    );
+  const lifted = [
+    { type: 'add_layer', layerId: 'video_cutaway_1', layerType: 'video', atIndex: 0 },
+    { type: 'move_clip', clipId: 'clip_b', toTrackId: 'video_cutaway_1', toStart: 4 },
+  ];
+
+  it.each([
+    ['a crop that letterboxes', { crop: { x: 0.1, y: 0, width: 0.8, height: 1 } }],
+    ['a blend mode', { blendMode: 'multiply' }],
+    ['transform keyframes', { keyframes: [{ id: 'k1', time: 0, property: 'scale', value: 0.5 }] }],
+  ] as const)('move_clip layers a clip carrying %s in front of what it covers', (_name, spec) => {
+    expect(
+      move(withCompositing(spec as Omit<ClipSpec, 'id' | 'assetId' | 'start' | 'end'>)),
+    ).toEqual(lifted);
   });
 
-  it('names what leaks, by how much, and the exact crop that would close it', () => {
-    let message = '';
-    try {
-      move(withCompositing({ crop: { x: 0.1, y: 0, width: 0.8, height: 1 } }));
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    expect(message).toContain('clip_a shows through them at export');
-    // The source is already the frame's shape, so the leak IS the crop: the move is to put
-    // the whole frame back, not to cut more away.
-    expect(message).toContain('set_clip_crop on clip_b with crop null');
-    expect(message).toContain('cut a hole for it: split at 4s and 10s');
-  });
-
-  it('a cover-cropped front is ALLOWED over picture — the placement 0170 exists for', () => {
-    // A 16:9 source in a 9:16 project, cropped to the frame's aspect: the fit becomes a
-    // cover, nothing shows through, and it lands on its own front layer.
+  it('a cover-cropped front still goes in front — the placement 0170 exists for', () => {
     const portrait = parseProject({
       ...projectWith([
         {
@@ -590,17 +614,13 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
       ]),
       resolution: { width: 1080, height: 1920 },
     });
-    expect(move(portrait)).toEqual([
-      { type: 'add_layer', layerId: 'video_cutaway_1', layerType: 'video', atIndex: 0 },
-      { type: 'move_clip', clipId: 'clip_b', toTrackId: 'video_cutaway_1', toStart: 4 },
-    ]);
+    expect(move(portrait)).toEqual(lifted);
   });
 
-  it('a FRESH add whose only problem is its shape gets the cover crop, not a refusal', () => {
-    // Run `cc907070`: a 1080x2048 stock clip over a 1080x1920 sequence, refused nine times
-    // with "add it, then set_clip_crop with crop {…}" — the add being the refused thing.
-    // The crop is fully determined by the two measured shapes, so the placer applies it,
-    // lifts the clip in front, and the `set_clip_crop` rides the same patch.
+  it('a FRESH add whose only problem is its shape gets the cover crop', () => {
+    // Run `cc907070`: a 1080x2048 stock clip over a 1080x1920 sequence. The crop is fully
+    // determined by the two measured shapes, so the placer applies it, lifts the clip in
+    // front, and the `set_clip_crop` rides the same patch.
     const portrait = parseProject({
       id: 'proj_tall',
       name: 'Tall stock',
@@ -608,12 +628,28 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
       fps: 30,
       resolution: { width: 1080, height: 1920 },
       assets: [
-        { id: 'asset_p', path: 'media/pov.mp4', kind: 'video', durationSeconds: 60, media: { width: 1080, height: 1920 } },
-        { id: 'asset_tall', path: 'media/chairlift.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 2048 } },
+        {
+          id: 'asset_p',
+          path: 'media/pov.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: { width: 1080, height: 1920 },
+        },
+        {
+          id: 'asset_tall',
+          path: 'media/chairlift.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 2048 },
+        },
       ],
       timeline: {
         tracks: [
-          { id: 'video_1', type: 'video', clips: [clip('video_1', { id: 'clip_a', assetId: 'asset_p', start: 0, end: 10 })] },
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [clip('video_1', { id: 'clip_a', assetId: 'asset_p', start: 0, end: 10 })],
+          },
           { id: 'video_2', type: 'video', clips: [] },
         ],
         markers: [],
@@ -627,7 +663,12 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
     expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip', 'set_clip_crop']);
     expect(ops[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1', atIndex: 0 });
     const clipId = (ops[1] as { clipId: string }).clipId;
-    expect(ops[1]).toMatchObject({ type: 'add_clip', trackId: 'video_cutaway_1', start: 2, end: 6 });
+    expect(ops[1]).toMatchObject({
+      type: 'add_clip',
+      trackId: 'video_cutaway_1',
+      start: 2,
+      end: 6,
+    });
     // 1080x2048 in a 1080x1920 frame: keep the full width, trim (1 - 1920/2048)/2 top and bottom.
     expect(ops[2]).toEqual({
       type: 'set_clip_crop',
@@ -636,11 +677,17 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
     });
   });
 
-  it('a measured 1:1 front over 16:9 picture leaks, and the refusal carries the JSON crop', () => {
+  it('a measured 1:1 clip moved over 16:9 picture keeps its shape, and its own lane', () => {
     const square = parseProject({
       ...withCompositing({}),
       assets: [
-        { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60, media: FRAME },
+        {
+          id: 'asset_v',
+          path: 'media/a-roll.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: FRAME,
+        },
         {
           id: 'asset_v2',
           path: 'media/b-roll.mp4',
@@ -650,23 +697,11 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
         },
       ],
     });
-    let message = '';
-    try {
-      move(square);
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    // 1000x1000 fits to 1080x1080 in a 1920x1080 frame: (1920 - 1080) / 2 = 420.
-    expect(message).toContain(
-      '"b-roll.mp4" is 1000x1000 and the 1920x1080 frame fits it with 420px bars left and ' +
-        'right, and clip_a shows through them at export',
-    );
-    expect(message).toContain(
-      'set_clip_crop on clip_b with crop {"x":0,"y":0.21875,"width":1,"height":0.5625}',
-    );
+    // A move never writes a crop: the clip already exists and its geometry is the editor's.
+    expect(move(square)).toEqual(lifted);
   });
 
-  it('an unmeasured stack of DIFFERENT assets is refused, and no crop is suggested', () => {
+  it('an unmeasured stack of DIFFERENT assets is layered, not refused for want of a shape', () => {
     const unmeasured = parseProject({
       ...withCompositing({}),
       assets: [
@@ -674,15 +709,7 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
         { id: 'asset_v2', path: 'media/b-roll.mp4', kind: 'video', durationSeconds: 60 },
       ],
     });
-    let message = '';
-    try {
-      move(unmeasured);
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    expect(message).toContain('has not been measured, so nothing can tell whether its bars');
-    expect(message).not.toContain('set_clip_crop');
-    expect(message).toContain('shows an asset\'s orientation and aspect');
+    expect(move(unmeasured)).toEqual(lifted);
   });
 
   it('the SAME unmeasured asset stacked on itself is allowed — identical by construction', () => {
@@ -701,98 +728,223 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
       ]),
       assets: [{ id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60 }],
     });
-    expect(move(montage)).toEqual([
-      { type: 'add_layer', layerId: 'video_cutaway_1', layerType: 'video', atIndex: 0 },
-      { type: 'move_clip', clipId: 'clip_b', toTrackId: 'video_cutaway_1', toStart: 4 },
-    ]);
-  });
-
-  it('names the blend mode as the reason', () => {
-    expect(() => move(withCompositing({ blendMode: 'multiply' }))).toThrow(
-      /it blends with what is under it \(blendMode "multiply"\)/,
-    );
-  });
-
-  it('names transform keyframes as the reason', () => {
-    expect(() =>
-      move(
-        withCompositing({
-          keyframes: [{ id: 'k1', time: 0, property: 'scale', value: 0.5 }],
-        }),
-      ),
-    ).toThrow(/it carries transform keyframes/);
-  });
-
-  it('states the divergence, the ADR, and BOTH ways out', () => {
-    let message = '';
-    try {
-      move(withCompositing({ blendMode: 'screen' }));
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    expect(message).toContain('The preview shows one picture layer at a time');
-    expect(message).toContain('ADR 0169 / 0170, SUC-P1');
-    expect(message).toContain('put on its own front layer for you');
-    expect(message).toContain('split at 4s and 10s and add it on the same track');
-  });
-
-  it('reaches the model as `Refused "move_clip":` — never as invalid arguments', () => {
-    const note = modelNote(
-      'move_clip',
-      { clipId: 'clip_b', toTrackId: 'video_2', toStart: 4 },
-      withCompositing({ blendMode: 'multiply' }),
-    );
-    expect(note.startsWith('Refused "move_clip": Refused: ')).toBe(true);
-    expect(note).not.toContain('Invalid arguments');
-  });
-
-  it('carries `picture_over_picture` as the cause, all the way to the tool boundary', () => {
-    try {
-      operationsForCall(
-        {
-          id: 'c1',
-          name: 'move_clip',
-          arguments: { clipId: 'clip_b', toTrackId: 'video_2', toStart: 4 },
-        },
-        { project: withCompositing({ blendMode: 'multiply' }) },
-      );
-    } catch (error) {
-      expect(error).toBeInstanceOf(ToolInvocationError);
-      expect((error as ToolInvocationError).code).toBe('refusal');
-      expect((error as ToolInvocationError).refusalCause).toBe('picture_over_picture');
-      return;
-    }
-    throw new Error('move_clip did not refuse');
-  });
-
-  it('gives two placements that differ in every visible way the SAME cause', () => {
-    // Asset, times and conflicting clip all differ — which is exactly what defeated the
-    // prose key. The sentences must differ (they are written to be acted on) and the
-    // cause must not.
-    const refuse = (blendMode: string, toStart: number): ToolInvocationError => {
-      try {
-        operationsForCall(
-          {
-            id: 'c',
-            name: 'move_clip',
-            arguments: { clipId: 'clip_b', toTrackId: 'video_2', toStart },
-          },
-          { project: withCompositing({ blendMode }) },
-        );
-      } catch (error) {
-        return error as ToolInvocationError;
-      }
-      throw new Error('move_clip did not refuse');
-    };
-    const first = refuse('multiply', 1);
-    const second = refuse('screen', 3);
-    expect(first.message).not.toBe(second.message);
-    expect(first.refusalCause).toBe(second.refusalCause);
+    expect(move(montage)).toEqual(lifted);
   });
 
   it('a genuinely malformed add_clip is still "Rejected" with the argument text', () => {
     const note = modelNote('add_clip', { trackId: 'video_2' }, baseProject());
     expect(note.startsWith('Rejected "add_clip": Invalid arguments for "add_clip":')).toBe(true);
+  });
+});
+
+/**
+ * `add_clip`'s `crop`: the geometry of a layered look, chosen at placement. `null` is the whole
+ * picture fitted inside the frame; a rect is a window. Either way the placer layers it in front
+ * and writes no cover crop over it.
+ */
+describe('add_clip with its own crop', () => {
+  /** A 9:16 project with the 16:9 A-roll already placed and cover-cropped (the auto-reframe). */
+  const portrait = (): Project =>
+    parseProject({
+      ...projectWith([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            {
+              id: 'clip_a',
+              assetId: 'asset_v',
+              start: 0,
+              end: 10,
+              crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+            },
+          ],
+        },
+        // An empty lane BEHIND the A-roll: the placer lifts whatever is named here in front.
+        { id: 'v_back', type: 'video', clips: [] },
+      ]),
+      resolution: { width: 1080, height: 1920 },
+    });
+
+  it('crop: null places the same shot WHOLE over its cover-cropped copy — a blurred-fill foreground', () => {
+    // The same asset at the same moment from the same source point: without a crop of its
+    // own this is "the same frames twice" and refused. Fitted whole it is a different
+    // picture, so it lands — in front, with no crop, not even the portrait auto-reframe.
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'v_back', assetId: 'asset_v', start: 0, end: 10, sourceStart: 0, crop: null },
+      portrait(),
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+    expect(ops[1]).toMatchObject({ trackId: 'video_cutaway_1', assetId: 'asset_v', start: 0 });
+  });
+
+  it('the same shot at the same moment WITHOUT its own crop is still the invisible duplicate', () => {
+    const note = modelNote(
+      'add_clip',
+      { trackId: 'v_back', assetId: 'asset_v', start: 0, end: 10, sourceStart: 0 },
+      portrait(),
+    );
+    expect(note).toMatch(/^Refused "add_clip": .*already shows these same frames/);
+  });
+
+  it('a crop equal to the copy already there is the invisible duplicate too', () => {
+    const note = modelNote(
+      'add_clip',
+      {
+        trackId: 'v_back',
+        assetId: 'asset_v',
+        start: 0,
+        end: 10,
+        sourceStart: 0,
+        crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+      },
+      portrait(),
+    );
+    expect(note).toContain('already shows these same frames');
+  });
+
+  it('a window rect is written as given and buries nothing, even over a cutaway', () => {
+    // A full-frame placement over 0–5s would swallow `clip_cut` whole and be refused
+    // (hides_a_cutaway). A third-of-the-width window shows the cutaway round it.
+    const project = projectWith([
+      {
+        id: 'video_cutaway_1',
+        type: 'video',
+        clips: [{ id: 'clip_cut', assetId: 'asset_v2', start: 1, end: 4 }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+    ]);
+    const panel = { x: 1 / 3, y: 0, width: 1 / 3, height: 1 };
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'v_main', assetId: 'asset_img', start: 0, end: 5, sourceStart: 0, crop: panel },
+      project,
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip', 'set_clip_crop']);
+    expect(ops[2]).toMatchObject({ type: 'set_clip_crop', crop: panel });
+    // …while the same placement full-frame is still the burial the lift refuses.
+    expect(
+      modelNote(
+        'add_clip',
+        { trackId: 'v_main', assetId: 'asset_img', start: 0, end: 5, sourceStart: 0 },
+        project,
+      ),
+    ).toMatch(/^Refused "add_clip": /);
+  });
+
+  it('the patch applies and inverts as one unit', () => {
+    const project = portrait();
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'v_back', assetId: 'asset_v', start: 0, end: 10, sourceStart: 0, crop: null },
+      project,
+    );
+    const edit = assembleEdit(project, ops, 'blurred-fill foreground');
+    expect(edit.validation.valid).toBe(true);
+    const applied = applyPatch(project.timeline, edit.patch);
+    expect(applied.tracks.map((track) => track.id)).toEqual([
+      'video_cutaway_1',
+      'v_main',
+      'v_back',
+    ]);
+    expect(applied.tracks[0]?.clips[0]?.crop).toBeUndefined();
+    // `revision` counts applied patches by design; the arrangement is byte-identical.
+    expect(applyPatch(applied, invertPatch(project.timeline, edit.patch)).tracks).toEqual(
+      project.timeline.tracks,
+    );
+  });
+});
+
+/**
+ * `add_stock` keeps the cutaway rule: it takes no geometry, so a stock clip that could not hide
+ * the footage under it would leave that footage showing round its edges. The refusal names the
+ * route that layers it on purpose.
+ */
+describe('the cutawaysOnly placer (add_stock)', () => {
+  const unmeasuredStack = (): Project =>
+    parseProject({
+      ...projectWith([
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+        },
+      ]),
+      assets: [
+        { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_v2', path: 'media/b-roll.mp4', kind: 'video', durationSeconds: 60 },
+      ],
+    });
+  const candidate = {
+    trackId: '__stock__',
+    assetId: 'asset_v2',
+    start: 2,
+    end: 6,
+    compositing: {},
+  };
+
+  it('refuses a cutaway that cannot be shown to hide what it covers, as picture_over_picture', () => {
+    let error: unknown;
+    try {
+      createPicturePlacer(unmeasuredStack(), { cutawaysOnly: true }).place(candidate);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ToolRefusalError);
+    expect((error as ToolRefusalError).refusalCause).toBe('picture_over_picture');
+    const message = (error as Error).message;
+    expect(message).toContain('would sit on top of clip_a on v_main');
+    expect(message).toContain('has not been measured');
+    expect(message).toContain('split at 2s and 6s');
+    expect(message).toContain('call add_stock without atSeconds and place it with add_clip');
+    // The monitor composites any stack (ADR 0180): the old premise is not the reason.
+    expect(message).not.toMatch(/one picture layer|preview/);
+  });
+
+  it('the same placement without the option is layered in front', () => {
+    const placed = createPicturePlacer(unmeasuredStack()).place(candidate);
+    expect(placed.trackId).toBe('video_cutaway_1');
+  });
+
+  it('a letterboxed stock clip names its bars, the hole and the add_clip route', () => {
+    const square = parseProject({
+      ...unmeasuredStack(),
+      assets: [
+        {
+          id: 'asset_v',
+          path: 'media/a-roll.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: FRAME,
+        },
+        {
+          id: 'asset_v2',
+          path: 'media/b-roll.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: { width: 1000, height: 1000 },
+        },
+      ],
+    });
+    // Measured, so the placer crops it to cover — no refusal at all.
+    expect(createPicturePlacer(square, { cutawaysOnly: true }).place(candidate).crop).toEqual({
+      x: 0,
+      y: 0.21875,
+      width: 1,
+      height: 0.5625,
+    });
+    // A caller that chose the geometry keeps it, and a cutaway must hide: refused, with bars.
+    expect(() =>
+      createPicturePlacer(square, { cutawaysOnly: true }).place({
+        ...candidate,
+        keepGeometry: true,
+      }),
+    ).toThrow(/is 1000x1000 and the 1920x1080 frame fits it with 420px bars left and right/);
   });
 });
 
@@ -1063,5 +1215,265 @@ describe('hiddenPictureClips', () => {
     if (!front || !mid) throw new Error('fixture');
     expect(visiblePictureSeconds(project, 0, front)).toBeCloseTo(17.3);
     expect(visiblePictureSeconds(project, 1, mid)).toBe(0);
+  });
+});
+
+/**
+ * Picture in front hides what is behind it only when it covers it (ADR 0170's relation). With
+ * picture-in-picture a legal placement, "anything in front" would report the A-roll under a
+ * window as buried and the lane behind it as unusable.
+ */
+describe('only picture that hides counts as covering', () => {
+  const scaledDown = [{ id: 'k_scale', time: 0, property: 'scale', value: 0.4 }];
+  /** A-roll 0–10s, and a picture-in-picture over all of it on a lane in front. */
+  const pip = (): Project =>
+    projectWith([
+      {
+        id: 'v_pip',
+        type: 'video',
+        clips: [{ id: 'clip_pip', assetId: 'asset_v2', start: 0, end: 10, keyframes: scaledDown }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'v_back', type: 'video', clips: [] },
+    ]);
+
+  it('the A-roll under a picture-in-picture is not buried', () => {
+    expect(hiddenPictureClips(pip())).toEqual([]);
+    const project = pip();
+    const main = project.timeline.tracks[1]?.clips[0];
+    /* v8 ignore next -- the fixture has it */
+    if (!main) throw new Error('fixture');
+    expect(visiblePictureSeconds(project, 1, main)).toBeCloseTo(10);
+  });
+
+  it('a lane behind a picture-in-picture alone is not "hidden behind picture"', () => {
+    // v_back sits behind the full-frame A-roll, so it is covered; take the A-roll away and
+    // only the window is in front of it.
+    expect([...tracksCoveredByPictureInFront(pip())]).toEqual(['v_back']);
+    const windowOnly = projectWith([
+      pip().timeline.tracks[0] as unknown as { id: string; type: string; clips: ClipSpec[] },
+      { id: 'v_back', type: 'video', clips: [] },
+    ]);
+    expect([...tracksCoveredByPictureInFront(windowOnly)]).toEqual([]);
+  });
+
+  it('a letterboxed window in front of full-frame picture is backed; the base is not', () => {
+    const project = pip();
+    const [window, base] = [
+      project.timeline.tracks[0]?.clips[0],
+      project.timeline.tracks[1]?.clips[0],
+    ];
+    /* v8 ignore next -- the fixture has both */
+    if (!window || !base) throw new Error('fixture');
+    expect(backedByFullFramePicture(project, window)).toBe(true);
+    expect(backedByFullFramePicture(project, base)).toBe(false);
+  });
+
+  it('a window that outlasts the picture behind it is not backed', () => {
+    const project = projectWith([
+      {
+        id: 'v_pip',
+        type: 'video',
+        clips: [{ id: 'clip_pip', assetId: 'asset_v2', start: 0, end: 12, keyframes: scaledDown }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+    ]);
+    const window = project.timeline.tracks[0]?.clips[0];
+    /* v8 ignore next -- the fixture has it */
+    if (!window) throw new Error('fixture');
+    expect(backedByFullFramePicture(project, window)).toBe(false);
+  });
+});
+
+// AL45 — harness run 18 laid a three-panel split screen over the story cut. It named V1, the
+// only picture on screen at 18.4–20.3s, for each panel: `add_clip { trackId: "V1", … crop:
+// <a 0.1055-wide strip> }`. The placer skipped the named lane when it collected what a
+// placement covers, found nothing, kept V1, and the validator refused all three ("Clips
+// 'clip__V1_asset_mountain_road_18413' and 'clip__V1_asset_mountain_road_18878' overlap on
+// track 'V1'"), though add_clip promises "the shot is put on a layer in FRONT of what it
+// covers". Rebuilt from run 18's V1 and video_cutaway_1 at that point of the run, and driven
+// through the real dispatch, validator and patch path, one call at a time as the run made them.
+describe('add_clip named onto an occupied picture lane goes in front (run 18)', () => {
+  /** Run 18's portrait sequence and 16:9 camera sources. */
+  const PORTRAIT = { width: 1080, height: 1920 };
+  const SOURCE_4K = { width: 3840, height: 2160 };
+  const RUN_18_ASSETS = [
+    'asset_rock_aerial',
+    'asset_mountain_road',
+    'asset_forest_road',
+    'asset_passenger',
+    'asset_road_driving',
+    'asset_ridge_aerial',
+    'asset_bay_aerial',
+  ];
+  /** A V1 story clip, cover-cropped for the portrait frame as the run placed it. */
+  const storyClip = (assetId: string, start: number, end: number, sourceStart: number) => ({
+    id: `clip__V1_${assetId}_${String(Math.round(start * 1000))}`,
+    assetId,
+    trackId: 'V1',
+    start,
+    end,
+    sourceStart,
+    sourceEnd: sourceStart + (end - start),
+    crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+    effects: [],
+    keyframes: [],
+  });
+  const run18Project = (): Project =>
+    parseProject({
+      id: 'project_new_test_project_mukqmiq2zmke',
+      name: 'weekend_trip',
+      version: 1,
+      fps: 23.976,
+      resolution: PORTRAIT,
+      assets: RUN_18_ASSETS.map((id) => ({
+        id,
+        path: `media/${id.replace('asset_', '')}.mp4`,
+        kind: 'video',
+        durationSeconds: 30,
+        media: SOURCE_4K,
+      })),
+      timeline: {
+        tracks: [
+          { id: 'layer_overlay_5', type: 'overlay', clips: [] },
+          { id: 'A_music', type: 'audio', clips: [] },
+          // The blurred-fill foreground the run layered earlier (the AL39 route).
+          {
+            id: 'video_cutaway_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip__video_cutaway_1_asset_bay_aerial_51966',
+                assetId: 'asset_bay_aerial',
+                trackId: 'video_cutaway_1',
+                start: 51.96,
+                end: 55.723,
+                sourceStart: 3,
+                sourceEnd: 6.763,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          {
+            id: 'V1',
+            type: 'video',
+            clips: [
+              storyClip('asset_rock_aerial', 17.467, 18.4, 4),
+              storyClip('asset_mountain_road', 18.4, 19.333, 8),
+              storyClip('asset_forest_road', 19.333, 20.3, 2),
+              storyClip('asset_passenger', 20.3, 21, 6),
+            ],
+          },
+        ],
+        markers: [],
+      },
+    });
+  /** The three calls exactly as run 18 made them. */
+  const PANEL_CROP = { x: 0.447, y: 0, width: 0.1055, height: 1 };
+  const RUN_18_CALLS = [
+    { assetId: 'asset_mountain_road', start: 18.878, end: 20.3, sourceStart: 12, crop: PANEL_CROP },
+    { assetId: 'asset_road_driving', start: 19.342, end: 20.3, sourceStart: 5, crop: PANEL_CROP },
+    {
+      assetId: 'asset_ridge_aerial',
+      start: 19.83,
+      end: 20.3,
+      sourceStart: 10,
+      crop: { ...PANEL_CROP, x: 0.4 },
+    },
+  ];
+
+  /** One call through dispatch, the validator and the patch — as the run applies it. */
+  function applyCall(project: Project, args: Record<string, unknown>) {
+    const ops = operationsForCall(
+      { id: 'run18', name: 'add_clip', arguments: { trackId: 'V1', ...args } },
+      { project },
+    );
+    const edit = assembleEdit(project, ops, 'add_clip');
+    return { ops, edit };
+  }
+
+  function panelTrack(project: Project, assetId: string) {
+    return project.timeline.tracks.find((track) =>
+      track.clips.some((clip) => clip.assetId === assetId && clip.start > 18.5),
+    );
+  }
+
+  for (const [index, call] of RUN_18_CALLS.entries()) {
+    it(`call ${String(index + 1)} (${call.assetId} at ${String(call.start)}s) lands in front of V1`, () => {
+      // Each call sees the timeline the calls before it left, as the turn's working copy does.
+      let project = run18Project();
+      for (const earlier of RUN_18_CALLS.slice(0, index)) {
+        const { edit } = applyCall(project, earlier);
+        project = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+      }
+      const { ops, edit } = applyCall(project, call);
+      expect(edit.validation.valid, JSON.stringify(edit.validation.issues)).toBe(true);
+      const add = ops.find((op) => op.type === 'add_clip') as { trackId: string } | undefined;
+      expect(add?.trackId).not.toBe('V1');
+      const after = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+      const lane = panelTrack(after, call.assetId);
+      expect(lane?.id).toBe(add?.trackId);
+      const ids = after.timeline.tracks.map((track) => track.id);
+      // In front of V1 and of every panel placed before it.
+      expect(ids.indexOf(lane!.id)).toBeLessThan(ids.indexOf('V1'));
+      for (const earlier of RUN_18_CALLS.slice(0, index)) {
+        expect(ids.indexOf(lane!.id)).toBeLessThan(
+          ids.indexOf(panelTrack(after, earlier.assetId)!.id),
+        );
+      }
+      // The story cut under it is untouched, and the panel keeps the geometry it asked for.
+      expect(after.timeline.tracks.find((track) => track.id === 'V1')?.clips).toHaveLength(4);
+      const placed = lane!.clips.find((clip) => clip.assetId === call.assetId);
+      expect(placed?.crop).toEqual(call.crop);
+    });
+  }
+
+  it('the first panel reuses the free front lane the run already had', () => {
+    const { ops } = applyCall(run18Project(), RUN_18_CALLS[0]!);
+    expect(ops.map((op) => op.type)).toEqual(['add_clip', 'set_clip_crop']);
+    expect((ops[0] as { trackId: string }).trackId).toBe('video_cutaway_1');
+  });
+
+  it('the whole split screen undoes back to the story cut', () => {
+    const start = run18Project();
+    let project = start;
+    const applied: {
+      before: Project['timeline'];
+      patch: ReturnType<typeof applyCall>['edit']['patch'];
+    }[] = [];
+    for (const call of RUN_18_CALLS) {
+      const { edit } = applyCall(project, call);
+      expect(edit.validation.valid).toBe(true);
+      applied.push({ before: project.timeline, patch: edit.patch });
+      project = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+    }
+    const undone = [...applied]
+      .reverse()
+      .reduce(
+        (timeline, { before, patch }) => applyPatch(timeline, invertPatch(before, patch)),
+        project.timeline,
+      );
+    expect(undone.tracks).toEqual(start.timeline.tracks);
+  });
+
+  it('a placement that only butts against the named lane’s clip once snapped stays on it', () => {
+    // 21.0004s snaps onto passenger's out-point (21s): an ordinary next shot in the sequence.
+    const { ops, edit } = applyCall(run18Project(), {
+      assetId: 'asset_road_driving',
+      start: 21.0004,
+      end: 22,
+      sourceStart: 1,
+    });
+    expect(edit.validation.valid).toBe(true);
+    expect(ops.find((op) => op.type === 'add_clip')).toMatchObject({ trackId: 'V1' });
   });
 });

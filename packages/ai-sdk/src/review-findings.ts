@@ -491,6 +491,35 @@ export class ReviewFindingQueue {
     return this.take();
   }
 
+  /**
+   * Wait for outstanding reviews until they all settle or `signal` aborts, then take what
+   * settled.
+   *
+   * The bounded sibling of {@link drainAll}, for the moment the agent says it is done but can
+   * still act (see `LATE_REVIEW_WAIT_MS` in the orchestrator). Reviews still running when the
+   * signal aborts are NOT cancelled: they keep rendering and the terminal {@link drainAll}
+   * collects them, so a slow review is reported exactly as before rather than lost.
+   *
+   * @param signal - Ends the wait (the budget timer, the editor's Stop, the run's clock).
+   * @returns The live findings from every review that has settled by then.
+   */
+  public async drainUntil(signal: AbortSignal): Promise<readonly ReviewFinding[]> {
+    let onAbort: (() => void) | undefined;
+    const stopped = new Promise<void>((resolve) => {
+      onAbort = resolve;
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      while (this.hasPending && !signal.aborted) {
+        this.pump();
+        await Promise.race([Promise.all([...this.running.values()]), stopped]);
+      }
+    } finally {
+      if (onAbort) signal.removeEventListener('abort', onAbort);
+    }
+    return this.take();
+  }
+
   /** Wait for every outstanding review. Called once when the agent says it is done. */
   public async drainAll(): Promise<readonly ReviewFinding[]> {
     while (this.hasPending) {

@@ -14,6 +14,8 @@ import {
   rebaseEditorInteractionContext,
 } from './interaction-context.js';
 import { resolveEditorTarget } from './target-resolver.js';
+import { Orchestrator } from '../orchestrator.js';
+import type { AiProvider, AiResponse } from '../provider.js';
 
 const clip = (over: Record<string, unknown>) => ({
   assetId: 'asset-a',
@@ -108,5 +110,50 @@ describe('rebaseEditorInteractionContext', () => {
     const context = captured();
     const other = { ...project(100), id: 'project-2' } as Project;
     expect(rebaseEditorInteractionContext(context, other, 100)).toBe(context);
+  });
+});
+
+describe('an agent step that edits before a selection-authored tool', () => {
+  // Run-10 of the harness: one step's `adjust_audio` took the timeline @43 -> @45, and the
+  // `professional_audio` after it in the SAME step was refused `stale_context`. The snapshot
+  // was rebased once when the step's tool context was built, not after each call's edit.
+  it('re-stamps the selection after each call, so the later tool still resolves it', async () => {
+    const responses: AiResponse[] = [
+      {
+        text: '',
+        toolCalls: [
+          {
+            id: 'e1',
+            name: 'add_clip',
+            arguments: { trackId: 'v1', assetId: 'asset-a', start: 6, end: 8, sourceStart: 6 },
+          },
+          {
+            id: 'e2',
+            name: 'add_clip',
+            arguments: { trackId: 'v1', assetId: 'asset-a', start: 9, end: 11, sourceStart: 9 },
+          },
+          {
+            id: 'c1',
+            name: 'professional_color',
+            arguments: { intent: 'correct', adjustments: { exposure: 0.1 } },
+          },
+        ],
+      },
+      { text: 'Placed two shots and lifted the selected one.', toolCalls: [] },
+    ];
+    let turn = 0;
+    const provider: AiProvider = {
+      name: 'mock',
+      complete: async () => responses[Math.min(turn++, responses.length - 1)]!,
+    };
+    const run = await new Orchestrator(provider).agent(
+      { project: project(56), userPrompt: 'Lift the selected shot', interaction: captured() },
+      { maxSteps: 3 },
+    );
+    const types = run.result.patch.operations.map((operation) => operation.type);
+    expect(types.filter((type) => type === 'add_clip')).toHaveLength(2);
+    expect(run.result.patch.operations).toContainEqual(
+      expect.objectContaining({ type: 'apply_color_grade', clipId: 'a' }),
+    );
   });
 });

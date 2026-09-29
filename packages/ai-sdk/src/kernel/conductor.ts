@@ -98,6 +98,22 @@ import {
 import { referenceDecisions, referenceDirectives } from '../references/directives.js';
 import type { HostPatchRefusal } from './commit-ledger.js';
 import { assessEditCompletion } from '../completion-gate.js';
+import {
+  type LoadableToolDomain,
+  type ModelPlanItem,
+  type ModelPlanRecord,
+  blockedItemsRetryAction,
+  describeOpenItems,
+  modelPlanDigest,
+  modelPlanObjectiveKey,
+  modelPlanSteps,
+  nextOpenItem,
+  openPlanItems,
+  parseModelPlan,
+  planItemLabel,
+} from './model-plan.js';
+import type { AgentOptions } from '../agent.js';
+import type { ContextInput } from '../context-builder.js';
 
 // Hard resource rails — blast-radius and cost bounds, NOT behavioral tuning. They exist
 // so a runaway or malfunctioning run hits a ceiling; they are deliberately generous
@@ -520,6 +536,19 @@ export interface ConductorState {
    */
   readonly verifyFixTurns: number;
   /**
+   * The self-check advisories the current verification fix turn was bought for (AL37), or
+   * `undefined` when no advisory fix turn is running.
+   *
+   * A run that delivered work and passed its self-check with WARNED checks used to complete
+   * with them announced after the model's final reply, so nobody could act on them: desktop
+   * run `88c8b27d` ended with a real five-frame skip in a speed-ramped shot reported as a
+   * notification under a finished run. Such a run now spends its one fix turn
+   * ({@link MAX_VERIFY_FIX_TURNS}) hearing them. They are carried here, not recorded as failed
+   * verifications: an advisory the model leaves because it is intended must not turn a
+   * completed run into a failed one.
+   */
+  readonly verifyAdvisories?: readonly VerifyCheck[] | undefined;
+  /**
    * What the run has spent so far, folded from each turn's {@link AgentTurnResult.runUsd}
    * / {@link AgentTurnResult.runElapsedMs} so the pure reducer can hold the run to its
    * budget without a clock or a price table of its own. Always present; 0 until a turn
@@ -536,6 +565,41 @@ export interface ConductorState {
   readonly planSteps: readonly PlanStep[];
   /** How many ledger steps were seeded up front (0 when planFirst is off / resumed). */
   readonly ledgerLength: number;
+  /**
+   * The plan the MODEL wrote with `update_plan`, as its latest call left it
+   * (`kernel/model-plan.ts`). Present ⇒ the model owns the plan: its list is the checklist
+   * the editor sees, a reply with no tool call continues the run while an item is open,
+   * and the positional drafted ledger ({@link planSteps}) keeps only its internal
+   * bookkeeping — it never again draws over the model's list.
+   *
+   * Absent until the model first writes one, which leaves every run that never calls
+   * `update_plan` — and every `planFirst` run — exactly as it was.
+   */
+  readonly modelPlan?: readonly ModelPlanItem[];
+  /**
+   * What the run had done the last time a no-tool reply was CONTINUED over an open plan:
+   * how much had landed, and what the plan said ({@link planProgressMark}).
+   *
+   * This is the bound on that continuation, and it is a bound by progress rather than a
+   * one-shot latch. A reply that ends with open items continues the run; the next one does
+   * too if anything landed or the plan moved in between; a second reply with the SAME mark
+   * proves the continuation bought nothing, and the run settles and reports what is open.
+   */
+  readonly modelPlanDoneMark?: string;
+  /**
+   * Set once the run has spent its one blocked-item turn (AL39): a reply that ended with
+   * every open item done or blocked, while tool domains the run never loaded were still on
+   * offer. Harness run 16 left "Sound design and mix" blocked on "No SFX in the bin" without
+   * ever loading `sourcing`. The turn is bought at most once per run, so a second reply with
+   * no tool call ends it normally — blocked is still an answer the model may give.
+   */
+  readonly blockedItemsRetried?: boolean;
+  /**
+   * {@link modelPlanObjectiveKey} of the request this run works toward, stamped on every plan
+   * event the model's list produces so the next run continuing that request can find it
+   * (AL5). Set at the start of an agent run; absent only on the idle state.
+   */
+  readonly modelPlanObjectiveKey?: string;
   /**
    * The run's durable task memory (ADR 0075). Distinct from every other field here:
    * those describe the HARNESS's view of the run (how many turns, how stalled, which
@@ -660,6 +724,16 @@ export interface RunTurnEffect {
    * existing caller and fixture already asserts on.
    */
   readonly seenFailureKeys?: readonly string[];
+  /**
+   * The model's plan ({@link ConductorState.modelPlan}), for the briefing to show and so
+   * the handler knows not to draw the drafted ledger over it. Omitted until one exists.
+   */
+  readonly modelPlan?: readonly ModelPlanItem[];
+  /**
+   * The self-check advisories this turn exists to hear ({@link ConductorState.verifyAdvisories}),
+   * so the handler can put them in front of the model. Omitted on every other turn.
+   */
+  readonly advisories?: readonly VerifyCheck[];
 }
 
 /** Run the Critic self-check (+ one bounded repair pass) over the working copy. */
@@ -689,8 +763,16 @@ export interface FinalizeEffect {
    * (see `runTurn` in the orchestrator), and those are a log of what the run DID, not a
    * statement of what it set out to do. Listing the last one as "running" would report a
    * finished turn as unfinished work.
+   *
+   * Also EMPTY when the model owns the plan: {@link modelPlan} is then the account.
    */
   readonly planSteps: readonly PlanStep[];
+  /**
+   * The model's plan as the run ended ({@link ConductorState.modelPlan}), so the completion
+   * report can list every item that is not done in the model's own words. Absent when the
+   * model never wrote one.
+   */
+  readonly modelPlan?: readonly ModelPlanItem[];
 }
 
 /** The inert effect descriptions the Conductor emits for the runtime to interpret. */
@@ -976,6 +1058,27 @@ export interface AgentTurnResult {
    */
   readonly acceptanceShortfall?: readonly string[];
   /**
+   * Set on a done turn when the review of the run's own edits, awaited (bounded) at that
+   * moment, came back with findings that are now queued on the steering channel. The reducer
+   * gives the model ONE more turn to act on them instead of verifying; the runtime makes that
+   * wait at most once per run, so a second declaration settles as usual.
+   *
+   * WHY a flag and not a reducer rule: the reducer holds no review state and cannot wait on
+   * anything. The runtime waits and measures; the reducer decides, as with
+   * {@link acceptanceShortfall}.
+   */
+  readonly lateReviewSteering?: boolean;
+  /**
+   * On a done turn whose plan has a `blocked` item: the tool domains this run never loaded
+   * (`kernel/model-plan.ts#unloadedDomainsForBlocked`). Absent when nothing is blocked or
+   * every domain is loaded.
+   *
+   * The reducer holds no tool surface, so the runtime reads which domains were loaded and
+   * the reducer decides whether that buys the blocked-item turn (AL39), the same division as
+   * {@link acceptanceShortfall}.
+   */
+  readonly unloadedToolDomains?: readonly LoadableToolDomain[];
+  /**
    * What the pixels said about the cuts THIS apply is answerable for
    * (`kernel/picture-verification.ts`, VU7).
    *
@@ -991,6 +1094,15 @@ export interface AgentTurnResult {
    * downstream of the fold reads it back.
    */
   readonly pictureVerification?: PictureVerificationReport;
+  /**
+   * The plan the model wrote with `update_plan` during this turn — the last call's list,
+   * since each call replaces the whole plan. Absent when the turn did not touch it.
+   *
+   * Folded before every other decision in {@link onTurnResult}: the call succeeded whatever
+   * else the turn did, so a turn that is then cancelled or rejected still leaves the
+   * model's plan standing.
+   */
+  readonly modelPlan?: readonly ModelPlanItem[];
   /** The ledger snapshot with this turn's step flipped to `running` (design §2). */
   readonly planSteps: readonly PlanStep[];
   /** Which ledger index this turn occupies (the reducer sets its terminal status). */
@@ -1003,6 +1115,12 @@ export interface AgentTurnResult {
 }
 
 /** The distilled outcome of a {@link RunVerifyEffect} (self-check + one repair pass). */
+/** One self-check finding, as the verify effect reports it. */
+export interface VerifyCheck {
+  readonly label: string;
+  readonly detail: string;
+}
+
 export interface VerifyResult {
   readonly kind: 'verify';
   readonly ok: boolean;
@@ -1137,6 +1255,43 @@ function withStep(steps: readonly PlanStep[], index: number, next: PlanStep): re
   return steps.map((s, i) => (i === index ? next : s));
 }
 
+/**
+ * What the run has DONE, as of now, in the two terms the model's plan can move in: work
+ * that landed on the timeline, and what the plan says. See
+ * {@link ConductorState.modelPlanDoneMark}.
+ *
+ * Applied turns as well as the operation count, because the count alone can go DOWN (a host
+ * refusal winds `cumulativeOps` back) and a smaller number is not "nothing happened".
+ */
+export function planProgressMark(state: ConductorState): string {
+  return [
+    `turns:${String(state.appliedTurns)}`,
+    `ops:${String(state.cumulativeOps.length)}`,
+    modelPlanDigest(state.modelPlan ?? []),
+  ].join('\n');
+}
+
+/**
+ * Fold the plan a turn wrote into the run: the plan itself, and a step budget wide enough to
+ * work through it.
+ *
+ * The widening is the drafted plan's (W3.4), for the same reason: turns map onto work, and
+ * a host that set a small `maxSteps` would otherwise end a compliant run with items it never
+ * reached. It never shrinks an explicit cap, and it is bounded by the schema's own item cap
+ * (`MODEL_PLAN_MAX_ITEMS`), so no plan can widen it without limit; the cost and time budgets
+ * bound the run regardless.
+ */
+function withModelPlan(state: ConductorState, plan: readonly ModelPlanItem[]): ConductorState {
+  return {
+    ...state,
+    modelPlan: plan,
+    config: {
+      ...state.config,
+      maxSteps: Math.max(state.config.maxSteps, plan.length + PLAN_STEP_HEADROOM),
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Transitions shared by the fold paths
 // ---------------------------------------------------------------------------
@@ -1162,6 +1317,8 @@ function runTurnEffect(state: ConductorState, stepIndex: number): RunTurnEffect 
     ledgerLength: state.ledgerLength,
     ...(state.actionRecoveryPending ? { actionRecovery: true } : {}),
     ...(state.seenFailureKeys.length > 0 ? { seenFailureKeys: state.seenFailureKeys } : {}),
+    ...(state.modelPlan ? { modelPlan: state.modelPlan } : {}),
+    ...(state.verifyAdvisories ? { advisories: state.verifyAdvisories } : {}),
     stage: state.working.stage,
     working: state.working,
   };
@@ -1185,6 +1342,40 @@ function toVerify(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
 }
 
 /**
+ * The request a run works toward, as the conductor resolves it: the reader's objective when
+ * `streamAuto` ran, else the message (a bare nudge resolving to the request under it). One
+ * function, so the run's objective and the key its plan is filed under never disagree.
+ */
+export function runObjectiveText(
+  agentOptions: AgentOptions | undefined,
+  input: Pick<ContextInput, 'userPrompt' | 'history'>,
+): string {
+  return (
+    agentOptions?.requestReading?.objectiveText ??
+    deriveObjectiveText(input.userPrompt, input.history)
+  );
+}
+
+/** The model's plan as a keyed record for a plan event, or `undefined` when it has none. */
+export function modelPlanRecordOf(state: ConductorState): ModelPlanRecord | undefined {
+  if (!state.modelPlan || state.modelPlanObjectiveKey === undefined) return undefined;
+  return { objectiveKey: state.modelPlanObjectiveKey, items: [...state.modelPlan] };
+}
+
+/**
+ * The plan a run starts with (AL5): a resumed run's own list from its checkpoint, else the
+ * list the last run on the request this message continues ended with. A new request gets
+ * none — `RequestReading.continuedPlan` is only ever set for a continuation.
+ */
+function inheritedModelPlan(
+  agentOptions: AgentOptions,
+  resuming: boolean,
+): readonly ModelPlanItem[] | undefined {
+  if (resuming) return parseModelPlan(agentOptions.resume?.modelPlan);
+  return parseModelPlan(agentOptions.requestReading?.continuedPlan);
+}
+
+/**
  * Finalize the run: emit the resume checkpoint (cancelled runs with applied work),
  * the empty-run notice (a non-cancelled run that landed nothing after trying), then
  * hand off to the {@link FinalizeEffect} which emits the diff + report + terminal
@@ -1197,7 +1388,23 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
   // a step apparently in progress under a finished run. Settle every unreached step as
   // failed with the reason on its mark, in the same terminal event the reducer already
   // owns for the ledger.
-  if (
+  //
+  // The model's plan settles the same way, and it is the ONLY checklist once it exists.
+  if (state.modelPlan) {
+    if (openPlanItems(state.modelPlan).length > 0) {
+      events.push(
+        em.plan(
+          modelPlanSteps(
+            state.modelPlan,
+            state.cancelled ? 'Stopped before this was done' : 'Not done — the run ended first',
+          ),
+          // The steps settle open items as failed; the record keeps them open, because it is
+          // what a follow-up continuing this request picks up (AL5).
+          modelPlanRecordOf(state),
+        ),
+      );
+    }
+  } else if (
     state.ledgerLength > 0 &&
     state.planSteps.some((step) => step.status === 'pending' || step.status === 'running')
   ) {
@@ -1223,6 +1430,8 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
         // restores the project; this restores the run — so a resumed run picks up at
         // the stage it reached instead of re-orienting from scratch.
         working: state.working,
+        // And its own to-do list (AL5): a resumed run without it re-planned from the brief.
+        ...(state.modelPlan ? { modelPlan: [...state.modelPlan] } : {}),
       }),
     );
   }
@@ -1263,7 +1472,25 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
   // event uses) and made no promise to report against. Gated on ops too, because a run that
   // changed NOTHING gets the empty-run notice below, which is both truer and more actionable
   // than a step tally.
-  if (!state.cancelled && state.ledgerLength > 0 && state.cumulativeOps.length > 0) {
+  //
+  // The model's plan is the same promise made by the model instead of a drafter, and its
+  // open items are the work the run said it would do and did not — named, because the
+  // editor watched each one on the checklist. Same gates: not on a Stop, and not on a run
+  // that changed nothing (the empty-run notice below is the truer account of that one).
+  const openModelItems = state.modelPlan ? openPlanItems(state.modelPlan) : [];
+  if (!state.cancelled && openModelItems.length > 0 && state.cumulativeOps.length > 0) {
+    events.push(
+      em.warning(
+        `Not everything in the plan was done — still open: ${describeOpenItems(state.modelPlan ?? [])}.`,
+      ),
+    );
+  }
+  if (
+    !state.cancelled &&
+    !state.modelPlan &&
+    state.ledgerLength > 0 &&
+    state.cumulativeOps.length > 0
+  ) {
     const assessment = assessEditCompletion(
       { intentKind: 'mutation', requireTimelineChange: false },
       {
@@ -1326,8 +1553,10 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
         appliedTurns: state.appliedTurns,
         rejectedOpCount: state.rejectedOpCount,
         rejectionReasons: [...state.rejectionReasons],
-        // Only a DRAFTED ledger travels — see `FinalizeEffect.planSteps`.
-        planSteps: state.ledgerLength > 0 ? [...state.planSteps] : [],
+        // Only a DRAFTED ledger travels — see `FinalizeEffect.planSteps` — and only while the
+        // model has not taken the plan over.
+        planSteps: state.ledgerLength > 0 && !state.modelPlan ? [...state.planSteps] : [],
+        ...(state.modelPlan ? { modelPlan: [...state.modelPlan] } : {}),
       },
     ],
     events,
@@ -1435,7 +1664,11 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   const events: AiEvent[] = [em.status('thinking')];
 
   const resuming = !!(ao.resume && ao.resume.ops.length > 0);
-  const planning = !resuming && !!ao.planFirst && !command.stream.signal?.aborted;
+  const inheritedPlan = inheritedModelPlan(ao, resuming);
+  // A run that carries a plan forward already has one; drafting another would be a model
+  // call spent on a list the model's own then draws over.
+  const planning =
+    !resuming && inheritedPlan === undefined && !!ao.planFirst && !command.stream.signal?.aborted;
   const restored = resuming ? parseWorkingState(ao.resume?.working) : null;
   // What the run is actually being asked to do. A message that only says "continue"
   // names no work of its own, so it resolves to the request underneath it: seeding the
@@ -1447,9 +1680,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // "load the tools and complete the task" as carrying on with the brief above it, which
   // the word-list fallback cannot — that message has content words, so run `6cb12e30`'s
   // follow-up turns recorded it verbatim as their objective and lost the brief.
-  const objectiveText =
-    ao.requestReading?.objectiveText ??
-    deriveObjectiveText(command.input.userPrompt, command.input.history);
+  const objectiveText = runObjectiveText(ao, command.input);
   const created = initialWorkingState({
     runId: command.stream.runId ?? command.stream.turnId,
     // The request the run works toward, not the nudge that started it: every echo check
@@ -1563,14 +1794,22 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     working: restored ?? freshWorking,
     recentIntents: [],
     noProgressStreak: 0,
+    modelPlanObjectiveKey: modelPlanObjectiveKey(objectiveText),
     seq: em.seq(),
   };
+  // The carried plan is the run's own from the first turn: the briefing shows it, the
+  // no-tool continuation rule holds the run to its open items, and the editor sees the
+  // checklist it left off with before the first model call returns.
+  const seeded = inheritedPlan ? withModelPlan(started, inheritedPlan) : started;
+  if (inheritedPlan) {
+    events.push(em.plan(modelPlanSteps(inheritedPlan), modelPlanRecordOf(seeded)));
+  }
   const firstEffect: ConductorEffect = resuming
     ? { kind: 'resume' }
     : planning
       ? { kind: 'draft_plan' }
-      : runTurnEffect(started, 1);
-  return { state: started, effects: [firstEffect], events };
+      : runTurnEffect(seeded, 1);
+  return { state: { ...seeded, seq: em.seq() }, effects: [firstEffect], events };
 }
 
 // ---------------------------------------------------------------------------
@@ -1827,6 +2066,9 @@ export function onTurnResult(
       events.push(em.warning(`Couldn’t apply “${refusal.intent}” — ${refusal.reason}`));
     }
   }
+  // The model's plan, before any path can return: the `update_plan` call succeeded whatever
+  // else this turn did, and a cancelled or rejected turn must not lose it.
+  if (r.modelPlan) state = withModelPlan(state, r.modelPlan);
   // Task stage first (ADR 0075 §3.2): derived from what the turn DID — the roles of the
   // tools it ran and whether a patch landed — never from what its prose claimed. A turn
   // that re-announces "let me understand the project" while calling nothing new moves
@@ -1915,7 +2157,8 @@ export function onTurnResult(
     // Only surface a checklist when a plan was actually drafted (`ledgerLength > 0`).
     // Unplanned runs keep planSteps in state for status tracking but never render a
     // pinned, ever-growing ledger — their per-step tool cards ARE the visible activity.
-    if (state.ledgerLength > 0) events.push(em.plan([...planSteps]));
+    // A model-owned plan is the checklist instead; `finalize` settles it.
+    if (state.ledgerLength > 0 && !state.modelPlan) events.push(em.plan([...planSteps]));
     return cancelFinalize({ ...base, planSteps }, em, events);
   }
 
@@ -1927,9 +2170,97 @@ export function onTurnResult(
   // still returns no action, `actionRecoveryPending` makes the second declaration settle
   // through verification rather than looping forever.
   if (r.done) {
+    // An advisory fix turn (AL37) ends on a reply with no tool call: the model either fixed
+    // what it heard or is leaving it on purpose, and both are the end of the run. Nothing
+    // below may re-open work — the plan and the request already settled once, and this turn
+    // was bought only for the advisories.
+    if (state.verifyAdvisories !== undefined) {
+      return toVerify({ ...base, modelDeclaredDone: true }, em, events);
+    }
+    // The review of the last edit, first. It landed while the model was saying it had
+    // finished, and it is the only account of that edit's pixels the run will ever get;
+    // the finding is already queued on the steering channel, so the next turn reads it.
+    // One turn, bounded by the runtime (it waits for late reviews once per run) and by
+    // `advance`'s step, clock and cost checks.
+    if (r.lateReviewSteering === true) {
+      return advance({ ...base, modelDeclaredDone: false }, em, events);
+    }
+    // THE MODEL'S OWN PLAN, next. Run `d8d2e445` replied "Not done yet: colour, speed,
+    // transitions, fade, masking & graphics, SFX & levels, deliverables" after one montage,
+    // and the run COMPLETED — a reply with no tool call was the end of the run, whatever the
+    // reply said. Nothing here reads that prose. The model states what is left as data
+    // (`update_plan`), and while an item is pending or in progress a reply is not the end.
+    //
+    // Bounded by PROGRESS, not by a latch: the run continues again after any continuation
+    // that landed work or moved the plan, and settles on the first reply that finds the
+    // mark unchanged — the continuation bought nothing, so another would buy nothing too.
+    // `blocked` is not open, so a model that says why no tool can do an item can end on it.
+    // `maxSteps`, the wall clock and the cost budget still bound all of it (`advance`).
+    const nextItem = state.modelPlan ? nextOpenItem(state.modelPlan) : undefined;
+    let stalledPlanNotice: string | undefined;
+    if (state.modelPlan && nextItem) {
+      const mark = planProgressMark(state);
+      const open = openPlanItems(state.modelPlan).length;
+      const items = `${String(open)} plan item${open === 1 ? '' : 's'}`;
+      if (mark !== state.modelPlanDoneMark) {
+        const working = setNextAction(state.working, {
+          stage: state.working.stage,
+          action: planItemLabel(nextItem),
+        });
+        events.push(
+          em.notification(`${items} still open — continuing with “${planItemLabel(nextItem)}”.`),
+        );
+        return advance(
+          { ...base, working, modelPlanDoneMark: mark, modelDeclaredDone: false },
+          em,
+          events,
+        );
+      }
+      // Said out loud — but only if the run really does stop here (the acceptance check
+      // below may still buy one turn): the editor watched the run keep going and deserves
+      // to know why it ended. What is left is named by `finalize` and the report.
+      stalledPlanNotice = `Stopping with ${items} still open — nothing landed and the plan did not change since the last time the run said it was done.`;
+    }
+    // AL39 — a plan that ends on BLOCKED items the run never tried to unblock. Harness run
+    // 16 blocked "Sound design and mix" on "No SFX in the bin" and ended without loading
+    // `sourcing`, whose summary names sound effects; every `update_plan` result had said so,
+    // and a sentence in a tool result did not change what the model did. So the run buys ONE
+    // turn whose whole instruction is that question: which domains were never loaded, what
+    // each covers, load and retry or confirm blocked. Read off structured state only — the
+    // plan's statuses and the domains the runtime reports unloaded — never off an item's
+    // words. Once per run; a second reply with no tool call ends it as it always did. Not
+    // when cancelled, over budget or out of steps: the turn could not run.
+    const unloaded = r.unloadedToolDomains ?? [];
+    if (
+      state.modelPlan &&
+      !nextItem &&
+      state.modelPlan.some((item) => item.status === 'blocked') &&
+      unloaded.length > 0 &&
+      state.blockedItemsRetried !== true &&
+      !state.cancelled &&
+      budgetExhausted(state) === undefined &&
+      state.stepIndex < state.config.maxSteps
+    ) {
+      const working = setNextAction(state.working, {
+        stage: state.working.stage,
+        action: blockedItemsRetryAction(state.modelPlan, unloaded),
+      });
+      events.push(
+        em.notification(
+          `Blocked plan items, with tools never loaded (${unloaded.join(', ')}) — one turn to try them.`,
+        ),
+      );
+      return advance(
+        { ...base, working, blockedItemsRetried: true, modelDeclaredDone: false },
+        em,
+        events,
+      );
+    }
     const nextIndex = state.planSteps.findIndex((step) => step.status !== 'completed');
     const nextStep = nextIndex >= 0 ? state.planSteps[nextIndex] : undefined;
-    if (state.ledgerLength > 0 && nextStep && !state.actionRecoveryPending) {
+    // A drafted ledger the model has taken over is not the plan any more — its own list
+    // above is — so the positional recovery turn is not offered on its behalf.
+    if (state.ledgerLength > 0 && !state.modelPlan && nextStep && !state.actionRecoveryPending) {
       const working = setNextAction(state.working, {
         stage: state.working.stage,
         action: nextStep.label,
@@ -1977,6 +2308,7 @@ export function onTurnResult(
         events,
       );
     }
+    if (stalledPlanNotice !== undefined) events.push(em.notification(stalledPlanNotice));
     return toVerify({ ...base, modelDeclaredDone: true }, em, events);
   }
 
@@ -1990,7 +2322,7 @@ export function onTurnResult(
       status: 'failed',
       detail: note,
     });
-    if (state.ledgerLength > 0) events.push(em.plan([...planSteps]));
+    if (state.ledgerLength > 0 && !state.modelPlan) events.push(em.plan([...planSteps]));
     events.push(em.warning(note));
     // The run DID attempt an edit — this warning explains what happened to it, so the
     // generic never-attempted notice must not also fire and contradict it (R2).
@@ -2015,7 +2347,12 @@ export function onTurnResult(
           detail: r.note,
         })
       : r.planSteps;
-  if (state.ledgerLength > 0 && (r.applied || failed)) events.push(em.plan([...planSteps]));
+  // The positional statuses above still track the drafted ledger internally (the verify
+  // fold reads them), but once the model owns the plan they never reach the screen: the
+  // checklist is one node per run, and this event would overwrite the model's list.
+  if (state.ledgerLength > 0 && !state.modelPlan && (r.applied || failed)) {
+    events.push(em.plan([...planSteps]));
+  }
   // Per-call validator rejections count toward the empty-run notice even when the
   // turn also landed other calls' ops — the notice only fires when the whole RUN
   // lands nothing, so this only ever surfaces honest, user-relevant reasons.
@@ -2678,7 +3015,11 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       working,
     );
   }
+  // A model-owned plan is accounted for by `finalize` (its open items, by name); the drafted
+  // ledger it superseded is not on screen, so "N planned steps" would count a list the
+  // editor was never shown.
   const planReconciled =
+    state.modelPlan !== undefined ||
     state.ledgerLength === 0 ||
     (state.planSteps.length > 0 && state.planSteps.every((step) => step.status === 'completed'));
   if (!planReconciled) {
@@ -2791,6 +3132,51 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       };
     }
   }
+  // AL37 — the advisory fix turn. A run that passed its self-check with WARNED checks used to
+  // complete with them announced after the model's last word, where nothing could act on
+  // them (run `88c8b27d`: a five-frame skip inside a speed-ramped shot). It now spends the
+  // run's one fix turn — the same budget, the same guards — hearing them. Unlike a failed
+  // check, an advisory is NOT recorded as a failed verification: the model may leave one
+  // that is intended, and the run must still complete. The next verify only reports.
+  const advisable =
+    !fixable &&
+    deliveredWork &&
+    r.ok &&
+    r.failedChecks.length === 0 &&
+    r.warnedChecks.length > 0 &&
+    !state.cancelled &&
+    budgetExhausted(state) === undefined &&
+    // The per-run operation cap is a budget too: a run stopped at it has no room left for
+    // the fix the advice might call for, so the advice is only reported.
+    state.cumulativeOps.length - state.derivedOpTotal < state.config.maxOpsPerRun &&
+    state.verifyFixTurns < MAX_VERIFY_FIX_TURNS &&
+    canAdvance(working.stage, 'repair');
+  if (advisable) {
+    const entered = advanceStage(working, 'repair', state.stepIndex);
+    if (entered.stage === 'repair') {
+      const stepIndex = state.stepIndex + 1;
+      const next: ConductorState = {
+        ...state,
+        working: entered,
+        phase: 'executing',
+        stepIndex,
+        verifyFixTurns: state.verifyFixTurns + 1,
+        verifyAdvisories: r.warnedChecks,
+        cumulativeOps: [...state.cumulativeOps, ...r.repairOps],
+        seq: em.seq(),
+      };
+      return {
+        state: next,
+        effects: [runTurnEffect(next, stepIndex)],
+        events: [
+          ...events,
+          em.notification(
+            `One turn to act on the self-check's advice, or leave it if intended: ${r.warnedChecks.map((c) => c.label).join(', ')}.`,
+          ),
+        ],
+      };
+    }
+  }
   for (const [index, objective] of working.objectives.entries()) {
     // One objective per drafted step, and a step completes only by an applied patch on
     // its own turn — so a plan whose steps collapse into one turn (or list reads and
@@ -2860,9 +3246,13 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       ),
     );
   }
+  // The advisory fix turn, if one ran, is over: from here its advice is only reported.
+  // Dropped rather than set to `undefined`, so a run that never had one settles to the
+  // exact state it always did.
+  const { verifyAdvisories: _spent, ...settled } = state;
   return finalize(
     {
-      ...state,
+      ...settled,
       working,
       integrityFailed: state.integrityFailed || failed,
       cumulativeOps: [...state.cumulativeOps, ...r.repairOps],

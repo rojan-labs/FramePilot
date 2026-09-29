@@ -349,7 +349,7 @@ export class ProjectCommandService {
     try {
       // The same grid `commitProjectPatch` applies (ADR 0146), so the comparison is
       // against the numbers a real commit would write, not the raw request.
-      const applied = applyProjectPatch(project, quantizePatch(patch, project.fps));
+      const applied = applyProjectPatch(project, quantizePatch(patch, project.fps, project.assets));
       return projectContent(applied) === projectContent(project);
     } catch {
       // An apply that throws cannot be a silent no-op either; let the normal

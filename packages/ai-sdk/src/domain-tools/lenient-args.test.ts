@@ -103,125 +103,6 @@ describe('stock kind accepts the words a model reaches for', () => {
   });
 });
 
-describe('stock cutaways are held to the number the brief asked for', () => {
-  const stock = (id: string) => ({
-    id,
-    path: `${id}.mp4`,
-    kind: 'video',
-    durationSeconds: 20,
-    media: { width: 1920, height: 1080 },
-    source: {
-      provider: 'pexels',
-      remoteId: '1',
-      license: 'Pexels',
-      attributionRequired: false,
-      fetchedAt: '2026-09-06T00:00:00Z',
-    },
-  });
-  const withCap = (cap: number | undefined): ToolContext => {
-    const p = parseProject({
-      ...project(),
-      assets: [
-        {
-          id: 'a',
-          path: 'a.mp4',
-          kind: 'video',
-          durationSeconds: 20,
-          media: { width: 1920, height: 1080 },
-        },
-        stock('stock_1'),
-        stock('stock_2'),
-        stock('stock_3'),
-      ],
-      timeline: {
-        tracks: [
-          {
-            id: 'v1',
-            type: 'video',
-            clips: [
-              {
-                id: 'own',
-                assetId: 'a',
-                trackId: 'v1',
-                start: 0,
-                end: 20,
-                sourceStart: 0,
-                sourceEnd: 20,
-                effects: [],
-                keyframes: [],
-              },
-            ],
-          },
-          {
-            id: 'cut',
-            type: 'video',
-            clips: [
-              {
-                id: 'c1',
-                assetId: 'stock_1',
-                trackId: 'cut',
-                start: 2,
-                end: 4,
-                sourceStart: 0,
-                sourceEnd: 2,
-                effects: [],
-                keyframes: [],
-              },
-              {
-                id: 'c2',
-                assetId: 'stock_2',
-                trackId: 'cut',
-                start: 6,
-                end: 8,
-                sourceStart: 0,
-                sourceEnd: 2,
-                effects: [],
-                keyframes: [],
-              },
-            ],
-          },
-        ],
-      },
-    });
-    return {
-      project: p,
-      ...(cap === undefined ? {} : { stockCutawayCap: cap }),
-    } as unknown as ToolContext;
-  };
-  const place = (ctx: ToolContext) =>
-    operationsForCall(
-      {
-        id: 'c',
-        name: 'add_clip',
-        arguments: { trackId: 'cut', assetId: 'stock_3', start: 10, end: 12, sourceStart: 0 },
-      },
-      ctx,
-    );
-
-  it('refuses a third stock cutaway when two were asked for, naming the two that are there', () => {
-    // Run `4a8e`: "two cutaways I never shot" → eight stock clips.
-    expect(() => place(withCap(2))).toThrow(
-      /asked for 2 stock cutaways and 2 are already on the timeline/,
-    );
-    expect(() => place(withCap(2))).toThrow(/c1 \(2–4s\), c2 \(6–8s\)/);
-    expect(() => place(withCap(2))).toThrow(/delete_clip that one first/);
-  });
-
-  it('allows it under the cap, with no cap, and never counts the editor’s own footage', () => {
-    expect(place(withCap(3)).some((op) => op.type === 'add_clip')).toBe(true);
-    expect(place(withCap(undefined)).some((op) => op.type === 'add_clip')).toBe(true);
-    const own = operationsForCall(
-      {
-        id: 'c',
-        name: 'add_clip',
-        arguments: { trackId: 'cut', assetId: 'a', start: 10, end: 12, sourceStart: 5 },
-      },
-      withCap(2),
-    );
-    expect(own.some((op) => op.type === 'add_clip')).toBe(true);
-  });
-});
-
 describe('a title that cannot fit its box is refused with the size that would', () => {
   it('FITS a title that would run out the frame, instead of refusing it', () => {
     // Run `4a8e`: "Breck, opening weekend" at a size where "weekend" needed 119% of the
@@ -319,8 +200,7 @@ describe('a title that does not fit is FITTED, not refused', () => {
     expect(ops.some((op) => op.type === 'add_text_overlay')).toBe(true);
     const params = (
       ops.find((op) => op.type === 'set_effect_params') as
-        | { params: Record<string, number> }
-        | undefined
+        { params: Record<string, number> } | undefined
     )?.params;
     expect(
       overflowingWords(
@@ -335,5 +215,30 @@ describe('a title that does not fit is FITTED, not refused', () => {
     // The cause stays registered for text no size can rescue, and stays
     // arrangement-independent: it is a property of the words, not of the timeline.
     expect(ARRANGEMENT_INDEPENDENT_CAUSES.has('text_does_not_fit')).toBe(true);
+  });
+});
+
+describe('a structured argument sent as its JSON text', () => {
+  // Harness run 18: `reframe_pan { from: "{\"x\":0.56,\"y\":0.5}", to: "…" }` was refused
+  // "from: expected object, received string", and a turn went on re-sending it as an object.
+  const reframe = getTool('reframe_pan')!;
+
+  it('is read as the object it spells', () => {
+    expect(
+      reframe.parse({ clipId: 'clip_a', from: '{"x":0.56,"y":0.5}', to: '{"x":0.4}' }),
+    ).toEqual({ clipId: 'clip_a', from: { x: 0.56, y: 0.5 }, to: { x: 0.4 } });
+  });
+
+  it('is still refused when the text is not JSON, or is JSON of another shape', () => {
+    expect(() => reframe.parse({ clipId: 'clip_a', from: 'left', to: { x: 0.4 } })).toThrow(/from/);
+    expect(() => reframe.parse({ clipId: 'clip_a', from: '[0.5]', to: { x: 0.4 } })).toThrow(
+      /from/,
+    );
+  });
+
+  it('is still refused, with the original reason, when something else is wrong too', () => {
+    // The decoded object must pass the schema on its own: x out of range stays a refusal.
+    expect(() => reframe.parse({ clipId: 'clip_a', from: '{"x":3}', to: { x: 0.4 } })).toThrow();
+    expect(() => reframe.parse({ from: '{"x":0.5}', to: { x: 0.4 } })).toThrow(/clipId/);
   });
 });

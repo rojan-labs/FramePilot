@@ -1,7 +1,7 @@
 ---
 name: podcast-editing
 description: Edit spoken multi-speaker conversations for clarity, thought continuity, reaction value, natural cadence, and consistent audio without over-cutting.
-tools: [get_mapped_transcript, get_timeline, analyze_silence, split_clip, ripple_delete, move_clip, punch_in, adjust_audio, get_frame]
+tools: [get_mapped_transcript, get_timeline, analyze_silence, remove_silences, remove_filler_words, split_clip, ripple_delete, punch_in, adjust_audio, professional_audio, get_frame]
 ---
 
 # Podcast editing
@@ -32,14 +32,17 @@ Speech is the spine; reaction and cadence are story. Edit ideas, not isolated wo
 
 ## Professional heuristics
 
-- Remove repetition and abandoned starts while keeping breaths that support emphasis.
+- An editor's keep list, cut list, target length or "leave the pauses in" outranks these norms.
+- Remove repetition and abandoned starts while keeping breaths that support emphasis. Plain
+  "um"/"uh" filler goes in one `remove_filler_words` pass; false starts are judgment cuts from
+  the transcript.
 - Cut on completed thoughts; preserve question→answer causality.
 - Hold a listener reaction when it changes meaning; do not alternate cameras mechanically.
 - Use punch-ins sparingly to emphasize a turning point or conceal a necessary seam.
 
 ## Decision framework
 
-Map topics → select essential exchanges → remove redundant thought units → protect reactions → level dialogue → preview continuity.
+Map topics → select essential exchanges → remove redundant thought units → protect reactions → level dialogue (`adjust_audio`; EQ/compression with `professional_audio`) → preview continuity.
 
 ## Common mistakes
 

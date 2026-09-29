@@ -8,6 +8,46 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The self-check notices text overlays drawn on top of each other.** When two titles are on
+  screen at the same time and their letters overlap, for example a small date set across the
+  last line of a closing title, the review now warns. It names both overlays, what they say and
+  when they overlap, and suggests a fix: move one up or down, shorten one, or put both on one
+  overlay. Before, the review passed such an edit with "All checks passed". A subtitle set close
+  under a title, but clear of its letters, is not flagged.
+- **The assistant can measure loudness.** Ask for "-14 LUFS, true peak at most -1 dBTP" and it
+  measures the mix, or only the dialogue, music or effects tracks you labelled. It reports
+  integrated loudness, loudness range, true peak and sample peak, how far each is from your
+  target, and the change that closes the gap. Before, it said it could not measure loudness and
+  left the target unconfirmed. It measures the timeline; a Loudness preset chosen in the Export
+  dialog still applies on top.
+- **The assistant builds picture-in-picture, split screens and blurred-fill backgrounds.** Ask
+  for a 16:9 shot in a vertical video "without cropping the subject" and it can fit the whole
+  shot over a blurred copy of itself, with no upscaling, instead of zooming past what the source
+  can take. It can also lay a smaller shot over your footage or put three shots in a split
+  screen. Each look is ordinary layers you can select, move and undo, and the monitor shows it
+  exactly as it exports. Before, the assistant refused these with "the preview can only show one
+  picture layer", a limit the monitor no longer has.
+- **The assistant can keep a moving subject in a vertical frame.** On desktop, once a subject
+  has a tracked mask ("track the runner"), the assistant can reframe a 16:9 shot for 9:16 so
+  the window follows them smoothly. It writes ordinary position and zoom keyframes, so you can
+  undo or adjust them in one step. Run it again after re-tracking. Before, it could only pan
+  between two spots it had guessed.
+- **The assistant sets a brief's exact typography on text.** "+250 tracking", "leading 0.9",
+  italic, "shadow, no outline": each can now be set on its own on a text overlay, over a designed
+  style. Before, the assistant had to pick the nearest style. Italic works in the families that
+  ship one; for any other family the assistant is told to pick one of those.
+- **The assistant can look at all your clips before it cuts.** It can now see up to 12 source
+  clips in one look: a numbered contact sheet, each clip uncropped as it was shot, labelled with
+  its file name and the moment shown. Before, it saw one clip per look. Told to "look at every
+  clip before cutting" on a 20-clip trip, it looked at 3 and centre-cropped the rest blind. A
+  12-clip sheet takes about 5-7 s on the desktop.
+- **The assistant finishes what your request asks for.** On a request with several parts, the
+  assistant writes a plan in your request's own terms (its sections, its shot list, the
+  treatments you named) and shows it as the checklist. It keeps working while anything on that
+  list is open. Before, it could stop after the first batch with "Not done yet: colour, speed,
+  transitions…" and call the run finished. If it cannot do an item, it marks it blocked and says
+  why. If it stops making progress, the run ends and says which items were not done. Skills now
+  guide how a part is done well; they no longer replace your brief.
 - **One bounding box for everything on the monitor.** Select a clip, a still, a sticker, a shape
   or a text overlay and it gets the same box: a thin blue frame with eight handles and a rotation
   lollipop. Drag inside to move it (a short dead zone keeps a click a click; Shift locks the axis,
@@ -49,6 +89,213 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant's plan no longer drops items when it updates part of it.** When the assistant
+  updated its plan with only the items it had just worked on, every other item disappeared,
+  including ones it had marked blocked. The run then ended and its "Not done" list left them
+  out. Items it leaves out of an update are now kept as they were, and it is told which ones
+  were kept. Open items keep the run going and blocked items stay in the "Not done" list. A
+  plan item's note can now be 480 characters instead of 240, so describing a finished review
+  pass no longer costs the assistant a turn.
+- **A shot placed over footage on the same track now goes on a layer in front.** When the
+  assistant put a shot on a track that already had footage at that moment (for example, the
+  panels of a split screen), the edit was refused as an overlap. The shot now goes on a layer in
+  front of the footage, as it already did when the footage was on another track. A shot that
+  only touches its neighbour stays on the track.
+- **The assistant no longer loses a turn to an argument written as text.** When it sent a structured
+  setting (a reframe's start and end point) as its JSON text rather than as the object, the tool refused
+  it and the assistant had to send it again. The text is now read as the object it spells; anything
+  else still gets the same refusal as before.
+- **Short sound effects no longer break loudness checks, and clips no longer run past the end of
+  their media.** A sound under about 1.4 seconds (a whoosh, a hit) made the assistant's loudness
+  measurement fail with an engine error. On very short sounds the export could fail the same
+  way. Longer short sounds could be measured from the wrong samples. The audio reader now
+  handles any sound length. A clip whose source runs a little past the end of its file plays
+  silence there and holds the last video frame, where the export used to show what was
+  underneath. Placing a sound whose length is not a whole number of frames now ends the clip
+  on the last whole frame inside the file, instead of one frame past it. An edit that would
+  play more than a frame beyond the end of its audio or video, for example a fast speed change
+  or a trim, is refused with the file's length and how to fix it. Projects that already hold
+  such a clip can still be edited.
+- **Shapes and other graphics no longer land where they break a neighbour's animation.** A new
+  shape could be put on a graphics lane ending exactly where a title with an In animation began.
+  That turns the title's entrance into a cut, so the whole edit was refused. Every placement now
+  checks the lane's transitions with the new clip in place and uses another lane, or opens one,
+  when it would break one. When the assistant names a lane for a shape that does not exist, is
+  not a graphics lane, or is locked, it is told why instead of the shape landing somewhere else.
+- **The assistant tries the tools it has not opened before giving up on part of a request.** It
+  could mark an item on its plan as impossible ("no sound effects in the bin") and stop, without
+  ever opening the tools that do it (the sound-effect library). When it now stops with items it
+  gave up on and tool groups it never opened, it gets one more turn that names those groups and
+  what each does: open one and try, or confirm the item cannot be done. It also lists each
+  treatment a section names as its own plan item, so one it cannot do no longer hides the rest.
+- **Blurred-fill backgrounds work on a shot that was already panned.** In a vertical video, the
+  assistant fits a wide shot whole over a blurred copy of itself. On a shot it had panned across,
+  adding the fitted copy was refused as "a second copy that cannot be seen", and the assistant gave
+  the look up. The copy now goes in front of the panned one, even when the assistant names the
+  same track. When a copy really would be hidden, the assistant is told how to build the look
+  instead.
+- **A clip's blur can be taken off.** The assistant was told a blur of 0 turns a blur off, then
+  refused when it tried, and left a barely-there blur on the shot. A blur of 0 is now accepted and
+  draws nothing.
+- **Transitions between reframed shots no longer flash black bars.** When a wide shot was
+  zoomed or panned to fill a vertical frame, the shot on the other side of a transition was drawn
+  at its original, unzoomed size while the transition played. For the length of a dissolve, luma
+  fade, whip pan or light leak, black bars showed above and below it, in the export and on the
+  monitor alike. Both sides of a transition now keep their own framing, holding the zoom and pan
+  they had at the cut. Every frame outside a transition is exactly as it was.
+- **Exports and the assistant's checks do much less wasted work, so the laptop stays cooler.**
+  The engine opened every video twice, and each opening decoded a frame on every processor core
+  and threw it away. Assembling a picture also computed frames nobody looked at, such as a
+  transition's blur. On a 65-clip travel reel, the checks the assistant runs after an edit (six
+  colour measurements and eight looks) now take 17 seconds instead of 37 and a third of the
+  processor time. One look takes under a second. Preparing an export takes about 5 seconds
+  instead of 33, and a short export finishes about an eighth faster. A project with a blend
+  mode (screen, multiply and so on) no longer makes every look assemble the whole timeline: a
+  look took about 43 seconds and now takes under one. Pictures, measurements and exports are
+  exactly the same as before.
+- **The assistant acts on its self-check's advice before it finishes.** When the final check
+  finds something worth a second look, such as the same shot cut to itself, the assistant now
+  hears it while it can still act. It gets one more turn to fix it, or to leave it and say why if
+  it was intended. Before, that advice arrived after the assistant's last reply, where nothing
+  could act on it. Leaving advice in place does not mark the run as failed. The jump-cut advice
+  now names both clips and where each reads from the source, and it gives a different fix for a
+  skip nobody meant (such as a speed ramp that stops short) than for a deliberate cut.
+- **The assistant's checks no longer grind your computer once a clip uses a track matte.** When
+  one clip was cut by another layer (a shape or a title used as its matte), every look the
+  assistant took at a frame, and every colour measurement, opened every clip in the timeline. On
+  a 65-clip travel reel one look took about 40 seconds, five of six colour measurements ran out
+  of time, and the laptop ran hot. Each look now opens only the clips on screen at that moment:
+  about 2 seconds for a look and 5 to 8 seconds for a measurement. Measurements asked for
+  together no longer run out of time waiting for each other. The same checks use about a seventh
+  of the processor time, and the pictures and numbers they return are exactly the same.
+- **An old answer no longer overrides a new brief.** An answer you gave the assistant once ("imitate
+  it in the default face") was stored with the assistant's question, which described what the
+  tools could do that day, and a note to follow it on every later turn. A later brief naming
+  Playfair and Inter still came out in the default face. A remembered answer now settles only
+  the question it answered; a new request that asks for something else wins.
+- **The assistant looks for each sound you name.** It said the library had no door, keys or
+  footsteps sounds without ever searching for them. It now searches each named sound before
+  saying there is no match.
+- **The assistant no longer blocks layered looks on a preview limit that is gone.** A run
+  refused a brief's split screen, its title behind a ridge and its mask reveal, and reported
+  that its shots broke the 115% scale limit "because the preview can't composite" a blurred
+  fill. The monitor composites every layer in every build, so the refusal and the reason are
+  both gone. The assistant still refuses to place a full-frame shot that would hide another
+  cutaway completely, and stock it downloads straight onto the timeline is still placed as a
+  full-frame cutaway.
+- **The assistant can open a shot through a growing shape.** Asked for a "shape-mask opener"
+  (the hook revealed through an expanding rounded rectangle), it told you no tool could animate a
+  mask. It now builds it: a rounded rectangle that grows, used as the clip's mask.
+- **Text placed near the edge stays on screen.** A left-aligned label the assistant placed
+  near the left edge without a set width could lose its first letters off the frame ("AMP"
+  for "CAMP"). The assistant now keeps the text's box inside the frame even when it uses the
+  default width.
+- **Spaced-out titles keep the space between their words in the export.** A title or caption
+  with wide letter spacing ("THE CLIMB" at 0.25 em) exported with its words run together
+  ("THECLIMB"), because the export spread out the letters inside each word but not the gap
+  between words. The export now spaces text the way the editor shows it: the gap between
+  words widens along with the letters, and the title's box and centring match the editor's.
+  The assistant's title sizing measures the same widths.
+- **Titles and shapes can be used as a track matte.** Video inside text, and a shape that
+  grows to reveal a clip, were refused with "reads a track that holds no picture" whenever the
+  title or shape sat on an overlay track, which is where the assistant and the Add panel put
+  them. A text overlay or shape on an overlay track now works as a track matte in the editor,
+  the monitor and the export, and the Mask tab's track matte picker lists them. Audio and
+  caption tracks are still refused, with a message that says what can be used instead. The
+  assistant is also told that a growing rounded rectangle opens a clip through a growing window.
+- **A track matte now grows with its source in the export.** A video or photo used as a track
+  matte that grows (or stretches) now opens the clip through a growing window, as the monitor
+  already showed. Before, the exported window kept its first size while it moved, so a window
+  growing from the centre slid up and out of the picture partway through. Shapes and text
+  overlays used as mattes were not affected.
+- **A remembered answer no longer overrides what you ask for now.** If you once told the
+  assistant "imitate it in the default face", a later request for text behind a subject or a
+  masked opener was being refused on the strength of that old answer. A remembered decision
+  now covers only the question it answered; a new request that asks for something else wins.
+- **A fast-to-slow speed ramp keeps its clip's length.** A ramp that starts fast and slows down
+  after the clip's current end ("builds fast, drops to 50%") was refused as not fitting its slot,
+  because the fit assumed the speed stopped changing where the old footage ended. It now follows
+  the whole curve, so the clip plays exactly its slot and the cut around it stays put.
+- **The assistant's colour tools use the measurements it just took.** In the desktop app,
+  matching shots, evening out exposure and applying a look ignored every shot the assistant had
+  just measured and said nothing had measured them, so it left those shots ungraded or graded
+  them from the imported footage instead of from your timeline. When one of its own grades makes
+  an earlier measurement out of date, the assistant now says so and measures again, where before
+  it reported that the measurement did not exist. The summary of a grade across several clips cut
+  from the same file now says how many clips were graded, not the file name once per clip.
+- **The assistant's mixing and grading tools keep working after its own edits in the same step.**
+  When one step placed or retimed clips and then used a tool that acts on your selection
+  (professional audio, colour, tracking), that tool was refused as "stale" even though your
+  selection still pointed at the same clips.
+- **Text overlays render the same on every machine.** On systems with the extra text-shaping
+  library installed, words were kerned and ligated in the export but not in the preview or the
+  size fit, so letter spacing and fitted title sizes drifted by a few pixels.
+- **Exported colours now match your footage in every player.** Exports were converted to video
+  with an older colour formula (BT.601) and carried no colour labels, so players that assume the
+  modern HD formula (BT.709) showed reds, greens and skin tones slightly shifted. Exports now use
+  BT.709, the formula camera footage uses, and label the file so players decode it correctly.
+- **A blue or red end card no longer fails the export as "ends on black".** The black-frame
+  check looked only at brightness as the video formula weighs it, and that formula counts pure
+  blue as only 7% bright. It now calls a frame black only when every colour in it is dark, so
+  saturated and dark-but-coloured cards pass, while real black, fades to black and black
+  screens with small white text are judged as before.
+- **"Warmer", "cooler" and colour matching now land the amount they promise.** The assistant's
+  colour solver priced white balance with a number that assumed the wrong video range. It
+  under-corrected warmth by about 18%, and more on footage with little blue in it. It now works
+  that out from the clip's own colour, and it was checked by exporting real clips and measuring
+  them. A "warmer" look now adds 94-97% of the asked-for warmth (70-83% before). When a match
+  also boosts saturation, it now allows for the extra cast that adds.
+- **Tightly spaced text exports as the editor shows it.** Negative letter spacing (the "Heading"
+  and "Statement" styles, or below 0 % in the Inspector) was dropped on export and on the
+  desktop monitor, so that text came out looser than the browser preview. It now tightens in both.
+- **Outlined, letter-spaced captions no longer have stripes through the letters.** In looks such
+  as Comic, Punchline and Sticker, each letter's outline was painted over the letter before it in
+  the export. Outlines are now drawn first and letters on top, as the preview draws them.
+- **Titles placed behind a person are no longer shrunk more than needed.** When the assistant
+  measured a subject for a title with several words, it could size the title far smaller than
+  the frame allows ("WEEKEND TRIP" at 9 % instead of 13 %). It now sizes it as its title tools do.
+- **A slow final check no longer throws the whole check away.** After an edit the assistant looks
+  at sample frames of the result. On a long project with many captions that check could run out of
+  time, and everything it had already looked at was discarded, so the edits went unchecked. It now
+  checks in small pieces, gets more time for bigger projects, and keeps what it finished. If it runs
+  out of time it tells you which moments it checked and which it did not.
+- **Widely tracked titles stay inside the frame.** When the assistant fitted a title, it ignored
+  letter spacing, italic and chip padding. A spaced-out style such as "Tracked caps" could run
+  off the frame at a size the fit had accepted. The fit now measures the title as it is drawn.
+- **Sticker and shape placement, and loops that fit.** If a loop is too long for its element, the
+  assistant is now told how long the clip is, which loops fit it, the slowest period that fits,
+  and the longest In and Out. Before, it only heard "pick a faster loop" and kept guessing. A spin
+  now works on an element shorter than one turn. Shapes and stickers are kept inside the frame.
+  The assistant hears when a sticker sits outside the platform safe area, with the positions that
+  would fit. The review no longer flags every positioned shape as outside the safe area. That
+  warning came from a units mix-up (#150).
+- **The assistant can see when a zoom makes the picture soft.** A punch-in on a panned wide shot
+  multiplies the pan's zoom, so a 1080p shot in a vertical video could be enlarged to more than
+  twice its own resolution and look soft. After a punch-in or a pan, the assistant now gets the
+  magnification: how many screen pixels wide each source pixel is drawn at the zoom's peak. It
+  is told plainly when the picture is upscaled, so it can pick a smaller zoom. Nothing is
+  refused.
+- **The assistant can animate and colour-grade a clip it names.** Professional motion and
+  colour used to act only on the clip you had selected or the one under the playhead. An
+  assistant working on its own has no selection, so it could not continue a motion or match one
+  shot's colour to another. It can now name the clip.
+- **A punch-in on a panned shot zooms in on the pan instead of adding black bars.** A slow pan
+  on a wide shot in a vertical video fills the frame by zooming in. A punch-in used to replace
+  that zoom, so the shot shrank back to a letterboxed fit. The assistant had to remove every pan
+  before it could punch in. A punch-in now zooms on top of the clip's existing zoom, the pan
+  keeps moving, and undo restores the pan exactly.
+- **The assistant fixes what the review of its last edit finds.** The review of the final edit
+  used to arrive after the run had ended, so it could only be reported ("came back after the run
+  had finished, so nothing was done about it"). When the assistant says it is done, it now waits
+  up to a minute for that review ("Checking the edit"), and if it finds something the assistant
+  gets one more turn to fix it. A review still running after a minute is reported as before.
+- **The assistant sees the picture on a run that starts from an empty timeline.** It read the
+  footage measurements only for clips already on the timeline when the run began, so a run that
+  started empty had none: it treated every clip it placed as unmeasured and gave up on colour.
+  It now reads them for footage it places from the bin.
+- **Effect choices and receipts say which effect.** Browsing effects or transitions shows each
+  one's look and default length, not just its id. The run summary names each effect layer and its
+  time ("Added Golden Leak · 43s–45s") instead of "Add effect layer Effect 1 (×5)".
 - **A text overlay keeps its font in the export.** The text overlay Inspector offered Georgia, Impact, Courier
   New, Arial and Verdana, which are not bundled: the export used whatever the machine had, or
   Pillow's default face. Text overlays added from the panel or dropped on the timeline also stored only
@@ -70,6 +317,32 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   an error after doing the work. The length is now read by the AI that routes your message, only
   from words that are really in your request, and every length check says which words it came
   from.
+- **Colour measuring no longer stops the run.** A colour measurement's result could end the whole
+  run with "The AI run stopped unexpectedly". It is now stored like any other result.
+- **A fade to black is not reported as black frames.** The self-review now counts a picture that is
+  fading to black as intended, down to the last frame.
+- **Checks after each edit are about three times faster**, and the app uses less memory while the AI
+  looks at frames.
+- **Speed ramps land first time.** A slow-motion ramp written against the clip's length was refused
+  because slow motion uses less footage; the part that would never play is now trimmed off.
+- **Text stays on screen.** A text overlay's box is always kept inside the frame.
+- **Shape masks follow what you see.** A split, gradient or frame mask on a cropped clip is laid out
+  on the visible picture, not on the parts the crop hides.
+- **Pans are not mistaken for black bars.** A clip filled by a slow pan is no longer "fixed" with a
+  crop on top of it.
+- **The AI says what it really did.** It marks a part of your request done only when an edit
+  delivered it, never says you chose something you were not asked, and before giving up on a part it
+  is shown the tools it has not tried yet — sound effects included.
+- **The AI no longer grades itself on requirements it guessed from your wording.** Parts of a
+  brief such as a shot count, "every clip reframed", a sticker or arrow, "export an MP4", "remember
+  this for next time" and a number of cutaways used to be pulled out by pattern and turned into
+  checks. They were often wrong: an arrow marked "(optional)" became a must-have, a long brief with
+  no shot count got "at least 3 shots", and the automatic centred crop every landscape clip gets in
+  a vertical video counted as "reframed". A run could pass those checks after one step and stop with
+  your brief unfinished. The AI now lists your request's parts as its own plan and works through
+  them. Only the video length the AI read from your own words (or a length set by the app) and the
+  pace of a reference clip you attach are still checked automatically. The AI also no longer
+  refuses a stock clip because of a cutaway count it guessed.
 - **"Continue" messages keep your brief.** A follow-up such as "load the tools and complete the
   task" used to replace the original request as what the AI was working toward, and its history
   was filled with its own progress notes instead of your brief. Follow-ups now carry on with the

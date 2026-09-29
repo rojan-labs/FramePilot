@@ -57,7 +57,19 @@ import { PROJECT_TOOLS } from './domain-tools/project.js';
 import { VERIFICATION_TOOLS } from './domain-tools/verification.js';
 import { TRACKING_MASK_TOOLS } from './domain-tools/tracking-mask.js';
 import { MASKING_TOOLS } from './domain-tools/masking.js';
-import { boolean, filterString, numeric, seconds } from './domain-tools/tool-args.js';
+import {
+  blankToUndefined,
+  boolean,
+  filterString,
+  numeric,
+  seconds,
+} from './domain-tools/tool-args.js';
+import {
+  MODEL_PLAN_MAX_ITEMS,
+  MODEL_PLAN_NOTE_CHARS,
+  MODEL_PLAN_STATUSES,
+  MODEL_PLAN_TASK_CHARS,
+} from './kernel/model-plan.js';
 import { analysisTool, askTool, noArgs, readTool } from './domain-tools/tool-factories.js';
 // `tool-input-contract.ts` only imports the `ToolSpec`/`ToolParameterSchema` *types* from
 // this module (also erased at runtime), so importing its runtime export here is safe.
@@ -211,6 +223,51 @@ const recallEvidenceSchema = z
   })
   .strict();
 
+/** A model-written string with its surrounding whitespace dropped before it is measured. */
+const trimmed = (value: unknown): unknown => (typeof value === 'string' ? value.trim() : value);
+
+/**
+ * One deliverable of the model's plan (`kernel/model-plan.ts`). `blocked` without a note is
+ * refused: an item the run gives up on must say why no tool can do it, or "blocked" is just
+ * a way to end the run early with the work unexplained.
+ */
+const planItemSchema = z
+  .object({
+    task: z.preprocess(trimmed, z.string().min(1).max(MODEL_PLAN_TASK_CHARS)),
+    status: z.enum(MODEL_PLAN_STATUSES),
+    // The limit and the fix in one sentence: "Too big: expected string to have <=240
+    // characters" cost harness runs 8, 10, 13 and 18 a turn each without saying what to cut.
+    note: z.preprocess(
+      blankToUndefined,
+      z
+        .string()
+        .max(
+          MODEL_PLAN_NOTE_CHARS,
+          `A note is at most ${String(MODEL_PLAN_NOTE_CHARS)} characters — shorten it to the ` +
+            'edit that delivered the item, or why no tool can do it.',
+        )
+        .optional(),
+    ),
+  })
+  .strict()
+  .refine((item) => item.status !== 'blocked' || item.note !== undefined, {
+    message: 'A blocked item needs a note saying why no available tool can do it.',
+    path: ['note'],
+  })
+  // Harness run 7 marked "Sound: … SFX layer" done with no effect ever searched for or
+  // placed. A done item names the edit that delivered it; with nothing delivered there is
+  // nothing honest to write, which is the point.
+  .refine((item) => item.status !== 'done' || item.note !== undefined, {
+    message: 'A done item needs a note naming the edit that delivered it (e.g. "add_music ×3").',
+    path: ['note'],
+  });
+
+const updatePlanSchema = z
+  .object({
+    items: z.array(planItemSchema).min(1).max(MODEL_PLAN_MAX_ITEMS),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // Tool specs
 //
@@ -355,10 +412,11 @@ const readTools: ToolSpec[] = [
     {
       name: 'load_skill',
       description:
-        'Load the full instructions of a skill from the skills manifest in your ' +
-        'context. Call it BEFORE starting work the skill covers, then follow the ' +
-        'returned playbook. Returns { name, description, tools, body } or the list ' +
-        'of valid names when the skill is unknown.',
+        'Load a skill from the skills manifest in your context: reference guidance on how ' +
+        'an experienced editor approaches a kind of work. Call it BEFORE the work it ' +
+        'covers and use it to do that part well — the request, not the skill, decides ' +
+        'what you build. Returns { name, description, tools, body } or the list of valid ' +
+        'names when the skill is unknown.',
       capabilities: ['skills'],
       // E1: pins into the run's ordered, bounded skill ledger — see ToolSpec.serialOnly.
       serialOnly: true,
@@ -420,6 +478,37 @@ const readTools: ToolSpec[] = [
       ]),
     }),
   ),
+  readTool(
+    {
+      name: 'update_plan',
+      description:
+        'Write your plan for this request and keep it current: the FULL list every call ' +
+        '(an earlier item you leave out is kept as it was — an item leaves the plan only as ' +
+        'done or blocked), one item per deliverable the request asks for, in the ' +
+        "request's own terms and order. A section that names several treatments is one " +
+        'item per treatment, so blocking one never hides the rest. ' +
+        'Status: pending, in_progress, done, or blocked — ' +
+        'done only once the edit that delivers it has been applied, with a note naming that ' +
+        'edit (a part you skipped is not done); blocked only when no available tool can do it, ' +
+        'with a note saying why — never cite an editor choice they did not make. The run ' +
+        'continues while any item is pending or in progress. Returns the counts and the ' +
+        'next open item. Does not edit the timeline.',
+      capabilities: ['planning'],
+      // The plan is run-scoped state whose order matters (the last list wins), so two
+      // calls in one turn must land in the order the model wrote them.
+      serialOnly: true,
+      // Same reason as `load_tools`: the plan lives in a TS orchestrator RUN — the
+      // conductor holds it and decides from it whether a reply ends the run. The Python
+      // sidecar runs no loop and an external MCP client brings its own agent, so for both
+      // this call would record a plan nothing honours. Deliberately NOT in
+      // `UI_INDEPENDENT_HOST_TOOLS` either.
+      hostUiOnly: true,
+    },
+    updatePlanSchema,
+    // Recording the plan happens in the orchestrator (it owns the run, as it does for
+    // `load_tools`); this returns the validated list it records.
+    (a) => ({ items: a.items }),
+  ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -436,6 +525,9 @@ const readTools: ToolSpec[] = [
 // Analysis tools mirror the Python Pydantic args in
 // engine/python/.../ai_tools/registry.py (AnalyzeSilenceArgs / DetectScenesArgs)
 // — same field names, all optional, so the schema-parity guard stays green.
+
+/** Most sources one `get_frame { sources }` sheet shows (engine `MAX_SHEET_SOURCES`). */
+export const GET_FRAME_MAX_SOURCES = 12;
 
 const getFrameSchema = z
   .object({
@@ -456,6 +548,28 @@ const getFrameSchema = z
     sourceSeconds: seconds
       .optional()
       .describe('With assetId: the moment in the SOURCE file (default its start).'),
+    // Many sources as shot on ONE labelled sheet. Run `d8d2e445` was told to look at every
+    // clip before cutting, had 20 sources, looked at 3 (one picture per call) and put 29
+    // clips on blind centre crops. The engine tiles each source view into one grid
+    // (`render/source_sheet.py`), numbered in this order.
+    sources: z
+      .array(
+        z
+          .object({
+            assetId: z.string().min(1),
+            sourceSeconds: seconds
+              .optional()
+              .describe('The moment in this source (default: its middle).'),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(GET_FRAME_MAX_SOURCES)
+      .optional()
+      .describe(
+        `Up to ${String(GET_FRAME_MAX_SOURCES)} media files as shot, tiled into ONE ` +
+          'labelled image (tile 1 = the first entry). Omit timeSeconds and assetId.',
+      ),
     // Small default (see the engine's DEFAULT_MAX_DIMENSION): an image costs input
     // tokens in proportion to its pixels, and most framing/legibility questions are
     // answered at 512px. Raised only when the question is genuinely about fine detail.
@@ -468,11 +582,15 @@ const getFrameSchema = z
   // Top-level exclusivity is enforced here rather than as a schema `oneOf`, which the
   // Anthropic API refuses under `input_schema` (see `tool-input-contract.ts#mapTimeParameters`);
   // the field descriptions carry the rule to the model.
-  .refine((a) => (a.timeSeconds === undefined) !== (a.assetId === undefined), {
-    message:
-      'get_frame takes timeSeconds (a moment of the edit) or assetId (a source file as shot), ' +
-      'exactly one of them.',
-  })
+  .refine(
+    (a) =>
+      [a.timeSeconds, a.assetId, a.sources].filter((value) => value !== undefined).length === 1,
+    {
+      message:
+        'get_frame takes timeSeconds (a moment of the edit), assetId (a source file as shot) ' +
+        'or sources (several source files on one sheet), exactly one of them.',
+    },
+  )
   .refine((a) => a.sourceSeconds === undefined || a.assetId !== undefined, {
     message: 'sourceSeconds is a time in a source file, so it needs assetId.',
   });
@@ -491,7 +609,11 @@ const analysisTools: ToolSpec[] = [
         'the footage, whether a grade reads as intended. Prefer it over guessing from ' +
         'numbers whenever the question is about how something LOOKS. It renders through ' +
         'the same engine as the final export, so what you see is what will be delivered. ' +
-        'One frame per call, and each costs real context — grab the few moments that ' +
+        'To look ACROSS many sources in one call — every clip before cutting, choosing ' +
+        'between takes — pass sources: [{ assetId, sourceSeconds? }] (up to 12): one ' +
+        'labelled contact sheet, numbered in your order, each source uncropped as shot. ' +
+        'Then single-source get_frame for a close look at the one that matters. Each ' +
+        'timeline look is one frame and costs real context — grab the few moments that ' +
         'actually settle the question, not a sweep of the timeline.',
       capabilities: ['vision'],
     },
@@ -504,8 +626,9 @@ const analysisTools: ToolSpec[] = [
         "Read what's already known about this project before doing anything else: the " +
         'media bin digest, what happened in the last session, the edits this user ' +
         'rejected (do not repeat them) and accepted, plus their cross-project working ' +
-        'style. Use at the start of a session, or when you need to know what the user ' +
-        'has already told us. Does not edit the timeline.',
+        'style. A remembered decision answers only the question asked then, with the tools ' +
+        'of that day; the current request outranks it. Use at the start of a session, or ' +
+        'when you need to know what the user has already told us. Does not edit the timeline.',
     },
     sessionContextSchema,
   ),

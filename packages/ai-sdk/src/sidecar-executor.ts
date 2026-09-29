@@ -25,6 +25,13 @@ import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './
 import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
 import { TemporalEvidenceBatchSchema, TEMPORAL_EVIDENCE_VERSION } from './temporal-review.js';
 import {
+  MeasureLoudnessArgsSchema,
+  interpretLoudness,
+  loudnessRefusal,
+  loudnessRequest,
+  loudnessWindow,
+} from './loudness-measurement.js';
+import {
   VisualIndexClient,
   runVisualIndexLoop,
   type VisualIndexLoopResult,
@@ -165,7 +172,75 @@ const TOOL_TIMEOUT_MS: Record<string, number> = {
   // Two compositions (with and without captions) compiled cold on a long edit, then two
   // frames per sampled cue. ~20 s warm and ~60 s cold on the captured 50 s short.
   check_caption_legibility: 240_000,
+  // The whole programme's sound composed and metered: a whole-timeline compile, then the
+  // mix streamed through ebur128. Seconds on a short; minutes on a long edit, cold.
+  measure_loudness: 300_000,
 };
+
+/**
+ * Routes the engine runs one request at a time, on purpose (`_temporal_evidence_gate` in
+ * `service.py`: a batch compiles and decodes at project resolution, so its cost is GB).
+ *
+ * The executor sends its own calls to them one at a time too, and starts each call's timeout
+ * when that call is SENT. Posted together, the engine queued them anyway, but every call's
+ * clock ran from the moment the model asked: run 15 measured the colour of six clips in one
+ * step, the engine answered them one after another, and five of the six "timed out after
+ * 120s" while they were still waiting behind their own siblings. The timeout is a ceiling for
+ * a hung engine; time spent waiting for this run's earlier calls is not the engine hanging.
+ * What remains on the clock is the call's own work and, at most, a background review batch
+ * that got to the engine first (`review-findings.ts` sends those one at a time).
+ */
+const ENGINE_SERIAL_ROUTES: ReadonlySet<string> = new Set([TEMPORAL_EVIDENCE_ROUTE]);
+
+/** Ends a call's turn on an {@link ENGINE_SERIAL_ROUTES} route, letting the next one go. */
+type ReleaseTurn = () => void;
+
+/**
+ * Wait until this executor's earlier calls on `route` have settled, then hold the route.
+ *
+ * @returns The release to call when this call settles, or `null` when the run was stopped
+ *   while the call was still waiting (it never reached the engine). A stopped call keeps its
+ *   place in line until the call ahead of it settles, so later calls still go in order.
+ */
+async function takeRouteTurn(
+  turns: Map<string, Promise<void>>,
+  route: string,
+  signal: AbortSignal | undefined,
+): Promise<ReleaseTurn | null> {
+  const ahead = turns.get(route) ?? Promise.resolve();
+  let release: ReleaseTurn = () => undefined;
+  const done = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = ahead.then(() => done);
+  turns.set(route, tail);
+  const releaseTurn: ReleaseTurn = () => {
+    release();
+    if (turns.get(route) === tail) turns.delete(route);
+  };
+  if (!signal) {
+    await ahead;
+    return releaseTurn;
+  }
+  if (signal.aborted) {
+    void ahead.then(releaseTurn);
+    return null;
+  }
+  let onAbort: () => void = () => undefined;
+  const stopped = await Promise.race([
+    ahead.then(() => false),
+    new Promise<boolean>((resolve) => {
+      onAbort = () => resolve(true);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }),
+  ]);
+  signal.removeEventListener('abort', onAbort);
+  if (stopped) {
+    void ahead.then(releaseTurn);
+    return null;
+  }
+  return releaseTurn;
+}
 
 /** The abort ceiling for one call: the tool's own budget, else the default. */
 function timeoutForTool(toolName: string, configured: number | undefined): number {
@@ -1068,7 +1143,14 @@ export function frameBody(
     // to check an edit that has not been saved yet.
     project,
   };
-  if (typeof args.assetId === 'string') {
+  if (Array.isArray(args.sources)) {
+    // Several sources as shot on one labelled sheet (`render/source_sheet.py`). An omitted
+    // time is left out, not zeroed: the engine shows the middle of the source.
+    body.sources = (args.sources as readonly Record<string, unknown>[]).map((source) => ({
+      asset_id: source.assetId,
+      ...(typeof source.sourceSeconds === 'number' ? { source_seconds: source.sourceSeconds } : {}),
+    }));
+  } else if (typeof args.assetId === 'string') {
     // A source as shot (`frame_grab.source_view_project`), not a moment of the edit.
     body.asset_id = args.assetId;
     body.source_seconds = typeof args.sourceSeconds === 'number' ? args.sourceSeconds : 0;
@@ -1100,6 +1182,7 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
   const record = (data ?? {}) as Record<string, unknown>;
   const base64 = typeof record.base64 === 'string' ? record.base64 : '';
   const mediaType = typeof record.media_type === 'string' ? record.media_type : '';
+  if (Array.isArray(args.sources)) return unwrapSourceSheet(record, base64, mediaType);
   const at = typeof record.time_seconds === 'number' ? record.time_seconds : 0;
   const source = typeof args.assetId === 'string' ? args.assetId : undefined;
   const asked = source === undefined ? args.timeSeconds : (args.sourceSeconds ?? 0);
@@ -1137,6 +1220,89 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
       durationSeconds:
         typeof record.duration_seconds === 'number' ? record.duration_seconds : undefined,
       note: 'The frame itself is attached to this turn as an image.',
+    },
+    images: [
+      {
+        mediaType: mediaType as AiImage['mediaType'],
+        base64,
+        label,
+        ...(width > 0 && height > 0 ? { width, height } : {}),
+      },
+    ],
+  };
+}
+
+/** One tile of a `get_frame { sources }` sheet, as the model is told about it. */
+interface SheetTileFact {
+  readonly tile: number;
+  readonly assetId: string;
+  readonly name: string;
+  readonly sourceSeconds: number;
+  readonly durationSeconds?: number;
+  readonly error?: string;
+}
+
+function sheetTiles(value: unknown): SheetTileFact[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): SheetTileFact[] => {
+    const tile = (entry ?? {}) as Record<string, unknown>;
+    if (typeof tile.index !== 'number' || typeof tile.asset_id !== 'string') return [];
+    return [
+      {
+        tile: tile.index,
+        assetId: tile.asset_id,
+        name: typeof tile.name === 'string' ? tile.name : tile.asset_id,
+        sourceSeconds: typeof tile.source_seconds === 'number' ? tile.source_seconds : 0,
+        ...(typeof tile.duration_seconds === 'number'
+          ? { durationSeconds: tile.duration_seconds }
+          : {}),
+        ...(typeof tile.error === 'string' ? { error: tile.error } : {}),
+      },
+    ];
+  });
+}
+
+/**
+ * A multi-source sheet: one image, and the tile list IN ORDER so the model can say "tile 7"
+ * and mean an asset id. The label names every tile, because the image's own labels are
+ * the only other place the numbering lives.
+ */
+function unwrapSourceSheet(
+  record: Record<string, unknown>,
+  base64: string,
+  mediaType: string,
+): HostToolOutcome {
+  const tiles = sheetTiles(record.tiles);
+  if (base64 === '' || !FORWARDABLE_IMAGE_TYPES.has(mediaType) || tiles.length === 0) {
+    const reason = unreadableEngineAnswer(
+      `the engine returned no usable source sheet (media type ${mediaType || 'missing'}, ` +
+        `${String(tiles.length)} tiles)`,
+    );
+    return { status: 'failed', summary: `"get_frame" failed: ${reason}`, data: reason };
+  }
+  const width = typeof record.width === 'number' ? record.width : 0;
+  const height = typeof record.height === 'number' ? record.height : 0;
+  const listed = tiles
+    .map((tile) => `${String(tile.tile)} ${tile.assetId} @${tile.sourceSeconds.toFixed(1)}s`)
+    .join(', ');
+  const label = `${String(tiles.length)} sources as shot (uncropped, numbered tiles): ${listed}`;
+  const failed = tiles.filter((tile) => tile.error !== undefined);
+  const summary =
+    `Looked at ${String(tiles.length)} sources as shot on one sheet` +
+    (failed.length > 0
+      ? ` (${String(failed.length)} could not be rendered: ` +
+        `${failed.map((tile) => `tile ${String(tile.tile)} ${tile.assetId}`).join(', ')})`
+      : '');
+  return {
+    status: 'completed',
+    summary,
+    data: {
+      tiles,
+      width,
+      height,
+      note:
+        'The sheet is attached to this turn as one image; tile N is the Nth entry of tiles. ' +
+        'Use get_frame { assetId, sourceSeconds } for a close look at one of them.',
     },
     images: [
       {
@@ -1443,6 +1609,24 @@ interface SidecarPlan {
 }
 
 /**
+ * `measure_loudness` through the temporal-evidence route (`loudness-measurement.ts` owns the
+ * window and the reading). `null` for a call with nothing to measure — `run` answers those
+ * with {@link loudnessRefusal} before it plans anything.
+ */
+function loudnessPlan(rawArgs: Record<string, unknown>, project: Project): SidecarPlan | null {
+  const parsed = MeasureLoudnessArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) return null;
+  const window = loudnessWindow(project, parsed.data);
+  if ('refusal' in window) return null;
+  const requestId = `measure_loudness__${window.role}`;
+  return {
+    route: TEMPORAL_EVIDENCE_ROUTE,
+    body: { project, requests: [loudnessRequest(window, requestId)] },
+    interpret: (data) => interpretLoudness(data, requestId, window, parsed.data),
+  };
+}
+
+/**
  * Resolve a tool call to its sidecar route + body + response interpreter, or
  * `null` when this executor has no route for it (render/export actions). Keeping
  * the branching here — one arm per capability family — keeps the executor's
@@ -1551,6 +1735,7 @@ export function planSidecarCall(
       },
     };
   }
+  if (name === 'measure_loudness') return loudnessPlan(args, project);
   const searchRoute = SEARCH_ROUTES[name];
   if (searchRoute !== undefined) {
     return {
@@ -1727,6 +1912,8 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
     options.unroutableToolNames === undefined || options.unroutableToolNames.length === 0
       ? RENDER_ACTIONS
       : new Set([...RENDER_ACTIONS, ...options.unroutableToolNames]);
+  // This executor's queue per engine-serialised route (see ENGINE_SERIAL_ROUTES).
+  const routeTurns = new Map<string, Promise<void>>();
   const dispatch: HostToolExecutor = {
     async run(
       call: ToolCall,
@@ -1930,6 +2117,10 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
           };
         }
       }
+      if (call.name === 'measure_loudness') {
+        const refusal = loudnessRefusal(ctx.project, call.arguments);
+        if (refusal !== undefined) return { status: 'failed', summary: refusal };
+      }
       // Forward the host-held embedding keys (the same ones index_media uses) to the
       // visual query routes; without them a TwelveLabs-indexed project answers from the
       // empty local sqlite-vec store. planSidecarCall only reads twelveLabsKey/nvidiaKeys.
@@ -1955,38 +2146,59 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
               'tools, and tell the editor which step you had to skip.',
         };
       }
-      log.action('run → dispatching sidecar call', { tool: call.name, route: plan.route });
-      // Chain the run's Stop signal with a hard timeout: whichever fires first
-      // aborts the HTTP call. (Manual chaining — AbortSignal.any is not yet
-      // available on every supported runtime.)
-      const controller = new AbortController();
-      const onAbort = (): void => controller.abort();
-      if (signal?.aborted) controller.abort();
-      signal?.addEventListener('abort', onAbort, { once: true });
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      // postAnalysis settles every path to an outcome (it never throws), so the
-      // cleanup below always runs — no try/finally needed.
-      const outcome = await postAnalysis({
-        fetchFn,
-        url: `${options.baseUrl}${plan.route}`,
-        baseUrl: options.baseUrl,
-        call,
-        body: plan.body,
-        interpret: plan.interpret,
-        requestSignal: controller.signal,
-        runSignal: signal,
-        timeoutMs,
-      });
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      log.action('run ← sidecar call settled', {
-        tool: call.name,
-        status: outcome.status,
-        summary: outcome.summary,
-      });
-      return outcome;
+      // One call at a time on a route the engine serialises anyway, so the timeout below
+      // starts when this call is sent, not when the model asked (see ENGINE_SERIAL_ROUTES).
+      const releaseTurn = ENGINE_SERIAL_ROUTES.has(plan.route)
+        ? await takeRouteTurn(routeTurns, plan.route, signal)
+        : () => undefined;
+      if (releaseTurn === null) {
+        return { status: 'cancelled', summary: `Stopped "${call.name}" — run cancelled` };
+      }
+      try {
+        return await sendPlanned(call, plan, timeoutMs, signal);
+      } finally {
+        releaseTurn();
+      }
     },
   };
+  /** POST one planned call under the run's Stop signal and its own timeout. */
+  async function sendPlanned(
+    call: ToolCall,
+    plan: SidecarPlan,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+  ): Promise<HostToolOutcome> {
+    log.action('run → dispatching sidecar call', { tool: call.name, route: plan.route });
+    // Chain the run's Stop signal with a hard timeout: whichever fires first
+    // aborts the HTTP call. (Manual chaining — AbortSignal.any is not yet
+    // available on every supported runtime.)
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort();
+    if (signal?.aborted) controller.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // postAnalysis settles every path to an outcome (it never throws), so the
+    // cleanup below always runs — no try/finally needed.
+    const outcome = await postAnalysis({
+      fetchFn,
+      url: `${options.baseUrl}${plan.route}`,
+      baseUrl: options.baseUrl,
+      call,
+      body: plan.body,
+      interpret: plan.interpret,
+      requestSignal: controller.signal,
+      runSignal: signal,
+      timeoutMs,
+    });
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
+    log.action('run ← sidecar call settled', {
+      tool: call.name,
+      status: outcome.status,
+      summary: outcome.summary,
+    });
+    return outcome;
+  }
   // Every path above — the sidecar routes, the host overrides, the index job — goes
   // through the budget, because every one of them can be the call that runs a bin's worth
   // of media through the machine.

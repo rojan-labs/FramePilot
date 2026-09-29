@@ -26,6 +26,8 @@
  */
 import type { Timeline, Track } from '@framepilot/timeline-schema';
 import type { Operation } from './operations.js';
+import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
+import { laneTransitionProblems } from './validator.js';
 
 /**
  * Overlap tolerance, in seconds.
@@ -36,17 +38,59 @@ import type { Operation } from './operations.js';
  */
 export const LANE_OVERLAP_EPSILON = 1e-3;
 
+/** The id a placement probe carries; no real clip id can start with a NUL. */
+const PLACEMENT_PROBE_ID = '\u0000lane-placement-probe';
+
 /**
- * TRUE when no clip on `track` occupies the half-open span `[start, end)`.
+ * TRUE when a new clip over `[start, end)` would leave a transition on `track` broken that holds
+ * without it.
+ *
+ * Free space is not the whole of "room". A lane's edges carry state: an element's In or Out, a
+ * cutaway's entrance or exit (both `add_layer_transition`, naming no clip), and a cross between
+ * two clips (naming each other). Each is valid only while its neighbourhood stays as it was: an
+ * In is an entrance while its clip's start is NOT a cut, and becomes a cross that must name the
+ * clip before it the moment something butts against it. Run 17 lost three `add_shape` calls this
+ * way: the picker put each shape on a lane where it ended exactly where a title with a zoom In
+ * began, the lane had free space, and the validator refused the patch for the title's sake.
+ *
+ * So the question is put to the validator's own transition rule (`laneTransitionProblems`) with a
+ * bare probe clip in place, not to a copy of it: any sentence the probe adds is a neighbour it
+ * would break. Sentences already there are not the placement's doing and do not count.
+ *
+ * @param track - The lane to test.
+ * @param start - Span start, in seconds.
+ * @param end - Span end, in seconds.
+ */
+export function placementBreaksTransitions(track: Track, start: number, end: number): boolean {
+  const carriesEdges = track.clips.some((clip) =>
+    clip.effects.some(
+      (effect) => effect.type === 'transition' || effect.type === TRANSITION_OUT_EFFECT_TYPE,
+    ),
+  );
+  // A lane with no transitions has nothing to break; skip the sort the rule would do.
+  if (!carriesEdges) return false;
+  const before = new Set(laneTransitionProblems(track));
+  const probe = { id: PLACEMENT_PROBE_ID, start, end, effects: [] };
+  return laneTransitionProblems({ id: track.id, clips: [...track.clips, probe] }).some(
+    (problem) => !before.has(problem),
+  );
+}
+
+/**
+ * TRUE when a new clip can take the half-open span `[start, end)` on `track`: no clip occupies
+ * it, and putting one there breaks none of the lane's transitions
+ * ({@link placementBreaksTransitions}). Every lane picker asks this, so none of them can choose
+ * a lane the validator would then refuse.
  *
  * @param track - The lane to test.
  * @param start - Span start, in seconds.
  * @param end - Span end, in seconds.
  */
 export function trackHasRoomFor(track: Track, start: number, end: number): boolean {
-  return !track.clips.some(
+  const occupied = track.clips.some(
     (clip) => clip.start < end - LANE_OVERLAP_EPSILON && clip.end > start + LANE_OVERLAP_EPSILON,
   );
+  return !occupied && !placementBreaksTransitions(track, start, end);
 }
 
 /**

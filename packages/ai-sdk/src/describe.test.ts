@@ -286,6 +286,30 @@ describe('describeToolCall', () => {
  * All nine rendered with no time and no label on them.
  */
 describe('describeOperation on the operations that used to render blank', () => {
+  // Run d8d2e445's receipt read "Add effect layer Effect 1 (×5)" for five different looks.
+  it('names an added effect layer by its effect and its time range', () => {
+    const d = describeOperation(
+      op({
+        type: 'add_effect_layer',
+        trackId: 'fx_1',
+        layer: { id: 'fx_golden', effectId: 'golden-leak', start: 43, end: 45 },
+      }),
+    );
+    expect(d.action).toBe('Added Golden Leak');
+    expect(d.detail).toBe('43s–45s');
+    expect(d.refs).toEqual([{ kind: 'track', id: 'fx_1', label: 'fx_1' }]);
+    // An id the catalogue does not know still names itself, and a malformed layer still
+    // reads as a sentence rather than "undefined".
+    expect(
+      describeOperation(
+        op({ type: 'add_effect_layer', trackId: 'fx_1', layer: { effectId: 'retired-fx' } }),
+      ),
+    ).toMatchObject({ action: 'Added retired-fx', detail: '' });
+    expect(describeOperation(op({ type: 'add_effect_layer', trackId: 'fx_1' })).action).toBe(
+      'Added effect',
+    );
+  });
+
   const detailOf = (o: Record<string, unknown>) => describeOperation(op(o), names).detail;
 
   it('names a marker by its label and its time', () => {

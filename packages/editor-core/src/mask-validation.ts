@@ -31,7 +31,12 @@ import {
   type MaskOperation,
 } from './mask-operations.js';
 import type { Operation } from './operations.js';
-import { syntheticClipKind } from './synthetic-assets.js';
+import {
+  PICTURE_LANE_TYPES,
+  clipRenderKind,
+  isDrawnClipKind,
+  syntheticClipKind,
+} from './synthetic-assets.js';
 import type { ValidationCode, ValidationIssue } from './validator.js';
 
 /**
@@ -365,6 +370,37 @@ function mediaIssues(
   return issues;
 }
 
+/** What a track matte refused for reading no picture is told to read instead. */
+const LAYER_SOURCE_REMEDY = `Point it at a clip or track on a ${[...PICTURE_LANE_TYPES].join(' or ')} track: a video, a still, a text overlay or a shape.`;
+
+/**
+ * Why a track matte's source draws no picture, or `null` when it draws one (AL31a).
+ *
+ * A picture is what the frame plan draws in a lane's place (`DRAWN_CLIP_KINDS`), so a whole
+ * track is a source when its lane type hosts drawn kinds (`video`, `overlay`), and one clip is
+ * a source when it sits on such a lane AND is itself drawn: a song or a caption cue parked on
+ * a picture lane still draws nothing there (a cue is burned by its own pass over the frame).
+ * The export refuses the same (`layer_mattes.assert_layer_sources`).
+ */
+function layerSourceDrawsNoPicture(
+  source: Extract<MaskLayer, { kind: 'layer' }>['source'],
+  clipsById: ReadonlyMap<string, Clip>,
+  trackOfClip: ReadonlyMap<string, Track>,
+  tracksById: ReadonlyMap<string, Track>,
+  context: MaskValidationContext,
+): string | null {
+  const lane =
+    source.kind === 'clip' ? trackOfClip.get(source.clipId) : tracksById.get(source.trackId);
+  if (lane !== undefined && !PICTURE_LANE_TYPES.has(lane.type)) {
+    return 'a track that holds no picture';
+  }
+  if (source.kind !== 'clip') return null;
+  const clip = clipsById.get(source.clipId);
+  if (clip === undefined) return null;
+  const kind = clipRenderKind(clip.assetId, context.assets?.get(clip.assetId)?.kind);
+  return isDrawnClipKind(kind) ? null : `clip '${clip.id}', which draws no picture of its own`;
+}
+
 /**
  * Layer masks read another clip's (or a whole track's) picture. A loop — A's matte is B and
  * B's matte is A — has no defined picture, so it is refused.
@@ -373,12 +409,17 @@ function layerCycleIssues(
   timeline: Timeline,
   startClipIds: readonly string[],
   index: number,
+  context: MaskValidationContext,
 ): Issue[] {
   const clipsById = new Map<string, Clip>();
   const tracksById = new Map<string, Track>();
+  const trackOfClip = new Map<string, Track>();
   for (const track of timeline.tracks) {
     tracksById.set(track.id, track);
-    for (const clip of track.clips) clipsById.set(clip.id, clip);
+    for (const clip of track.clips) {
+      clipsById.set(clip.id, clip);
+      trackOfClip.set(clip.id, track);
+    }
   }
   const issues: Issue[] = [];
   const reads = (clip: Clip): string[] =>
@@ -405,22 +446,23 @@ function layerCycleIssues(
           ),
         );
       }
-      const sourceTrack =
-        mask.source.kind === 'clip'
-          ? timeline.tracks.find((track) =>
-              track.clips.some(
-                (candidate) => candidate.id === (mask.source as { clipId: string }).clipId,
-              ),
-            )
-          : tracksById.get(mask.source.trackId);
-      if (exists && sourceTrack !== undefined && sourceTrack.type !== 'video') {
-        issues.push(
-          error(
-            'invalid_mask',
-            `Layer mask '${mask.id}' on clip '${start.id}' reads a track that holds no picture. Point it at a clip or track on a video track.`,
-            index,
-          ),
+      if (exists) {
+        const noPicture = layerSourceDrawsNoPicture(
+          mask.source,
+          clipsById,
+          trackOfClip,
+          tracksById,
+          context,
         );
+        if (noPicture !== null) {
+          issues.push(
+            error(
+              'invalid_mask',
+              `Layer mask '${mask.id}' on clip '${start.id}' reads ${noPicture}. ${LAYER_SOURCE_REMEDY}`,
+              index,
+            ),
+          );
+        }
       }
     }
     // Depth-first from the touched clip: reaching it again is a loop through it.
@@ -523,7 +565,7 @@ export function maskOperationIssues(
     issues.push(...mediaIssues(owner, op, authored, context, index));
     issues.push(...graphicIssues(owner, context, index));
   }
-  issues.push(...layerCycleIssues(after, clipIds, index));
+  issues.push(...layerCycleIssues(after, clipIds, index, context));
   return issues;
 }
 

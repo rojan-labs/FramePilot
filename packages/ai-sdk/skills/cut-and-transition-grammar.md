@@ -1,10 +1,15 @@
 ---
 name: cut-and-transition-grammar
-description: Choose motivated cuts and a restrained transition vocabulary, place effects only on real eligible boundaries, and verify committed transition state.
+description: Cut and transition reference — motivated cut points in frames, J/L cuts, cutaway edges, a restrained transition vocabulary, putting the transition an editor named on the cut they named, and verifying what was committed.
 tools: [get_timeline, list_edit_boundaries, get_mapped_transcript, map_time, discover_transitions, add_transition, add_transitions, split_clip, trim_clip, professional_edit, verify_transitions]
 ---
 
 # Cut and transition grammar
+
+**Named transitions go where they were named.** When the request assigns a transition to a cut
+("a whip pan out of the opener", "a light leak into act two", "a luma fade between the two skies"), that
+cut gets it and every other cut stays as the request says (usually hard). The grammar below
+decides the cuts the request leaves to you, and the length and direction a name leaves open.
 
 ## Purpose
 
@@ -80,11 +85,12 @@ apart from the cuts. "No cuts" never means there is nowhere to put a transition.
 - First improve a rough cut point by a few frames or cut on action.
 - Cross-dissolve blends ideas/time; fade closes a chapter; push/slide advances energetic steps; zoom marks a hype accent; blur/wipe signal a deliberate stylized shift.
 - The library is 77 transitions, not seven. Call `discover_transitions` for real ids before naming one — searching by feel ("fast", "cinematic") or by direction ("left") is how you find the one you mean, and a kind this build does not know is refused outright rather than rendering as nothing.
-- Reach past the basics only with a reason: `whip-pan-left` for two shots that already move that way, `punch-zoom` or `flash` on a beat, `light-leak` or `film-burn` for a warm section break, `luma-fade` between two shots with matched brightness. `glitch` and `kaleidoscope` are statements — one per piece at most.
-- Alignment is a real choice: `centre` straddles the cut (what most editors expect), `end` puts the whole ramp on the outgoing shot, `start` on the incoming one. Absent means `start`, which is what this engine has always done.
+- Unnamed cuts: pass a `reason` and let the tool choose kind and length from what the shots measure. Named ones: `add_transitions` with `cuts`, each `{fromClipId, toClipId, kind}`, in one call.
+- Translating an editor's words: a whip pan is `whip-pan-left`/`-right`/`-up`/`-down` in the direction the camera already moves; a zoom punch `punch-zoom`; a flash `flash`; a leak or burn `light-leak`/`film-burn`; a luma fade `luma-fade`. `glitch` and `kaleidoscope` are statements — one per piece at most.
+- The transition tools take no alignment: what they commit ramps over the incoming shot's first frames. Straddling the cut is set in the Inspector — say so when it matters.
 - Keep energetic transitions short and section transitions slower; anything over one second is a statement.
 - A cut carries at most half of its shorter shot, so a quick cutaway takes a quick transition — 0.16s across two 0.4s slivers, not the half-second you would use between two long takes. Ask for what the moment wants: too long is shortened to fit, never refused. Read the committed duration back before you describe it, or you will report a half-second dissolve the timeline never had.
-- Pick one signature transition family per piece.
+- Where you choose, keep one signature transition family per piece; a request that names several gets several.
 
 ## Decision framework
 
@@ -92,7 +98,7 @@ Read real boundaries → name the relationship → test whether a cut expresses 
 
 ## Common mistakes
 
-Using narrative beats as if they were cut boundaries, mixing many transition types, repeating one effect mechanically, or claiming visibility from an applied response.
+Using narrative beats as if they were cut boundaries, mixing many transition types nobody asked for, skipping a transition the editor named, repeating one effect mechanically, or claiming visibility from an applied response.
 
 ## Verification checklist
 

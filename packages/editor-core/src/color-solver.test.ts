@@ -2,14 +2,18 @@
  * What these tests can and cannot claim.
  *
  * They pin the SOLVER: its algebra, its direction, its clamping, its skin cap and
- * the ordering of its look amounts. They deliberately assert **no fitted number**,
- * because no number here has been fitted — the coefficients in `color-solver.ts`
- * are derived from the renderer's source and awaiting
- * `packages/ai-sdk/scripts/fit-color-response.mjs`. A test that froze one of them
- * as an expected value would turn a provisional guess into a regression gate and
- * make the real fit look like a bug.
+ * the ordering of its look amounts. They assert **no fitted number**: the clipping
+ * efficiencies (`*_RESPONSE`) are material-dependent and a frozen value would turn a
+ * provisional guess into a regression gate.
  *
- * So: signs, orderings, bounds, invariants. Never "temperature is 0.3189".
+ * The white-balance model is different since #107: it is derived from the renderer's
+ * arithmetic and the ledger's limited-range BT.709 encoding, and a render through the
+ * real export (`engine/python/tests/color_response_measure.py`) agreed with it to
+ * within 2% on five clips. So its tests are ROUND TRIPS through an independent forward
+ * model written here — the renderer's channel arithmetic and the ledger's encoding —
+ * rather than expected numbers.
+ *
+ * So: signs, orderings, bounds, invariants, round trips. Never "temperature is 0.3189".
  */
 import { describe, expect, it } from 'vitest';
 import { COLOR_GRADE_PARAMETER_CONTRACTS } from './edit-value-contracts.js';
@@ -18,6 +22,7 @@ import {
   LOOK_AMOUNTS,
   LOOK_INTENTS,
   SKIN_MIN_COVERAGE_RATIO,
+  ledgerMeasurementFromLight,
   solveColorMatch,
   solveExposureNormalize,
   solveLook,
@@ -487,5 +492,132 @@ describe('solveLook', () => {
     const onBright = param(solveLook('warmer', 'medium', bright), 'temperature');
     expect(onDark).toBeGreaterThan(onBright);
     expect(onBright).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #107: the white balance, round-tripped through the renderer and the ledger
+// ---------------------------------------------------------------------------
+
+/** Rec.709 weights (`render/color.py`) and the ledger's limited-range BT.709 encoding. */
+const KR = 0.2126;
+const KB = 0.0722;
+const KG = 1 - KR - KB;
+
+type Rgb = readonly [number, number, number];
+
+/** The facts tier-0 would store for a frame whose channel means are `rgb`. */
+function ledgerFacts(rgb: Rgb, satMean = 0.2, spread = 0.25): ColorMeasurement {
+  const [r, g, b] = rgb;
+  const y = KR * r + KG * g + KB * b;
+  const uMean = 128 + (224 * (b - y)) / (2 * (1 - KB));
+  const vMean = 128 + (224 * (r - y)) / (2 * (1 - KR));
+  const code = (light: number): number => (16 + 219 * light) / 255;
+  const p10 = code(Math.max(0, y - spread));
+  const p90 = code(Math.min(1, y + spread));
+  return {
+    luma: { mean: code(y), p10, p90 },
+    chroma: { uMean, vMean, satMean },
+    warmth: (vMean - uMean) / 128,
+    contrastIdx: p90 - p10,
+  };
+}
+
+/** `render/color.py` stage 2 and stage 5 on channel means, unclipped. */
+function render(rgb: Rgb, temperature: number, tint: number, saturation = 0): Rgb {
+  const [r0, g0, b0] = rgb;
+  const r = r0 * (1 + 0.3 * temperature);
+  const g = g0 * (1 + 0.3 * tint);
+  const b = b0 * (1 - 0.3 * temperature);
+  const y = KR * r + KG * g + KB * b;
+  const s = 1 + saturation;
+  return [y + (r - y) * s, y + (g - y) * s, y + (b - y) * s];
+}
+
+describe('#107 — white balance is solved in the ledger’s own units', () => {
+  // Real frames are not grey: these are a low-blue sunset, a blue aerial and a mid grey.
+  const frames: readonly (readonly [string, Rgb])[] = [
+    ['sunset (little blue)', [0.62, 0.4, 0.22]],
+    ['aerial (blue)', [0.3, 0.42, 0.55]],
+    ['grey', [0.4, 0.4, 0.4]],
+  ];
+
+  for (const [name, rgb] of frames) {
+    it(`a solved warmer move lands on the reference warmth after rendering: ${name}`, () => {
+      const target = ledgerFacts(rgb);
+      const reference = { ...target, warmth: target.warmth + 0.08 };
+      const refChroma = {
+        ...target.chroma,
+        uMean: target.chroma.uMean - 0.04 * 128,
+        vMean: target.chroma.vMean + 0.04 * 128,
+      };
+      const solution = solveColorMatch(target, { ...reference, chroma: refChroma });
+      for (const key of Object.keys(solution.params)) {
+        expect(['temperature', 'tint']).toContain(key);
+      }
+      const rendered = ledgerFacts(
+        render(rgb, param(solution, 'temperature'), param(solution, 'tint')),
+      );
+      // Four-decimal parameter rounding is the only error left in an unclipped render.
+      expect(rendered.warmth).toBeCloseTo(target.warmth + 0.08, 3);
+    });
+  }
+
+  it('the same warmth costs MORE temperature on a frame with little blue to take away', () => {
+    // Same light, same asked-for move: the old grey-patch model priced them identically.
+    const lowBlue = ledgerFacts([0.52, 0.42, 0.2]);
+    const highBlue = ledgerFacts([0.38, 0.42, 0.62]);
+    expect(lowBlue.luma.mean).toBeCloseTo(highBlue.luma.mean, 2);
+    const warmer = (m: ColorMeasurement): number =>
+      param(solveLook('warmer', 'medium', m), 'temperature');
+    expect(warmer(lowBlue)).toBeGreaterThan(warmer(highBlue));
+  });
+
+  it('a match that also raises saturation leaves the cast where the reference has it', () => {
+    // Saturation scales every pixel's chroma, warmth included; the white balance has to
+    // be solved net of it, or the cast it sets is multiplied again on the way out.
+    const rgb: Rgb = [0.38, 0.42, 0.5];
+    const target = ledgerFacts(rgb, 0.1);
+    const referenceRgb = render(rgb, 0.4, 0, 0.3);
+    const reference = ledgerFacts(referenceRgb, 0.1 * 1.3 * 1.2);
+    const solution = solveColorMatch(target, reference);
+    const rendered = ledgerFacts(
+      render(
+        rgb,
+        param(solution, 'temperature'),
+        param(solution, 'tint'),
+        param(solution, 'saturation'),
+      ),
+    );
+    expect(param(solution, 'saturation')).toBeGreaterThan(0);
+    expect(rendered.warmth).toBeCloseTo(reference.warmth, 2);
+  });
+
+  it('"punchier" deepens the cast with the colour and asks for no white-balance move', () => {
+    const warm = ledgerFacts([0.6, 0.42, 0.28]);
+    const solution = solveLook('punchier', 'strong', warm);
+    expect(param(solution, 'saturation')).toBeGreaterThan(0);
+    expect(Math.abs(param(solution, 'temperature'))).toBeLessThan(1e-3);
+    expect(Math.abs(param(solution, 'tint'))).toBeLessThan(1e-3);
+  });
+
+  it('a rendered reading and a ledger reading of the same frame agree: an identity match', () => {
+    // The two provenances used to sit on scales 255/224 apart with and without the
+    // 16-code luma floor, so matching a frame to itself across them solved a grade.
+    const rgb: Rgb = [0.52, 0.44, 0.33];
+    const ledger = ledgerFacts(rgb);
+    const y = KR * rgb[0] + KG * rgb[1] + KB * rgb[2];
+    const rendered = ledgerMeasurementFromLight({
+      lumaMean: y,
+      lumaP10: Math.max(0, y - 0.25),
+      lumaP90: Math.min(1, y + 0.25),
+      red: rgb[0],
+      blue: rgb[2],
+      satMean: ledger.chroma.satMean,
+    });
+    expect(rendered.luma.mean).toBeCloseTo(ledger.luma.mean, 9);
+    expect(rendered.chroma.uMean).toBeCloseTo(ledger.chroma.uMean, 9);
+    expect(rendered.chroma.vMean).toBeCloseTo(ledger.chroma.vMean, 9);
+    expect(solveColorMatch(ledger, rendered).params).toEqual({});
   });
 });

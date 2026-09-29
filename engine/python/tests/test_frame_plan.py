@@ -204,6 +204,82 @@ def test_transition_under_layer_precedes_the_clip_and_reads_the_neighbours_handl
     }
 
 
+#: A fitted 16:9 picture's scale to fill a 9:16 frame: 1920 / (1080 * 9/16).
+_PORTRAIT_FILL = 1920 / 607.5
+
+
+def _reframed(clip_id: str, start: float, pan: tuple[float, float], xs: tuple[float, float]) -> Any:
+    """A clip reframed as ``reframe_pan`` writes it: fill scale, x panned over ``pan``."""
+    return _clip(
+        clip_id,
+        "v",
+        start,
+        start + 2,
+        sourceStart=4.0,
+        keyframes=[
+            {"id": f"{clip_id}s0", "time": 0.0, "property": "scale", "value": _PORTRAIT_FILL},
+            {"id": f"{clip_id}s1", "time": 2.0, "property": "scale", "value": _PORTRAIT_FILL},
+            {"id": f"{clip_id}x0", "time": pan[0], "property": "x", "value": xs[0]},
+            {"id": f"{clip_id}x1", "time": pan[1], "property": "x", "value": xs[1]},
+        ],
+    )
+
+
+def test_an_under_layer_keeps_the_neighbours_reframe_held_across_the_cut() -> None:
+    """AL40: the neighbour under a ramp is placed as it places itself, not fitted.
+
+    ``a`` pans to x = -200 by 1.0 s and holds; ``c`` holds x = 250 until 0.5 s. Past ``a``'s
+    out-point its under-layer holds its last keyframe; before ``c``'s in-point its under-layer
+    holds its first. Both fill the 1080x1920 frame. ``frame-plan.test.ts`` pins the same numbers.
+    """
+    incoming = _reframed("b", 2, (0.0, 2.0), (0.0, 0.0))
+    incoming["effects"] = [
+        {
+            "id": "b__transition",
+            "type": "transition",
+            "params": {"kind": "luma-fade", "durationSeconds": 0.6, "fromClipId": "a"},
+        },
+        {
+            "id": "b__transition_out",
+            "type": "transition_out",
+            "params": {
+                "kind": "cross-dissolve",
+                "durationSeconds": 0.5,
+                "toClipId": "c",
+                "alignment": "end",
+            },
+        },
+    ]
+    clips = [
+        _reframed("a", 0, (0.0, 1.0), (150.0, -200.0)),
+        incoming,
+        _reframed("c", 4, (0.5, 2.0), (250.0, -250.0)),
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": clips}],
+        resolution={"width": 1080, "height": 1920},
+    )
+
+    def geometry(t: float, role: str, clip_id: str) -> Any:
+        layer = next(
+            entry
+            for entry in frame_plan_at(project, t).layers
+            if entry.role == role and entry.clip_id == clip_id
+        )
+        assert layer.geometry is not None
+        return layer.geometry
+
+    after_cut = geometry(2.25, "underlay", "a")
+    assert after_cut == geometry(1.9, "clip", "a")
+    assert (after_cut.left, after_cut.top) == pytest.approx((540 - 3413.333 / 2 - 200, 0.0))
+    assert (after_cut.width, after_cut.height) == pytest.approx((3413.333, 1920.0))
+
+    before_cut = geometry(3.75, "underlay", "c")
+    assert before_cut == geometry(4.1, "clip", "c")
+    assert before_cut.left == pytest.approx(540 - 3413.333 / 2 + 250)
+    assert (before_cut.top, before_cut.height) == pytest.approx((0.0, 1920.0))
+
+
 def test_an_under_layer_with_no_handle_holds_the_edge_frame() -> None:
     neighbour = Clip.model_validate(_clip("a", "v", 0, 2, sourceStart=18.0))
     material = underlay_material(neighbour, "in", (2.0, 2.5), _ASSET_SECONDS)

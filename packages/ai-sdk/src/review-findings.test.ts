@@ -297,6 +297,48 @@ describe('ReviewFindingQueue', () => {
     expect(queue.hasPending).toBe(false);
   });
 
+  it('drainUntil returns what settled and leaves a still-rendering review to drainAll', async () => {
+    const queue = new ReviewFindingQueue();
+    queue.recordTurn(0, region(['track_v1'], ['clip_a']));
+    queue.recordTurn(1, region(['track_v2'], ['clip_b']));
+    let release: ((value: readonly ReviewFinding[]) => void) | undefined;
+    // The budget runs out only once the first review has settled — ordered by the review
+    // itself, not by two racing timers (a 0 ms review against a 5 ms budget lost under CI's
+    // coverage instrumentation).
+    const budget = new AbortController();
+    queue.track(0, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      setTimeout(() => budget.abort(), 0);
+      return [finding({ turnIndex: 0 })];
+    });
+    queue.track(
+      1,
+      () =>
+        new Promise<readonly ReviewFinding[]>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    // The settled review is taken; the stalled one is neither awaited past the budget nor
+    // cancelled — it is still pending, for the end-of-run drain to report.
+    expect(await queue.drainUntil(budget.signal)).toHaveLength(1);
+    expect(queue.hasPending).toBe(true);
+    release?.([finding({ turnIndex: 1, id: 'late' })]);
+    expect(await queue.drainAll()).toHaveLength(1);
+  });
+
+  it('drainUntil returns at once when the review settles before the budget', async () => {
+    const queue = new ReviewFindingQueue();
+    queue.recordTurn(0, region(['track_v1'], ['clip_a']));
+    queue.track(0, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return [finding({ turnIndex: 0 })];
+    });
+    // A budget that never fires: the wait ends because nothing is pending.
+    expect(await queue.drainUntil(new AbortController().signal)).toHaveLength(1);
+    expect(queue.hasPending).toBe(false);
+  });
+
   // An unreachable reviewer is not a verdict about the edit: it must neither fail the run
   // nor be mistaken for "reviewed and clean".
   it('records a failed review as a failure and contributes no findings', async () => {

@@ -248,7 +248,7 @@ export function applyUserPatch(
   // operation is idempotent, so the second pass changes nothing — but validating an
   // unquantized patch and committing a quantized one is exactly the kind of divergence
   // that makes a preview and an export disagree.
-  const patch = quantizePatch(rawPatch, EDITOR_FPS);
+  const patch = quantizePatch(rawPatch, EDITOR_FPS, state.assets);
   const result = validatePatch(state.timeline, patch, {
     assetIds: state.assetIds,
     assets: state.assets,

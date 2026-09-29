@@ -6,7 +6,25 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { overflowingWords, wordWidthEm } from './overlay-fit.js';
+import { getTextOverlayStyle } from '@framepilot/timeline-schema/text-overlay-styles';
+import {
+  drawnTextRects,
+  largestFittingSizePercent,
+  overflowingWords,
+  typedTitleDrawnWidthPx,
+  typedTitleFont,
+  typedTitleOf,
+  typedTitleWidthsPx,
+  wordWidthEm,
+} from './overlay-fit.js';
+import { TITLE_REFERENCE_FRAME, TITLE_TYPED_REFERENCE_WIDTHS } from './title-metrics.generated.js';
+import {
+  GLASS_PILL,
+  SEPT_2026,
+  TRIP,
+  UNTIL_NEXT_WEEKEND,
+  WEEKEND,
+} from './__fixtures__/text-overlays.js';
 
 const LANDSCAPE = { width: 1920, height: 1080 };
 const VERTICAL = { width: 1080, height: 1920 };
@@ -110,5 +128,246 @@ describe('overflowingWords', () => {
       LANDSCAPE,
     );
     expect(over.map((o) => o.word)).toEqual(['weekend', 'opening']);
+  });
+});
+
+/**
+ * A title with caption typography is drawn by the caption rasterizer: tracked, in its italic
+ * file, stroked and padded (#135). The reference widths are what that rasterizer drew,
+ * written by `python -m framepilot_engine.render.title_metrics`; `tests/test_title_metrics.py`
+ * checks the same arithmetic against the rasterizer directly.
+ */
+describe('typed titles are measured as the caption rasterizer draws them', () => {
+  const typedOf = (ref: (typeof TITLE_TYPED_REFERENCE_WIDTHS)[number]) => {
+    const typography = {
+      letterSpacing: ref.letterSpacing,
+      fontStyle: ref.fontStyle,
+      ...(ref.outlineWidth > 0 ? { outlineColor: '#000000', outlineWidth: ref.outlineWidth } : {}),
+      ...(ref.paddingX === null ? {} : { background: { paddingX: ref.paddingX } }),
+    };
+    return typedTitleOf(typography, ref.background)!;
+  };
+
+  it('predicts every width the engine drew, to rounding and weight bucketing', () => {
+    expect(TITLE_TYPED_REFERENCE_WIDTHS.length).toBeGreaterThan(0);
+    for (const ref of TITLE_TYPED_REFERENCE_WIDTHS) {
+      const typed = typedOf(ref);
+      const font = typedTitleFont({ fontFamily: ref.family, fontWeight: ref.weight }, typed);
+      const fontPx = Math.floor((TITLE_REFERENCE_FRAME.height * ref.size) / 100);
+      const { wrapPx } = typedTitleWidthsPx(ref.word, fontPx, font, typed);
+      const drawn = typedTitleDrawnWidthPx(ref.word, fontPx, font, typed);
+      const label = `${ref.family} ${ref.word} ${String(ref.size)}%`;
+      // The wrap width reads wide only where a weight is bucketed up (600 → 700), never narrow.
+      expect(wrapPx, label).toBeGreaterThanOrEqual(ref.wrapPx * 0.975 - 2);
+      expect(wrapPx, label).toBeLessThanOrEqual(ref.wrapPx * 1.03 + 2);
+      // Everything drawn — the chip, or the stroked, slanted ink — is inside what the fit reads.
+      expect(drawn, label).toBeGreaterThanOrEqual(ref.drawnPx * 0.975 - 2);
+    }
+  });
+
+  it('adds the tracking between the letters of "WEEKEND TRIP" in tracked-caps', () => {
+    const style = getTextOverlayStyle('tracked-caps')!;
+    expect(style.look.typography.letterSpacing).toBe(0.24);
+    const typed = typedTitleOf(style.look.typography, style.look.background)!;
+    const font = typedTitleFont({ fontFamily: 'Montserrat', fontWeight: 600 }, typed);
+    const untracked = { ...typed, letterSpacing: 0 };
+    // At the harness's 4 % of a 1080×1920 frame (76 px), seven trackings of 0.24 em are 128 px:
+    // one after every letter, the last included — the preview's CSS box, which the export draws.
+    const fontPx = Math.floor((1920 * 4) / 100);
+    const tracked = typedTitleWidthsPx('WEEKEND', fontPx, font, typed).wrapPx;
+    const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, untracked).wrapPx;
+    expect(tracked - plain).toBeGreaterThanOrEqual(Math.floor(7 * 0.24 * fontPx) - 1);
+    expect(tracked - plain).toBeLessThanOrEqual(Math.ceil(7 * 0.24 * fontPx) + 1);
+    // A single glyph's box still ends one tracking past it; its ink has no gap to widen.
+    const single = typedTitleWidthsPx('I', fontPx, font, typed);
+    const bare = typedTitleWidthsPx('I', fontPx, font, untracked);
+    expect(single.wrapPx - bare.wrapPx).toBeGreaterThanOrEqual(Math.floor(0.24 * fontPx) - 1);
+    expect(single.wrapPx - bare.wrapPx).toBeLessThanOrEqual(Math.ceil(0.24 * fontPx) + 1);
+    expect(single.inkPx).toBe(bare.inkPx);
+  });
+
+  it('tightens by negative tracking, clamped where both renderers clamp it', () => {
+    // "heading" tightens by 0.01 em and "statement" by 0.02: the export draws that now
+    // (`captions._token_width`), so the fit reads the word narrower, not at its advances.
+    expect(getTextOverlayStyle('statement')!.look.typography.letterSpacing).toBe(-0.02);
+    const typed = typedTitleOf({ letterSpacing: -0.1 }, undefined)!;
+    const font = typedTitleFont({ fontFamily: 'Inter', fontWeight: 800 }, typed);
+    const fontPx = 200;
+    const plain = typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: 0 });
+    const tight = typedTitleWidthsPx('WEEKEND', fontPx, font, typed);
+    // The box tightens after all seven letters (the preview's CSS box), the ink between six.
+    expect(plain.wrapPx - tight.wrapPx).toBeGreaterThanOrEqual(7 * 0.1 * fontPx - 1);
+    expect(plain.wrapPx - tight.wrapPx).toBeLessThanOrEqual(7 * 0.1 * fontPx + 1);
+    expect(plain.inkPx - tight.inkPx).toBeCloseTo(6 * 0.1 * fontPx, 6);
+    // Past -0.2 em the letters would run together; both renderers draw -0.2.
+    expect(typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.6 })).toEqual(
+      typedTitleWidthsPx('WEEKEND', fontPx, font, { ...typed, letterSpacing: -0.2 }),
+    );
+  });
+
+  it('reports a tracked word the untracked measure would have let through', () => {
+    const style = getTextOverlayStyle('tracked-caps')!;
+    const base = {
+      text: 'weekend trip',
+      fontFamily: 'Montserrat',
+      fontWeight: 600,
+      fontSizePercent: 7.5,
+      boxWidthPercent: 92,
+      background: null,
+    };
+    // Untracked (the fit before #135): "WEEKEND" at 7.5 % fits a 92 % box.
+    const untracked = { ...style.look.typography, letterSpacing: 0 };
+    expect(overflowingWords({ ...base, typography: untracked }, VERTICAL)).toEqual([]);
+    // Tracked as drawn, it does not — and the box it needs is past the frame's safe width.
+    const over = overflowingWords({ ...base, typography: style.look.typography }, VERTICAL);
+    expect(over.map((o) => o.word)).toEqual(['WEEKEND']);
+    expect(over[0]!.requiredBoxWidthPercent).toBeGreaterThan(92);
+  });
+
+  it('fits the largest size whose tracked words the box holds', () => {
+    const style = getTextOverlayStyle('tracked-caps')!;
+    const typed = typedTitleOf(style.look.typography, null)!;
+    const font = { fontFamily: 'Montserrat', fontWeight: 600 };
+    const size = largestFittingSizePercent('WEEKEND TRIP', 92, VERTICAL, font, typed)!;
+    const limit = Math.floor(1080 * 0.92);
+    const drawnAt = (percent: number) =>
+      typedTitleDrawnWidthPx(
+        'WEEKEND',
+        Math.floor((1920 * percent) / 100),
+        typedTitleFont(font, typed),
+        typed,
+      );
+    expect(drawnAt(size)).toBeLessThanOrEqual(limit);
+    expect(drawnAt(size + 0.1)).toBeGreaterThan(limit);
+    // Tracking costs size: untracked, the same words fit larger.
+    const plain = largestFittingSizePercent('WEEKEND TRIP', 92, VERTICAL, font, {
+      ...typed,
+      letterSpacing: 0,
+    })!;
+    expect(plain).toBeGreaterThan(size);
+  });
+
+  it('measures an italic from the italic file, and ignores italic where none ships', () => {
+    const typed = typedTitleOf({ fontStyle: 'italic' }, null)!;
+    const upright = { ...typed, fontStyle: 'normal' as const };
+    const playfair = { fontFamily: 'Playfair Display', fontWeight: 400 };
+    const italic = typedTitleWidthsPx('Journey', 200, typedTitleFont(playfair, typed), typed);
+    const roman = typedTitleWidthsPx('Journey', 200, typedTitleFont(playfair, upright), upright);
+    expect(italic.wrapPx).not.toBe(roman.wrapPx);
+    // Montserrat ships no italic file: the export draws it upright, and so does the fit.
+    const montserrat = { fontFamily: 'Montserrat', fontWeight: 400 };
+    expect(typedTitleWidthsPx('Journey', 200, typedTitleFont(montserrat, typed), typed)).toEqual(
+      typedTitleWidthsPx('Journey', 200, typedTitleFont(montserrat, upright), upright),
+    );
+  });
+
+  it('reads the chip padding only when a chip colour is set, and a plain title as plain', () => {
+    const typography = { background: { paddingX: 0.1 } };
+    expect(typedTitleOf(typography, '#000000cc')!.paddingX).toBe(0.1);
+    // No chip colour: the caption path keeps its default padding (text_overlay_caption_style).
+    expect(typedTitleOf(typography, null)!.paddingX).toBe(0.35);
+    // No typography, or one that does not validate: the export draws the plain title.
+    expect(typedTitleOf(undefined, null)).toBeUndefined();
+    expect(typedTitleOf({ lineHeight: 9 }, null)).toBeUndefined();
+    // A typed title with no family is drawn in the editor's Inter.
+    expect(typedTitleFont(undefined, typedTitleOf({}, null)!).fontFamily).toBe('Inter');
+  });
+});
+
+describe('drawnTextRects', () => {
+  // The engine's own layout of each overlay (`captions._layout_styled_caption` on the harness
+  // run 16 params, 1080x1920): lines, their widths, and the chip (block + padding each side).
+  const ENGINE = {
+    untilNextWeekend: { lines: [474, 429], chip: { width: 474 + 2 * 36, height: 335 + 2 * 36 } },
+    sept2026: { lines: [223.5], chip: { width: 223 + 2 * 10, height: 45 + 2 * 10 } },
+    glassPill: { lines: [748, 153], chip: { width: 748 + 2 * 35, height: 134 + 2 * 15 } },
+  };
+  const PX = 2;
+  // A weight between two measured ones reads at the heavier (Inter 600 at 700): a little wide.
+  const BUCKET = 0.015;
+  const near = (got: number, want: number): boolean => Math.abs(got - want) <= PX + BUCKET * want;
+
+  it('lays a typed title out as the caption rasterizer does: wrap, stack, chip', () => {
+    for (const [params, engine] of [
+      [UNTIL_NEXT_WEEKEND, ENGINE.untilNextWeekend],
+      [SEPT_2026, ENGINE.sept2026],
+      [GLASS_PILL, ENGINE.glassPill],
+    ] as const) {
+      const drawn = drawnTextRects(params, VERTICAL)!;
+      const lines = 'background' in params ? drawn.rects.slice(1) : drawn.rects;
+      expect(lines.map((line) => line.width)).toHaveLength(engine.lines.length);
+      lines.forEach((line, index) => {
+        expect(near(line.width, engine.lines[index]!), params.text).toBe(true);
+      });
+      expect(near(drawn.box.width, engine.chip.width), params.text).toBe(true);
+      expect(Math.abs(drawn.box.height - engine.chip.height), params.text).toBeLessThanOrEqual(PX);
+      // Centred on xPercent / yPercent, whatever the alignment inside it.
+      expect(drawn.box.x + drawn.box.width / 2).toBeCloseTo((params.xPercent / 100) * 1080, 6);
+      expect(drawn.box.y + drawn.box.height / 2).toBeCloseTo((params.yPercent / 100) * 1920, 6);
+    }
+  });
+
+  it('draws only the x-height band of each line, and the chip only where it is filled', () => {
+    const until = drawnTextRects(UNTIL_NEXT_WEEKEND, VERTICAL)!;
+    // No chip colour: two line bands, each well short of the 158 px line box it sits in.
+    expect(until.rects).toHaveLength(2);
+    for (const band of until.rects) expect(band.height).toBeLessThan(until.box.height / 2);
+    // Centred lines of different widths sit centred in the block.
+    expect(until.rects[1]!.x).toBeGreaterThan(until.rects[0]!.x);
+    // The glass pill's chip is filled, so all of it is drawn; its lines start at its left pad.
+    const pill = drawnTextRects(GLASS_PILL, VERTICAL)!;
+    expect(pill.rects[0]).toEqual(pill.box);
+    expect(pill.rects[1]!.x).toBeCloseTo(pill.rects[2]!.x, 6);
+  });
+
+  it('puts the date across the second line and the subtitle clear of the title', () => {
+    const until = drawnTextRects(UNTIL_NEXT_WEEKEND, VERTICAL)!.rects[1]!;
+    const date = drawnTextRects(SEPT_2026, VERTICAL)!.rects[0]!;
+    expect(date.y).toBeGreaterThan(until.y);
+    expect(date.y).toBeLessThan(until.y + until.height);
+    const weekend = drawnTextRects(WEEKEND, VERTICAL)!.rects[0]!;
+    const trip = drawnTextRects(TRIP, VERTICAL)!.rects[0]!;
+    expect(trip.y).toBeGreaterThan(weekend.y + weekend.height);
+  });
+
+  it('honours an authored line break in a typed title and ignores it in a plain one', () => {
+    const typed = drawnTextRects({ ...SEPT_2026, text: 'SEPT\n2026' }, VERTICAL)!;
+    expect(typed.rects).toHaveLength(2);
+    const plain = drawnTextRects(
+      { text: 'SEPT\n2026', fontSizePercent: 4, boxWidthPercent: 80 },
+      VERTICAL,
+    )!;
+    const plainOneLine = drawnTextRects(
+      { text: 'SEPT 2026', fontSizePercent: 4, boxWidthPercent: 80 },
+      VERTICAL,
+    )!;
+    expect(plain.box).toEqual(plainOneLine.box);
+  });
+
+  it('bounds a plain title by its inked width, padded only when a background fills it', () => {
+    const bare = drawnTextRects({ text: 'Hello there', fontSizePercent: 5 }, VERTICAL)!;
+    // One block, centred on the default 50 / 50, narrower than the default 80 % box.
+    expect(bare.rects).toEqual([bare.box]);
+    expect(bare.box.x + bare.box.width / 2).toBeCloseTo(540, 6);
+    expect(bare.box.width).toBeLessThan(0.8 * 1080);
+    const filled = drawnTextRects(
+      { text: 'Hello there', fontSizePercent: 5, background: '#000000' },
+      VERTICAL,
+    )!;
+    expect(filled.box.width).toBeGreaterThan(bare.box.width);
+    // A narrow box wraps it onto two lines: taller, no wider than the widest word.
+    const wrapped = drawnTextRects(
+      { text: 'Hello there', fontSizePercent: 5, boxWidthPercent: 20 },
+      VERTICAL,
+    )!;
+    expect(wrapped.box.height).toBeGreaterThan(bare.box.height);
+    expect(wrapped.box.width).toBeLessThan(bare.box.width);
+  });
+
+  it('has no opinion without words or a frame', () => {
+    expect(drawnTextRects({ text: '' }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: '   ' }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: 42 }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: 'Hi' }, { width: 0, height: 1920 })).toBeUndefined();
   });
 });

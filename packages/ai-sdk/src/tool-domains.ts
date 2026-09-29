@@ -67,17 +67,17 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   // `transcribe` and `detect_beats` are core and music lives in `sourcing`; naming them here
   // sent a run looking for music to a domain that has none (run `6cb12e30` audit).
   audio:
-    'set levels, fades and ducking on a clip or track; EQ, compression and mix moves; find and cut silence and filler words',
+    'set levels, fades and ducking on a clip or track; EQ, compression and mix moves; measure loudness (LUFS, true peak) against a target; find and cut silence and filler words',
   // Named for the words a REQUEST uses, not only the moves. A run asked to "build a
   // professional edit" never pinned this domain across 37 minutes and six `load_tools`
   // calls, so three shipped tools were unreachable in practice — the summary is the whole
   // discovery surface, and "match shots to each other" is not what that request sounds like.
   color:
-    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly (measure_color, always available, reads what is on screen first)',
+    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly, blur a whole clip (a blurred-fill background) (measure_color, always available, reads what is on screen first)',
   // `set_clip_crop` lives here; a summary without "crop" or "reframe" left the one static
   // reframing tool undiscoverable to a request that asked for exactly that.
   motion:
-    'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source',
+    'keyframes, punch-ins, camera moves, speed ramps, and reframing — a crop, or a pan across a wider source; scale and position a layer (picture-in-picture, split-screen panels)',
   effects:
     'effects, transitions, blend modes and on-screen text — text overlays in designed styles and bundled fonts, and restyling them; browse what is available; verify fit',
   // Plan/elements: the words a screen-recording or product-demo request uses.
@@ -173,6 +173,9 @@ const CORE: readonly string[] = [
   'remember_preference',
   'load_skill',
   'load_tools',
+  // The run's own plan: the conductor keeps a run going while an item is open, so the tool
+  // that states what is open must never need asking for.
+  'update_plan',
   // Seeing the result.
   'render_preview',
   'export_video',
@@ -192,6 +195,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
   ],
   audio: [
     'adjust_audio',
+    'measure_loudness',
     'analyze_silence',
     'remove_silences',
     'remove_filler_words',
@@ -255,6 +259,8 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'remove_background',
     'put_text_behind_subject',
     'track_mask',
+    // #137: a tracked mask's track baked into a clip's x/y/scale keyframes.
+    'reframe_to_subject',
     'refine_mask',
     'get_masks',
     'delete_mask',

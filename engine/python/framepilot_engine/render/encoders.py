@@ -27,6 +27,36 @@ SOFTWARE_ENCODERS: dict[str, str] = {"h264": "libx264", "hevc": "libx265"}
 #: x264/x265 preset per quality tier — the speed/size trade the tier name promises.
 SOFTWARE_PRESET: dict[str, str] = {"low": "veryfast", "recommended": "medium", "high": "slow"}
 
+#: How every export turns the compositor's RGB into YUV, and says so in the stream (#154).
+#:
+#: WHY explicit: left alone, libswscale converts RGB with BT.601 and the file carries no tags,
+#: while camera sources are BT.709 limited range. Players treat an untagged HD file as BT.709, so
+#: the export decoded with shifted hues, and tier-0 facts of an export sat in another chain than
+#: those of its sources. The ``scale`` does the conversion itself, so older ffmpeg builds (the
+#: imageio 7.1 binary MoviePy runs) cannot pick another matrix. ``setparams`` is not redundant
+#: with the flags: ffmpeg 7.1 copies the encoder's colour fields from the frames, and the raw
+#: RGB MoviePy pipes in has no primaries or transfer, so the flags alone left both "unknown".
+#:
+#: WHY BT.709 at every size, SD included: the frames are composited from (almost always HD,
+#: BT.709) sources, and a tagged file decodes by its tags in every player an MP4/MOV export
+#: targets. The BT.601-for-SD convention only guesses for UNTAGGED files. One chain at every
+#: preset also keeps a 480p review render measurable against its sources without re-expression.
+#: ``format=yuv420p`` pins the conversion to this filter: MoviePy asks libx264 for
+#: ``yuva420p``, which ffmpeg narrows to yuv420p without another conversion.
+BT709_OUTPUT_ARGS: tuple[str, ...] = (
+    "-vf",
+    "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+    "setparams=color_primaries=bt709:color_trc=bt709",
+    "-colorspace",
+    "bt709",
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-color_range",
+    "tv",
+)
+
 _probe_cache: set[str] | None = None
 
 
@@ -116,7 +146,7 @@ def choose_encoder(
         raise ValueError(f"Unknown video codec {codec!r}; expected h264 or hevc.")
     names = available if available is not None else available_encoders()
     hardware_ok = hardware_encoding_enabled() if allow_hardware is None else allow_hardware
-    params: list[str] = ["-movflags", "+faststart"]
+    params: list[str] = [*BT709_OUTPUT_ARGS, "-movflags", "+faststart"]
     if codec == "hevc":
         # Apple players only recognise HEVC in MP4/MOV under the hvc1 tag.
         params += ["-tag:v", "hvc1"]

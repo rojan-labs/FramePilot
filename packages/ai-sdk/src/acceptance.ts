@@ -10,32 +10,36 @@
  * produced one — `setObjective` had exactly one caller, the seed itself.
  *
  * The consequence was a verification that could only ever answer "did any operation succeed".
- * In the captured run a request for "20+ different best moments" was satisfied, as far as the
- * ledger was concerned, by an eight-shot timeline; the acceptance criterion was the request,
- * so nothing in it could be measured.
+ * A criterion that can be measured against the timeline is what this module records.
  *
- * ## What this reads, and what it deliberately does not
+ * ## Where a condition may come from — and where it may not
  *
- * Only conditions a deterministic check can settle against the timeline: a stated deliverable
- * length, and a stated minimum number of shots. Conservatively, because a wrong criterion is
- * worse than a missing one: it fails runs that did the work.
+ * Only from something that arrives already structured:
  *
- * The LENGTH is not read here. It comes in already read — by the model that routes the
- * message, grounded in the request's own words (`kernel/command-classifier.ts`
- * `DeliverableLength`) — because telling "58–62s" for the master from "the best 2–4s of
- * each" shot is reading comprehension, and the pattern reader that used to do it here
- * turned the second into a 3-second deliverable (run `6cb12e30`).
+ * - the finished LENGTH, as the model that routes the message read it and grounded it in the
+ *   request's own words (`kernel/command-classifier.ts` `DeliverableLength`), or as the host
+ *   stated it (`AgentOptions.durationTargetSeconds`);
+ * - the median shot length of a reference the editor attached, MEASURED by the analysis
+ *   (`references/directives.ts`), never read from the prompt.
  *
- * Taste ("make it nice", "attractive"), rhythm ("beat synced") and retention ("retaining
- * watchers") are NOT extracted. They are real parts of the request and they belong to the
- * model's judgement; inventing a mechanical proxy for them would let a run pass or fail on a
- * measurement nobody asked for. They stay in the objective's prose.
+ * Nothing here reads the request's words. It used to: keyword and regex readers turned a
+ * brief into a minimum shot count, per-clip "coverage" demands, requested stickers and
+ * callouts, a rendered-file deliverable, a remember-for-later preference and a stock cutaway
+ * cap. Each was patched brief by brief and each misread the next one. Run `d8d2e445` is the
+ * last straw recorded in ADR 0196's amendment: "a tiny animated compass or arrow … (optional)"
+ * became "A callout is on the timeline", a 27k-character brief yielded "at least 3 distinct
+ * shots" from no stated count, and "every picture clip carries its own reframe" was met by the
+ * automatic centred crop every landscape clip gets in a portrait frame — so four automatic
+ * criteria were satisfied by one `add_clips` and one arrow, and the run completed over the
+ * model's own "not done yet" list. A wrong criterion fails runs that did the work, or passes
+ * runs that did not; either way it is worse than none.
+ *
+ * The request's parts — the shots, the treatments, the elements, the deliverable — belong to
+ * the model, which reads the whole request and states them as its own plan (`update_plan`).
+ * Taste, rhythm and retention stay in the objective's prose for the same reason.
  */
 
 import type { ReferenceDirectives } from './references/directives.js';
-
-/** A per-clip treatment a request can demand of the WHOLE cut. */
-export type CoverageTreatment = 'crop' | 'grade' | 'motion' | 'speed';
 
 /**
  * A finished length the run is held to: read from the request by the command reader
@@ -76,8 +80,6 @@ export interface CheckableAcceptance {
    * of arguing with a bare number (run `6cb12e30` argued with "3s" five times).
    */
   readonly durationStatedAs?: string;
-  /** Stated minimum number of distinct shots, when the request named one. */
-  readonly minShotCount?: number;
   /**
    * Median picture-clip length the cut is expected to hold, from a MEASURED reference the
    * editor attached — never from the prompt, which never states one (P3.4).
@@ -90,602 +92,24 @@ export interface CheckableAcceptance {
   readonly medianShotSeconds?: number;
   /** Which reference set it, so the criterion attributes the number. */
   readonly medianShotSource?: string;
-  /**
-   * Treatments the request demanded of EVERY clip.
-   *
-   * The gap this closes: a brief whose text is dominated by "every clip", "per clip",
-   * "across clips" was structurally invisible to acceptance, because the two conditions read
-   * before this — a duration and a shot count — are both counts of the whole. So a run that
-   * graded one clip of forty-seven and put its Ken Burns move on that same one clip satisfied
-   * every criterion it had and reported "All checks passed".
-   */
-  readonly coverage?: readonly CoverageTreatment[];
-  /**
-   * True when the request asks for a rendered/exported FILE as its deliverable.
-   *
-   * The agent cannot produce one — render and export have no route from the AI panel
-   * (`sidecar-executor.ts` refuses them with "use the Export dialog"). That is a reasonable
-   * product boundary and it was invisible: run 2's brief closed with "One final rendered 30s
-   * vertical MP4", the run never attempted it, never mentioned it, and reported completed.
-   * Recording it is what lets the run say so.
-   */
-  readonly deliverableFile?: boolean;
-  /**
-   * True when the request states something to remember for FUTURE edits — "one thing to
-   * remember for future edits: no fade to black mid-action" — which `remember_preference`
-   * exists for and run `cc907070` never called. An instruction about memory that is not
-   * a criterion is an instruction the run can drop without anyone noticing.
-   */
-  readonly rememberPreference?: boolean;
-  /**
-   * The most stock cutaways the request asked for ("I'm missing two cutaways I never
-   * shot"), when it named a number. Read deterministically; absent when it did not.
-   *
-   * Run `4a8e` (2026-09-06, GoPro highlight) asked for two and received eight stock clips
-   * covering 50 of its 60 seconds, six whole shots of the editor's own footage buried under
-   * them. Nothing bounded the count: every placement was legal, every download was a
-   * success. The number is in the brief, so the runtime can hold the run to it.
-   */
-  readonly maxStockCutaways?: number;
-  /**
-   * Elements the request asks to have placed — a sticker, a callout (plan/elements EL8.1). A
-   * run asked to "add a fire emoji" that finishes with none has not done what it was asked, and
-   * without this nothing measured that: every other criterion could pass.
-   */
-  readonly elements?: readonly RequestedElement[];
-}
-
-/** An element a request can ask for: a sticker or emoji, or a callout shape. */
-export type RequestedElement = 'sticker' | 'callout';
-
-/**
- * The lowest shot count worth treating as a target.
- *
- * "2 clips" is a description of an edit, not an acceptance condition, and small numbers appear
- * in ordinary prose far more often than they appear as requirements.
- */
-const MIN_MEANINGFUL_SHOT_COUNT = 3;
-
-/** Above this, the number is almost certainly not a shot count ("1000 subscribers"). */
-const MAX_MEANINGFUL_SHOT_COUNT = 200;
-
-/**
- * Every noun an editor uses for one picture on a timeline, in one place.
- *
- * There were two lists and they had drifted. The shot-count reader carried the stills
- * nouns — added for run `4c9b5f82`, whose brief said "photos" forty times and named no
- * other material — and the coverage reader did not, so on the same class of brief a
- * duration and a shot count were readable and "apply a unified cinematic grade across all
- * photos" was not. Run `fc10301a` produced no coverage criteria at all, and the three
- * treatments it then omitted entirely (motion, grade, crop) were the three no check could
- * see. One list, two readers, and a test that asserts they stay one.
- */
-const PICTURE_NOUN_SOURCE =
-  'clips?|shots?|moments?|cuts?|scenes?|segments?|photos?|images?|pictures?|stills?';
-
-/**
- * Words that make a number a count of SHOTS. "moment" is here because it is what editors
- * actually say ("use 20+ of the best moments"), and in a cut request a moment is a shot.
- *
- * Stills are here for the same reason. Run 4c9b5f82's brief said **photos** — "approximately
- * 61 hiking photos", "attempt to use all approximately 61 hiking photos" — forty times over
- * 12,000 characters, and named no other kind of material. Not one of those was a shot noun,
- * so the run's only checkable count was unreadable and `checkShotCount` reported `skipped`
- * over a montage that used ten of the sixty-one. A photo placed on a timeline is a shot.
- */
-const SHOT_NOUNS = `${PICTURE_NOUN_SOURCE}|angles?`;
-
-/** Time units that make a number a duration rather than a count. */
-const TIME_UNITS = 's|sec|secs|second|seconds|m|min|mins|minutes';
-
-/**
- * A number is a REQUIREMENT rather than an aspiration when the brief marks it as a floor —
- * `50+`, `at least 50`, `minimum 50`, `no fewer than 50`.
- *
- * This is the discriminator that keeps the floor honest on a long spec. The captured brief
- * states its requirement five times with a marker ("50+ visually distinct clips", "at least
- * 50 separate video clips", "Minimum clips: 50", "50+ clips minimum", "At least 50 genuinely
- * distinct clips") and ALSO says "Prefer 60-80" and "Target approximately 80-120 candidate
- * clips". Taking the largest number would make the acceptance floor 120 and fail a cut of 80
- * that did everything asked. Marked floors win; unmarked ones are only consulted when the
- * brief states no floor at all.
- *
- * "all" marks a floor too — "use all 61 photos" is a requirement stated the way people
- * actually state it, and run 4c9b5f82's brief said exactly that. A spurious "all" beside a
- * small number is harmless because marked floors are reduced by `Math.max`; the only way to
- * be wrong is a spuriously LARGE one, and {@link POOL_WORDS} already removes the case that
- * produces those.
- */
-const FLOOR_MARKER =
-  /\b(?:at least|no fewer than|minimum|min|at minimum|use all|all of|every one of|all)\b[^.\n]{0,24}$/;
-
-/**
- * Words that make a number a size of the SEARCH POOL, not of the deliverable.
- *
- * "Target approximately 80-120 candidate clips, then select the strongest 50+" asks for a
- * wide search and a narrow cut. Counting the pool as the floor would demand the whole pool
- * end up on the timeline.
- */
-const POOL_WORDS = /\b(?:candidates?|pool|library|options?)\b/;
-
-/**
- * The near end of a range is the floor: "60-80 clips" promises 60, never 80.
- *
- * The same rule round 2 established for durations, where a pacing table's `0.3-0.6s per clip`
- * produced a 0.6-second target for a fifty-clip montage.
- */
-const RANGE_TAIL = /^\s*(?:-|–|—|to)\s*\d+/;
-
-/**
- * `20+ moments`, `at least 20 different best moments`, `use 20 clips`.
- *
- * `(?<![\d.])` is what stops the fractional tail of a decimal reading as a count: a beat-map
- * table row `| 2 | 0.50s | 15 |` otherwise offers `50` to every pattern here, because `.` is a
- * non-word character and `\b` matches between it and the digit.
- */
-const SHOT_COUNT_NUMBER_FIRST = new RegExp(
-  // The last alternative is the COMPOUND form — "a 12-shot montage", "a 6-clip intro" —
-  // which fell through both nets: not read as a floor, and not caught by
-  // `mentionsUnreadableShotCount` either, so the requirement went silently unchecked.
-  //
-  // It is spelled as its own branch, with the hyphen attaching the number DIRECTLY to the
-  // shot noun and no filler words between, because loosening the general branch to accept a
-  // hyphen there instead made "use 30-second cuts" read as a floor of 30: that phrase
-  // matches by treating "second" as a filler word, and shifting the span slipped it past
-  // `isDurationContext`. A hyphen bound straight to a shot noun cannot be a duration —
-  // "shot" and "clip" are not time units.
-  `(?<![\\d.])(\\d+)(\\s*\\+)?\\s*(?:(?:-|–|—|to)\\s*\\d+\\s*)?(?:[a-z-]+\\s+){0,3}(?:${SHOT_NOUNS})\\b`,
-  'g',
-);
-
-/**
- * The COMPOUND form: `a 12-shot montage`, `a 6-clip intro`.
- *
- * Its own pattern rather than a branch of the one above, and deliberately tight — the
- * hyphen binds the number DIRECTLY to the shot noun, with no filler words between. Widening
- * the general pattern to accept a hyphen there instead made "use 30-second cuts" read as a
- * floor of 30: that phrase matches by treating "second" as a filler word, and shifting the
- * matched span slipped it past `readsAsDuration`. A number hyphenated straight onto a shot
- * noun cannot be a duration, because "shot" and "clip" are not time units.
- */
-const SHOT_COUNT_COMPOUND = new RegExp(`(?<![\\d.])(\\d+)-(?:${SHOT_NOUNS})\\b`, 'g');
-
-/**
- * `minimum clips: 50`, `clip count 50` — how a written SPEC states the same requirement.
- *
- * Only counted when a requirement word is present, so ordinary prose that happens to put a
- * number after a clip noun ("cuts 30 frames later") cannot be mistaken for a floor.
- */
-const SHOT_COUNT_NOUN_FIRST = new RegExp(
-  `\\b(?:min|minimum|at least|no fewer than|count|total|target)\\b[^.\\n]{0,20}?` +
-    `(?:${SHOT_NOUNS})\\b[^.\\n]{0,12}?(?<![\\d.])(\\d+)`,
-  'g',
-);
-
-/**
- * Is THIS occurrence of a number really a duration ("30 second cuts")?
- *
- * Asked of the matched span's own neighbourhood, never of the whole document. The guard used
- * to test the entire normalized prompt, so a match at index 218 was invalidated by unrelated
- * text thousands of characters away: a captured brief stated `50+ visually distinct clips` in
- * its opening requirement and `0.50s` in a beat-map EXAMPLE table, and the table won. That
- * silently removed the only checkable condition in a 9,885-character brief, which left
- * `checkShotCount` reporting `skipped` and let a one-clip timeline report `completed`.
- */
-function readsAsDuration(normalized: string, index: number, digits: string): boolean {
-  // `[\s-]*`, not `\s*`: the unit is attached by a HYPHEN in the commonest phrasing of all
-  // — "use 30-second cuts", "10-second clips" — and the guard did not match there, so a
-  // per-shot DURATION was read as a floor of 30 shots. That is the exact confusion this
-  // function exists to prevent, and it was blind to the hyphenated half of it.
-  return new RegExp(`^${digits}[\\s-]*(?:${TIME_UNITS})\\b`).test(
-    normalized.slice(index, index + digits.length + 12),
-  );
-}
-
-/** One stated count, with whether the brief marked it as a floor. */
-interface StatedCount {
-  readonly value: number;
-  readonly isFloor: boolean;
-}
-
-/** Every plausible shot count in the prompt, each tagged as a marked floor or an aspiration. */
-function statedShotCounts(normalized: string): StatedCount[] {
-  const found: StatedCount[] = [];
-  const collect = (pattern: RegExp, floorByConstruction: boolean): void => {
-    // Fresh `lastIndex` per call: these are module-level `g` regexes, and a leftover offset
-    // from a previous prompt would silently skip the head of this one.
-    pattern.lastIndex = 0;
-    for (const match of normalized.matchAll(pattern)) {
-      const digits = match[1];
-      if (digits === undefined) continue;
-      const at = match.index + match[0].indexOf(digits);
-      // The pattern captures digits only, so this is always a number; the range check is what
-      // rejects both the implausible values and the absurd ones (a 400-digit string reads as
-      // Infinity, which fails the upper bound).
-      const value = Number(digits);
-      if (value < MIN_MEANINGFUL_SHOT_COUNT || value > MAX_MEANINGFUL_SHOT_COUNT) continue;
-      if (readsAsDuration(normalized, at, digits)) continue;
-      if (POOL_WORDS.test(match[0])) continue;
-      const plus = match[2] !== undefined;
-      const isFloor =
-        floorByConstruction ||
-        plus ||
-        FLOOR_MARKER.test(normalized.slice(Math.max(0, at - 40), at));
-      // A range's far end is never a floor, and the near end is already what was captured.
-      if (!floorByConstruction && RANGE_TAIL.test(normalized.slice(at + digits.length))) {
-        found.push({ value, isFloor: false });
-        continue;
-      }
-      found.push({ value, isFloor });
-    }
-  };
-  collect(SHOT_COUNT_NUMBER_FIRST, false);
-  collect(SHOT_COUNT_COMPOUND, false);
-  collect(SHOT_COUNT_NOUN_FIRST, true);
-  return found;
 }
 
 /**
- * Read a minimum shot count from ordinary creator language.
+ * The checkable conditions a run is held to.
  *
- * Requires the number to sit next to a shot noun, so "30 second video" and "1080p" cannot be
- * mistaken for one. Both orders are accepted ("20+ moments", "at least 20 of the best shots",
- * "minimum clips: 50"), and a bare "a few clips" is deliberately not a number.
- *
- * EVERY stated count is read rather than the first, because a long brief states its
- * requirement repeatedly and first-match-wins made which one counted an accident of ordering
- * — a brief opening with a throwaway "a few 3-shot sequences" would have set the target to 3.
- * Marked floors ("50+", "at least 50") win over aspirations ("prefer 60-80"), and the largest
- * marked floor is the one the cut has to clear. When nothing is marked, the SMALLEST stated
- * count is used: a wrong criterion fails runs that did the work, so an unmarked number is
- * read as the least it could mean.
- */
-export function explicitMinShotCount(prompt: string): number | undefined {
-  const normalized = prompt.trim().toLowerCase().replace(/\s+/g, ' ');
-  if (!normalized) return undefined;
-  const counts = statedShotCounts(normalized);
-  if (counts.length === 0) return undefined;
-  const floors = counts.filter((c) => c.isFloor).map((c) => c.value);
-  if (floors.length > 0) return Math.max(...floors);
-  return Math.min(...counts.map((c) => c.value));
-}
-
-/**
- * A number sits next to a shot noun somewhere, but no floor could be read from it.
- *
- * The self-diagnosing half of the bug above: `checkShotCount` reporting `skipped — no shot
- * count was asked for` is indistinguishable, in the run record, from a brief that genuinely
- * stated none. On the captured run that line was the only trace of the failure and nothing
- * surfaced it. A brief long enough to be a spec, mentioning a number beside a clip noun and
- * still yielding nothing, is worth saying out loud — as a WARNING, which never blocks a run.
- */
-const SPEC_LENGTH_CHARS = 1500;
-
-/** Does this request mention a clip count that {@link explicitMinShotCount} could not read? */
-export function mentionsUnreadableShotCount(prompt: string): boolean {
-  if (prompt.length < SPEC_LENGTH_CHARS) return false;
-  if (explicitMinShotCount(prompt) !== undefined) return false;
-  SHOT_COUNT_NUMBER_FIRST.lastIndex = 0;
-  return SHOT_COUNT_NUMBER_FIRST.test(prompt.trim().toLowerCase().replace(/\s+/g, ' '));
-}
-
-/**
- * Words that make a statement about EVERY clip rather than about one.
- *
- * "across clips" and "per clip" are here because that is how editors write it — "light grade
- * across clips", "a subtle zoom per clip" — and both mean the whole cut.
- */
-const UNIVERSAL_QUANTIFIER = /\b(every|each|all|across|per|throughout)\b/;
-
-/**
- * The picture nouns a universal statement attaches to — the same list the shot-count
- * reader uses, because "every photo" and "every clip" are the same requirement.
- */
-const CLIP_NOUN = new RegExp(`\\b(?:${PICTURE_NOUN_SOURCE})\\b`);
-
-/** One way of reading one treatment out of a line. */
-interface TreatmentReader {
-  readonly treatment: CoverageTreatment;
-  /** Global, so every occurrence on the line can be judged on its own context. */
-  readonly pattern: RegExp;
-  /** The match only counts when the whole line also says this. */
-  readonly requiresOnLine?: RegExp;
-  /** A hit in the text just before a match disqualifies THAT match. */
-  readonly disqualifiedBefore?: RegExp;
-}
-
-/**
- * Words that say a treatment is NOT wanted.
- *
- * Read against the text immediately before a treatment word, because a brief prohibits
- * locally — "avoid zooming on all the photos" is a demand for stillness, and crediting it as
- * a motion requirement makes `checkTreatmentCoverage` fail a run for doing what was asked.
- */
-const PROHIBITION = /\b(?:do not|don'?t|avoid|never|refrain from|without|skip|omit|no)\b/;
-
-/**
- * The negation is aimed at the SAMENESS, not at the treatment.
- *
- * "Do not apply the same animation to every image" still demands animation on every image;
- * what it forbids is reusing one. Without this the stills brief that motivated the motion
- * vocabulary would read as asking for no motion at all.
- */
-const NEGATION_TARGETS_SAMENESS = /\bsame\b/;
-
-/** A requirement written as its own negative consequence — "no black bars" IS the crop demand. */
-const STATED_AS_CONSEQUENCE = /^no\b/;
-
-const PROHIBITION_WINDOW_CHARS = 40;
-
-/**
- * Verbs and modals that make a bare motion noun a DEMAND rather than a description.
- *
- * "Motion should follow the composition of each photo" asks for motion; "keep camera
- * movement smooth across all shots" describes footage that already moves, and "trim all the
- * clips so there is no wasted motion" is not about motion at all. Only the first is a
- * whole-cut requirement, and `checkTreatmentCoverage` FAILS a run — it does not warn — so
- * reading the other two as demands fails runs that did exactly what was asked.
- */
-const MOTION_IS_AUTHORED =
-  /\b(?:add(?:s|ing)?|appl(?:y|ies|ied|ying)|creat(?:e|es|ing)|animat(?:e|es|ing)|introduc(?:e|es|ing)|give[sn]?|us(?:e|es|ing)|includ(?:e|es|ing))\b|\b(?:motion|movement|animations?)\s+(?:should|must|needs? to|ha[sv]e to)\b/;
-
-/**
- * How a treatment is named in ordinary creator language.
- *
- * Read per LINE, not per document: a brief says "Every clip must be reframed … and apply a
- * subtle dynamic zoom/pan per clip" on one line and "Light color grade for consistency across
- * clips" on another, and matching document-wide would let any universal quantifier anywhere
- * pull in every treatment mentioned anywhere.
- */
-const TREATMENT_READERS: readonly TreatmentReader[] = [
-  {
-    treatment: 'crop',
-    // `no black bars` is a crop requirement stated as its consequence, which is how a
-    // delivery spec writes it ("9:16 … no black bars, no stretched photos").
-    pattern:
-      /\b(?:reframe[sd]?|reframing|crop(?:ped|ping)?|fill the (?:full )?(?:vertical )?frame|no black bars)\b/g,
-  },
-  {
-    treatment: 'crop',
-    // A safe area is a crop requirement only when it is about the PICTURE. "Keep text inside
-    // the safe areas on every shot" is a caption-placement rule, and reading it as a reframe
-    // demand failed montages whose framing was already correct.
-    pattern: /\bsafe areas?\b/g,
-    disqualifiedBefore: /\b(?:text|captions?|titles?|subtitles?|lower thirds?|words?)\b/,
-  },
-  { treatment: 'grade', pattern: /\b(?:grade[sd]?|grading|colou?r[- ]?correct(?:ed|ion)?)\b/g },
-  {
-    treatment: 'motion',
-    // Technique names. Nobody says "parallax" or "ken burns" about footage they are not
-    // asking to be moved, so these stand on their own.
-    pattern: /\b(?:ken burns|zoom(?:ing)?|pan(?:ning)?|drift|push[- ]?in|punch[- ]?in|parallax)\b/g,
-  },
-  {
-    treatment: 'motion',
-    // `animation`/`motion`/`movement` are how a STILLS brief asks for the same thing a video
-    // brief calls a push-in: "create motion inside them", "do not apply the same animation to
-    // every image". Naming only the camera-move vocabulary meant the one kind of footage that
-    // cannot move on its own was the one kind whose motion requirement was invisible — but
-    // these three words are also ordinary English about footage, so they need
-    // {@link MOTION_IS_AUTHORED} on the line before they count.
-    pattern: /\b(?:animat(?:e|ed|ion|ions)|motion|movement)\b/g,
-    requiresOnLine: MOTION_IS_AUTHORED,
-  },
-  {
-    treatment: 'speed',
-    pattern: /\b(?:speed ramp|ramp(?:ed|ing)?|slow[- ]?mo(?:tion)?|retim(?:e|ed|ing))\b/g,
-  },
-];
-
-/** Does this line demand the reader's treatment, rather than merely mention its words? */
-function lineDemands(line: string, reader: TreatmentReader): boolean {
-  if (reader.requiresOnLine && !reader.requiresOnLine.test(line)) return false;
-  for (const match of line.matchAll(reader.pattern)) {
-    const index = match.index ?? 0;
-    const before = line.slice(Math.max(0, index - PROHIBITION_WINDOW_CHARS), index);
-    if (reader.disqualifiedBefore?.test(before)) continue;
-    if (STATED_AS_CONSEQUENCE.test(match[0])) return true;
-    if (PROHIBITION.test(before) && !NEGATION_TARGETS_SAMENESS.test(before)) continue;
-    return true;
-  }
-  return false;
-}
-
-/**
- * Treatments a request demands of every clip, read line by line.
- *
- * Requires BOTH a universal quantifier and a clip noun on the same line as the treatment, so
- * "punch in on the reveal" (one moment) and "grade the opening" (one span) are not mistaken
- * for whole-cut requirements.
- */
-export function explicitCoverage(prompt: string): readonly CoverageTreatment[] {
-  const found = new Set<CoverageTreatment>();
-  for (const rawLine of prompt.split(/[\n.;]/)) {
-    const line = rawLine.toLowerCase();
-    if (!UNIVERSAL_QUANTIFIER.test(line) || !CLIP_NOUN.test(line)) continue;
-    for (const reader of TREATMENT_READERS) {
-      if (found.has(reader.treatment)) continue;
-      if (lineDemands(line, reader)) found.add(reader.treatment);
-    }
-  }
-  return [...found];
-}
-
-/**
- * A request for a FILE, not just an edit: a render or export verb next to something that
- * names a file. "Export the video" and "one final rendered MP4" both qualify; "render the
- * captions legible" does not, because nothing there is a file.
- */
-const DELIVERABLE_FILE =
-  /\b(render(?:ed|ing)?|export(?:ed|ing)?|deliver(?:ed|able)?)\b[^.\n]{0,60}\b(mp4|mov|webm|file|video|deliverable)\b|\b(mp4|mov|webm|file|deliverable)\b[^.\n]{0,40}\b(render(?:ed|ing)?|export(?:ed|ing)?)\b/;
-
-/**
- * "Export" as the sentence's own verb, with the cut as its object — no file noun anywhere.
- *
- * Run `cc907070`'s brief closed with "Export both — the 16:9 at 1080p and the vertical."
- * There is no mp4, file or video within reach of the verb, so {@link DELIVERABLE_FILE} read
- * it as asking for no file, the run never mentioned the export, and the completion account
- * said nothing about the one thing the panel cannot do. An imperative export whose object
- * is the edit itself — both, it, them, the cut, a resolution — is the same request in
- * fewer words. "Export settings" and "the export dialog" are nouns, not the verb, and are
- * not matched: the verb must be followed by its object.
- *
- * Whitespace is horizontal-only (` \t\r`, never `\s`), for the reason {@link DELIVERABLE_HEADING}
- * states: `\s*` after a class that also matches `\n` gives a run of blank lines two ways to
- * reach every position, which is quadratic backtracking on a prompt re-scanned every turn —
- * CI's "blank-line-heavy brief in linear time" test caught the first draft at 2.1s.
- */
-const DELIVERABLE_EXPORT_VERB =
-  /(?:^|[.,;:—-][ \t\r]*|\n[ \t\r]*|\bthen[ \t]+|\band[ \t]+)export[ \t]+(?:both|it|them|this|that|everything|the[ \t]+(?:cut|edit|sequence|timeline|result|final|finished|16:9|9:16|vertical|horizontal|square|reel|short|montage|version)|a[ \t]|an[ \t]|at[ \t]+\d|in[ \t]+\d|as[ \t]|to[ \t])/;
-
-/**
- * A request to SEE the cut before it is rendered, which the panel cannot fulfil either:
- * `render_preview` has no route from the editor (`sidecar-executor.ts#RENDER_ACTIONS`).
- * The timeline monitor plays the current cut; that is the preview the product has.
- */
-const PREVIEW_REQUEST =
-  /\b(?:show|see|give|send|watch|check|review|look at|want|need|render)\b[^.\n]{0,40}\bpreview\b|\bpreview\b[^.\n]{0,30}\b(?:before|first|then|prior)\b/;
-
-/**
- * The same request, written as a SECTION rather than a sentence.
- *
- * A long brief does not say "produce a rendered MP4" mid-paragraph; it ends with a heading
- * and puts the deliverable under it:
- *
- *     # FINAL DELIVERABLE
- *
- *     Create the finished Instagram Reel.
- *
- * {@link DELIVERABLE_FILE} bounds its gap with `[^.\n]{0,60}`, which cannot cross the
- * newline, so run `fc10301a`'s brief — whose closing section is exactly the above — read as
- * asking for no file at all. The run never attempted an export, never said it could not,
- * and handed back a timeline against a request for a video.
- *
- * The heading is required to BE a deliverable heading, and the noun has to appear within a
- * couple of lines of it — a structured brief states its requirements as structure, and
- * reading only prose misses them all.
- *
- * The leading marker class is horizontal-only (` \t\r`, not `\s`). A `\s` there also matches
- * the newline the `(?:^|\n)` alternation just consumed, so every blank line in a brief is two
- * ways to reach the same position — quadratic backtracking on a prompt the user writes, re-run
- * on every turn's prompt build. Markdown heading marks never span lines, so nothing real is lost.
- */
-const DELIVERABLE_HEADING =
-  /(?:^|\n)[ \t\r*_#>-]*(?:final )?deliverable[s]?\b[^\n]*(?:\n[^\n]*){0,3}?\b(mp4|mov|webm|file|video|reel|short|montage|edit)\b/;
-
-/** Does this request ask for a rendered or exported file as its deliverable? */
-export function asksForRenderedFile(prompt: string): boolean {
-  const normalized = prompt.toLowerCase();
-  return (
-    DELIVERABLE_FILE.test(normalized) ||
-    DELIVERABLE_EXPORT_VERB.test(normalized) ||
-    DELIVERABLE_HEADING.test(normalized)
-  );
-}
-
-/** Does this request ask to be shown a preview before the render? */
-export function asksForPreview(prompt: string): boolean {
-  return PREVIEW_REQUEST.test(prompt.toLowerCase());
-}
-
-/**
- * A lasting preference stated for later sessions, as editors phrase it: "remember for
- * future edits", "from now on", "going forward", "always … in my videos", "note for next
- * time". Deliberately not "remember to …" alone, which is an instruction about this edit.
- */
-const LASTING_PREFERENCE =
-  /\b(?:remember|note|keep in mind|bear in mind)\b[^.\n]{0,40}\b(?:future|next time|from now on|going forward|always|every (?:edit|video|project)|in general|for later)\b|\b(?:from now on|going forward)\b|\bfor (?:all )?future (?:edits|videos|projects|sessions)\b/;
-
-/** Does this request state a preference the editor wants remembered for future edits? */
-export function asksToRememberPreference(prompt: string): boolean {
-  return LASTING_PREFERENCE.test(prompt.toLowerCase());
-}
-
-const COUNT_WORDS: Readonly<Record<string, number>> = {
-  a: 1,
-  an: 1,
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-};
-
-/**
- * "two cutaways", "3 stock cutaways", "a cutaway of the crowd", "cutaways: 2". The noun is
- * the anchor; a bare number near "clips" is the shot-count reader's business, not this one's.
- * When the brief states several counts the LARGEST is the cap — a brief that says "two
- * cutaways … one more cutaway" is asking for three, and the smaller number must not fail
- * a run that did what was asked.
- */
-const CUTAWAY_COUNT =
-  /\b(\d{1,2}|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:more\s+|extra\s+|new\s+)?(?:stock\s+|b-?roll\s+)?cutaways?\b|\bcutaways?\s*[:—-]\s*(\d{1,2})\b/g;
-
-/** How many stock cutaways the request asked for, when it said. */
-export function explicitCutawayCount(prompt: string): number | undefined {
-  const normalized = prompt.toLowerCase();
-  let max: number | undefined;
-  for (const match of normalized.matchAll(CUTAWAY_COUNT)) {
-    const raw = match[1] ?? match[2];
-    if (raw === undefined) continue;
-    const value = COUNT_WORDS[raw] ?? Number(raw);
-    if (!Number.isFinite(value) || value < 1) continue;
-    max = max === undefined ? value : Math.max(max, value);
-  }
-  return max;
-}
-
-const STICKER_WORDS = /\b(?:stickers?|emojis?)\b/i;
-const CALLOUT_WORDS =
-  /\b(?:callouts?|highlight(?:ed)? box(?:es)?|box(?:es)? around|arrows?|circle|circling|underlin\w*|numbered badges?|speech bubbles?)\b/i;
-/** Asking for something to be put on screen. */
-const PLACE_WORDS =
-  /\b(?:add|put|place|drop in|insert|stick|throw in|draw|circle|underline|highlight|point(?:ing)? (?:at|to)|mark)\b/i;
-/** Asking about what is already there: removing, restyling or animating it. */
-const NOT_PLACING_WORDS =
-  /\b(?:remove|delete|drop|clear|get rid of|take (?:out|off)|make|change|restyle|recolou?r|animate|pop in|pulse|move)\b/i;
-
-/**
- * The elements `prompt` asks to have placed, read clause by clause: a clause that names a
- * sticker or a callout and asks to put it on screen. A clause that removes, restyles or
- * animates what is there asks for nothing new — "remove the stickers", "make the arrow pop in"
- * — and a wrong requirement would fail a run that did as it was told, so the reading is
- * conservative.
- */
-export function explicitElements(prompt: string): readonly RequestedElement[] {
-  const found = new Set<RequestedElement>();
-  for (const clause of prompt.split(/[.;!?]|,|\band\b/i)) {
-    if (!PLACE_WORDS.test(clause) || NOT_PLACING_WORDS.test(clause)) continue;
-    if (STICKER_WORDS.test(clause)) found.add('sticker');
-    if (CALLOUT_WORDS.test(clause)) found.add('callout');
-  }
-  return (['sticker', 'callout'] as const).filter((element) => found.has(element));
-}
-
-/**
- * The checkable conditions in a request, if any.
- *
- * @param prompt - The request the run works toward (its resolved objective text).
+ * @param _request - The request the run works toward. Deliberately NOT read (see the module
+ *   header); the parameter stays so the callers that pass it keep one signature.
  * @param length - The finished length, as the command reader read and grounded it
  *   (`kernel/command-classifier.ts#DeliverableLength`) or as the host stated it. Passed in
  *   rather than read here, so the criterion and the Critic's check are one reading.
  * @param references - Targets measured off the editor's attached references.
  */
 export function checkableAcceptance(
-  prompt: string,
+  _request: string,
   length: StatedDuration | undefined,
   /** Targets measured off the editor's attached references (`references/directives.ts`). */
   references: ReferenceDirectives = { applied: [], ignored: [] },
 ): CheckableAcceptance {
-  const minShotCount = explicitMinShotCount(prompt);
-  const coverage = explicitCoverage(prompt);
-  const cutaways = explicitCutawayCount(prompt);
-  const elements = explicitElements(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(length === undefined ? {} : { durationSeconds: length.seconds }),
@@ -693,16 +117,10 @@ export function checkableAcceptance(
       ? {}
       : { durationToleranceSeconds: length.toleranceSeconds }),
     ...(length?.statedAs === undefined ? {} : { durationStatedAs: length.statedAs }),
-    ...(minShotCount === undefined ? {} : { minShotCount }),
     ...(references.medianShotSeconds === undefined
       ? {}
       : { medianShotSeconds: references.medianShotSeconds }),
     ...(medianShotSource === undefined ? {} : { medianShotSource: medianShotSource.profileId }),
-    ...(coverage.length === 0 ? {} : { coverage }),
-    ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
-    ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
-    ...(cutaways === undefined ? {} : { maxStockCutaways: cutaways }),
-    ...(elements.length === 0 ? {} : { elements }),
   };
 }
 
@@ -743,9 +161,6 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
         : ` (the request says “${acceptance.durationStatedAs}”)`;
     criteria.push(`The finished sequence runs ${span}${stated}.`);
   }
-  if (acceptance.minShotCount !== undefined) {
-    criteria.push(`The cut uses at least ${String(acceptance.minShotCount)} distinct shots.`);
-  }
   if (acceptance.medianShotSeconds !== undefined) {
     const from = acceptance.medianShotSource ? ` (${acceptance.medianShotSource})` : '';
     criteria.push(
@@ -753,55 +168,11 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
         `matching the attached reference${from}.`,
     );
   }
-  for (const treatment of acceptance.coverage ?? []) {
-    criteria.push(`Every picture clip carries its ${COVERAGE_LABEL[treatment]}.`);
-  }
-  if (acceptance.deliverableFile === true) {
-    criteria.push('A rendered file is delivered (the Export dialog, not this panel).');
-  }
-  if (acceptance.maxStockCutaways !== undefined) {
-    criteria.push(
-      `At most ${String(acceptance.maxStockCutaways)} stock cutaway${
-        acceptance.maxStockCutaways === 1 ? '' : 's'
-      } on the timeline — the editor's own footage is the picture; stock fills the shots ` +
-        'they named and nothing else.',
-    );
-  }
-  for (const element of acceptance.elements ?? []) {
-    criteria.push(
-      element === 'sticker'
-        ? 'A sticker is on the timeline.'
-        : 'A callout (a box, an arrow, a circle or an underline) is on the timeline.',
-    );
-  }
-  if (acceptance.rememberPreference === true) {
-    criteria.push(
-      'The preference the editor stated for future edits is saved with remember_preference ' +
-        '(preferredPacing, brandStyle, captionStyle or targetAudience), not only applied here.',
-    );
-  }
   criteria.push(JUDGEMENT_CRITERION);
   return criteria;
 }
 
-/** How each treatment reads in a criterion an editor will see. */
-export const COVERAGE_LABEL: Record<CoverageTreatment, string> = {
-  crop: 'own reframe',
-  grade: 'colour grade',
-  motion: 'own motion (zoom/pan)',
-  speed: 'speed change',
-};
-
 /** True when at least one condition here can actually be checked. */
 export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean {
-  return (
-    acceptance.durationSeconds !== undefined ||
-    acceptance.minShotCount !== undefined ||
-    acceptance.medianShotSeconds !== undefined ||
-    (acceptance.coverage?.length ?? 0) > 0 ||
-    acceptance.deliverableFile === true ||
-    acceptance.rememberPreference === true ||
-    acceptance.maxStockCutaways !== undefined ||
-    (acceptance.elements?.length ?? 0) > 0
-  );
+  return acceptance.durationSeconds !== undefined || acceptance.medianShotSeconds !== undefined;
 }

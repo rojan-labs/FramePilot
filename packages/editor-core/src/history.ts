@@ -102,7 +102,7 @@ export function commitProjectPatch(
   // invert to a different state than it applied from, and undo would drift a fraction of
   // a frame per edit. This is also the line that makes a manual trim land on the same
   // frame an AI trim does — the grid used to run only at the AI patch boundary.
-  const patch = quantizePatch(rawPatch, project.fps);
+  const patch = quantizePatch(rawPatch, project.fps, project.assets);
   const inverse = invertProjectPatch(project, patch);
   const next = applyProjectPatch(project, patch);
   const entries = history.entries.slice(0, history.cursor);

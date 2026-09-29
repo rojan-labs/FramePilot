@@ -19,6 +19,7 @@ from framepilot_engine.ai_tools.registry import (
     caption_template_count,
     validate_model_authored_media_path,
 )
+from framepilot_engine.render.clip_blur import CLIP_BLUR_EFFECT_TYPE, MAX_CLIP_BLUR_AMOUNT
 
 _STRICT = ConfigDict(extra="forbid", populate_by_name=True)
 # Mirrors editor-core CLIP_TRANSFORM_PROPERTIES: the uniform transform plus the per-axis stretch.
@@ -91,6 +92,8 @@ class _AddClipArgs(BaseModel):
     # TS: `sourceStart: seconds.default(0)` — omitting it starts at the asset head.
     source_start: float = Field(default=0.0, alias="sourceStart", ge=0.0)
     source_end: float | None = Field(default=None, alias="sourceEnd", ge=0.0)
+    # The layered look's geometry; ``null`` is the whole picture (see ``AddClipArgs``).
+    crop: _StrictCropRect | None = None
 
     @model_validator(mode="after")
     def _ordered(self) -> _AddClipArgs:
@@ -253,18 +256,27 @@ class _AdjustEffectArgs(BaseModel):
     intensity: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class _GetFrameSourceArgs(BaseModel):
+    model_config = _STRICT
+    asset_id: str = Field(alias="assetId", min_length=1)
+    source_seconds: float | None = Field(default=None, alias="sourceSeconds", ge=0.0)
+
+
 class _GetFrameArgs(BaseModel):
     model_config = _STRICT
     time_seconds: float | None = Field(default=None, alias="timeSeconds", ge=0.0)
     asset_id: str | None = Field(default=None, alias="assetId", min_length=1)
     source_seconds: float | None = Field(default=None, alias="sourceSeconds", ge=0.0)
+    # Several sources as shot on one labelled sheet (engine `render/source_sheet.py`).
+    sources: list[_GetFrameSourceArgs] | None = Field(default=None, min_length=1, max_length=12)
     max_dimension: int | None = Field(default=None, alias="maxDimension", ge=128, le=1280)
     burn_captions: bool | None = Field(default=None, alias="burnCaptions")
 
     @model_validator(mode="after")
     def _edit_or_source(self) -> _GetFrameArgs:
-        if (self.time_seconds is None) == (self.asset_id is None):
-            raise ValueError("get_frame takes exactly one of timeSeconds or assetId.")
+        named = [value is not None for value in (self.time_seconds, self.asset_id, self.sources)]
+        if sum(named) != 1:
+            raise ValueError("get_frame takes exactly one of timeSeconds, assetId or sources.")
         if self.source_seconds is not None and self.asset_id is None:
             raise ValueError("sourceSeconds needs assetId.")
         return self
@@ -321,13 +333,25 @@ class _ApplyColorGradeArgs(BaseModel):
     # `domain-tools/color.ts` makes. The renderer takes its transform from keyframes, never
     # from a colour effect's params, so the arm can only fail; letting it parse is what
     # buys the caller the explanation below instead of a generic enum error.
-    type: Literal["color_grade", "lut", "transform"] | None = None
+    type: Literal["color_grade", "lut", "blur", "transform"] | None = None
     params: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def _renderer_contract(self) -> _ApplyColorGradeArgs:
         grade_type = self.type or "color_grade"
         params = self.params or {}
+        if grade_type == CLIP_BLUR_EFFECT_TYPE:
+            # Mirrors `tool-input-contract.ts#assertClipBlur`: amount only, inside the range
+            # both renderers clamp to — refused rather than silently clamped.
+            unknown = sorted(set(params) - {"amount"})
+            if unknown:
+                raise ValueError(f"unknown blur parameter: {unknown[0]}")
+            amount = params.get("amount")
+            if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+                raise ValueError("blur requires a numeric params.amount")
+            if not 0.0 <= float(amount) <= MAX_CLIP_BLUR_AMOUNT:
+                raise ValueError(f"params.amount must be within 0..{MAX_CLIP_BLUR_AMOUNT}")
+            return self
         if grade_type == "transform":
             raise ValueError(
                 "transform is not a color renderer operation; use color_grade or lut. "

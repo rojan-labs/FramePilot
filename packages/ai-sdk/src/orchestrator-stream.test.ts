@@ -345,6 +345,11 @@ const deleteRange = (id: string, start: number, end: number) => ({
   arguments: { trackId: 'video_1', start, end },
 });
 
+/** Is this the advisory fix turn (AL37) — the one that states the self-check's advice? */
+function isAdvisoryTurn(request: AiCompletionRequest): boolean {
+  return JSON.stringify(request.messages).includes('SELF-CHECK ADVICE');
+}
+
 async function drain(stream: AsyncGenerator<AiEvent>): Promise<AiEvent[]> {
   const out: AiEvent[] = [];
   for await (const event of stream) out.push(event);
@@ -570,8 +575,13 @@ describe('streamChat tool use (E5.5) — the question route can look up and ask'
       { kind: 'answered', answer: 'Full-bleed vertical crop' },
     );
     expect(remembered).toHaveLength(1);
-    expect(remembered[0]!.title).toContain(question.question);
-    expect(remembered[0]!.body).toContain('Full-bleed vertical crop');
+    // The question is the assistant's words; only the answer is the editor's, and it settles
+    // that question — not the next request (desktop run 88c8b27d kept an old font answer over
+    // a brief that named the fonts, because the stored note said "follow this on later turns").
+    expect(remembered[0]!.title).toBe(`The assistant asked: ${question.question}`);
+    expect(remembered[0]!.body).toContain('The editor answered: Full-bleed vertical crop');
+    expect(remembered[0]!.body).toContain('a later request that asks for something else');
+    expect(remembered[0]!.body).not.toContain('Follow this on later turns');
   });
 
   it('records nothing when the editor dismisses the question', async () => {
@@ -1162,7 +1172,10 @@ describe('streamAgent', () => {
       ],
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
-    expect(provider.calls).toBe(2);
+    // AL37: deleting a range from the only picture track leaves black the self-check warns
+    // about ("Picture covers the programme"), and a run that delivered work and ends with an
+    // advisory spends its one fix turn hearing it — one more model call, the last one.
+    expect(provider.calls).toBe(3);
     expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
       false,
     );
@@ -1960,19 +1973,11 @@ describe('streamAgent', () => {
       rejectedOpCount: 0,
       rejectionReasons: [],
       cancelled: true,
-      deliverableFileRequested: true,
-      previewRequested: true,
-      preferenceRequested: true,
     });
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
     // It must not claim the work is finished…
     expect(report).not.toMatch(/on your timeline now; each one can be undone/);
-    // …and the things the panel cannot do are still said, because they are still true.
-    expect(report).toMatch(/use the Export dialog/);
-    expect(report).toMatch(/asks to see a preview first/);
-    // The preference the brief asked to keep was never written (no set_ai_memory op).
-    expect(report).toMatch(/nothing was saved to project memory/);
   });
 
   it('collapses edits that read identically instead of repeating the line', () => {
@@ -2036,8 +2041,18 @@ describe('streamAgent', () => {
     const ops = [
       { type: 'delete_range', trackId: 'caption_1', start: 0, end: 5 },
       ...Array.from({ length: 12 }, (_, i) => [
-        { type: 'add_caption_layer', trackId: 'caption_1', start: i, end: i + 1, clipId: `cue_${String(i)}` },
-        { type: 'set_caption_cue', clipId: `cue_${String(i)}`, captionCue: { text: 'x', words: [] } },
+        {
+          type: 'add_caption_layer',
+          trackId: 'caption_1',
+          start: i,
+          end: i + 1,
+          clipId: `cue_${String(i)}`,
+        },
+        {
+          type: 'set_caption_cue',
+          clipId: `cue_${String(i)}`,
+          captionCue: { text: 'x', words: [] },
+        },
       ]).flat(),
       { type: 'set_caption_cue', clipId: 'cue_existing', captionCue: { text: 'y', words: [] } },
     ] as unknown as AnyOperation[];
@@ -2079,27 +2094,6 @@ describe('streamAgent', () => {
       captionTrackIds: new Set(['caption_1']),
     });
     expect(one).toMatch(/Restyled the captions on caption_1 · 1 caption edit$/m);
-  });
-
-  it('points at Export when the request asked for a file the panel cannot render', () => {
-    const report = agentCompletionReport({
-      ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
-      steps: 1,
-      rejectedOpCount: 0,
-      rejectionReasons: [],
-      deliverableFileRequested: true,
-    });
-    expect(report).toContain('cannot produce');
-    expect(report).toContain('Export dialog');
-    // Silent when nothing was asked for — no unsolicited advice on an ordinary edit.
-    expect(
-      agentCompletionReport({
-        ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
-        steps: 1,
-        rejectedOpCount: 0,
-        rejectionReasons: [],
-      }),
-    ).not.toContain('Export dialog');
   });
 
   it('says so when a montage was chosen with nothing read about the footage', () => {
@@ -2234,10 +2228,11 @@ describe('streamAgent', () => {
         rejectedOpCount: 1,
         rejectionReasons: ['overlaps a neighbour'],
         neverSucceeded: [{ tool: 'professional_audio', reason: 'no audio track' }],
-        deliverableFileRequested: true,
+        contentEvidence: false,
+        ops: Array.from({ length: 4 }, () => ({ type: 'add_clip' }) as unknown as AnyOperation),
       });
       expect(report.indexOf('**Skipped:**')).toBeLessThan(report.indexOf('**Not done:**'));
-      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Export dialog'));
+      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Heads up'));
     });
 
     it('reaches the report from a real run: a tool that only ever failed is named', async () => {
@@ -2402,7 +2397,10 @@ describe('streamAgent', () => {
     // (the guard folds the result, it does not withhold the call), so the question is
     // whether the run got a fifth turn. Under the old signature it did not — the fold
     // terminated it and the model was never asked again.
-    expect(provider.requests).toHaveLength(5);
+    // AL37: the sixth is the advisory fix turn — the self-check passed with advice, and a
+    // run that delivered work hears it once before it ends.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
     expect(
       events.some(
         (e) => e.type === 'notification' && e.text.includes('already made against this same'),
@@ -2648,7 +2646,11 @@ describe('streamAgent robustness (parity with agent())', () => {
       }),
     );
 
-    expect(provider.requests).toHaveLength(5);
+    // AL37: deleting a range from the only picture track leaves black the self-check warns
+    // about ("Picture covers the programme"), and a run that delivered work and ends with an
+    // advisory spends its one fix turn hearing it — one more model call, the last one.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
     expect(
       events.some(
         (event) => event.type === 'notification' && event.text.includes('unfinished work'),
@@ -3604,6 +3606,64 @@ describe('streamAgent checkpoint + resume (R3 C2)', () => {
     expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
+  it('carries the model plan through the checkpoint into the resumed run (AL5)', async () => {
+    // #149: the plan lived in conductor state only, so Resume replayed the edits and then
+    // re-planned from the brief. The checkpoint now carries it; the resumed run starts on it.
+    const controller = new AbortController();
+    const items = [
+      { task: 'Tighten the intro', status: 'in_progress' },
+      { task: 'Warm grade', status: 'pending' },
+    ];
+    let calls = 0;
+    const interrupted: AiProvider = {
+      name: 'mock',
+      complete: async (): Promise<AiResponse> => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            text: 'edit',
+            toolCalls: [
+              { id: 'p1', name: 'update_plan', arguments: { items } },
+              deleteRange('a', 0, 3),
+            ],
+          };
+        }
+        controller.abort();
+        return { text: '' };
+      },
+    };
+    const first = await drain(
+      new Orchestrator(interrupted).streamAgent(input, { ...opts(), signal: controller.signal }),
+    );
+    const checkpoint = first.find(
+      (e): e is Extract<AiEvent, { type: 'checkpoint' }> => e.type === 'checkpoint',
+    );
+    expect(checkpoint?.modelPlan).toEqual(items);
+
+    // The host persists the checkpoint as JSON and hands its fields back on Resume.
+    const saved = JSON.parse(JSON.stringify(checkpoint)) as NonNullable<typeof checkpoint>;
+    const provider = new ScriptedProvider([{ text: 'Nothing more.' }]);
+    const resumed = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), {
+        resume: {
+          ops: saved.ops as never,
+          log: saved.log,
+          stepsCompleted: saved.stepsCompleted,
+          working: saved.working,
+          modelPlan: saved.modelPlan,
+        },
+      }),
+    );
+    const briefing = provider.requests[0]?.messages.at(-1)?.content ?? '';
+    expect(briefing).toContain('YOUR PLAN');
+    expect(briefing).toContain('[>] Tighten the intro');
+    // Both items are open, so a reply with no tool call did not end the resumed run.
+    expect(provider.requests.length).toBeGreaterThan(1);
+    expect(resumed.find((e) => e.type === 'plan')).toMatchObject({
+      modelPlan: { items },
+    });
+  });
+
   it('resumes multiple kept edits with a default reason and pluralized summary', async () => {
     const bare: ContextInput = { project: makeProject(), userPrompt: '' };
     const provider = new ScriptedProvider([{ text: 'done' }]); // model stops immediately
@@ -3922,6 +3982,26 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(fedBack).toMatch(/from 2\.0s to 4\.0s/);
     });
 
+    it('tells the model when the sticker sits outside the safe area the review checks (#150)', async () => {
+      const edgeCall = {
+        ...stickerCall,
+        arguments: { elementId: 'fire', start: 2, end: 4, xPercent: 97, yPercent: 5 },
+      };
+      const provider = new ScriptedProvider([
+        { text: 'a sticker in the corner', toolCalls: [edgeCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      await drain(
+        new Orchestrator(provider, { executor: host({ asset: stickerAsset }) }).streamAgent(
+          input,
+          opts(),
+        ),
+      );
+      const fedBack = JSON.stringify(provider.requests[1]?.messages ?? []);
+      expect(fedBack).toMatch(/outside the 10% safe area the review checks/);
+      expect(fedBack).toMatch(/use xPercent \d+–\d+ and yPercent \d+–\d+/);
+    });
+
     it('fails closed when the host hands back nothing placeable', async () => {
       const provider = new ScriptedProvider([
         { text: 'a sticker', toolCalls: [stickerCall] },
@@ -4028,6 +4108,94 @@ describe('streamAgent host tool execution (Phase T)', () => {
         ),
       );
       expect(calls).toEqual([]);
+    });
+
+    /**
+     * Run d8d2e445 started on an EMPTY timeline. The host scopes its one ledger read to what
+     * the timeline references, so the run began with no snapshot, placed its footage from
+     * the bin, and every picture tool — `apply_look` first — found each clip unmeasured.
+     * Those assets were not acquired by the run, so the acquired-only refresh never fired.
+     */
+    describe('a run that starts on an empty timeline', () => {
+      const emptyStart = (base: ContextInput): ContextInput => ({
+        ...base,
+        project: {
+          ...base.project,
+          timeline: {
+            ...base.project.timeline,
+            tracks: base.project.timeline.tracks.map((track) => ({ ...track, clips: [] })),
+          },
+        },
+      });
+      const place = (id: string, assetId: string, start: number) => ({
+        id,
+        name: 'add_clip',
+        arguments: {
+          trackId: 'video_1',
+          assetId,
+          start,
+          end: start + 2,
+          sourceStart: 0,
+          sourceEnd: 2,
+        },
+      });
+      const noRows = {
+        shots: [],
+        digests: [],
+        coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+      } as unknown as LedgerSnapshot;
+
+      it('reads the ledger for bin footage once it is placed, and asks once per asset', async () => {
+        const calls: string[][] = [];
+        const provider = new ScriptedProvider([
+          { text: 'placing', toolCalls: [place('p1', 'asset_1', 0)] },
+          { text: 'placing more', toolCalls: [place('p2', 'asset_1', 2)] },
+          { text: 'done', toolCalls: [] },
+        ]);
+        await drain(
+          new Orchestrator(provider).streamAgent(
+            emptyStart(input),
+            opts(),
+            {},
+            {
+              refreshLedger: async (assetIds) => {
+                calls.push([...assetIds]);
+                return noRows;
+              },
+            },
+          ),
+        );
+        // Asked on the turn it was placed. The second placement of the same asset does not
+        // ask again: it was imported before the run, so its answer has not changed, and a
+        // re-read would spend the prompt cache for nothing.
+        expect(calls).toEqual([['asset_1']]);
+      });
+
+      it('holds the refresh count to its bound however many assets get placed', async () => {
+        const calls: string[][] = [];
+        const provider = new ScriptedProvider([
+          { text: 'one', toolCalls: [place('p1', 'asset_1', 0)] },
+          { text: 'two', toolCalls: [place('p2', 'b2', 2)] },
+          { text: 'three', toolCalls: [place('p3', 'b3', 4)] },
+          { text: 'four', toolCalls: [place('p4', 'b4', 6)] },
+          { text: 'done', toolCalls: [] },
+        ]);
+        await drain(
+          new Orchestrator(provider).streamAgent(
+            withAssets(emptyStart(input), 'b2', 'b3', 'b4'),
+            opts(),
+            { maxSteps: 8 },
+            {
+              refreshLedger: async (assetIds) => {
+                calls.push([...assetIds]);
+                return null;
+              },
+            },
+          ),
+        );
+        // One request per refresh, three refreshes at most (`MAX_LEDGER_REFRESHES`).
+        expect(calls).toEqual([['asset_1'], ['b2'], ['b3']]);
+      });
     });
 
     // THE regression this suite exists for: before the `add_stock` arm existed,
@@ -4473,7 +4641,9 @@ describe('streamAgent usage (C1)', () => {
     );
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
     const usage = usageOf(events);
-    expect(usage?.tokens).toBe(160); // (100 + 20) + (30 + 10)
+    // (100 + 20) + (30 + 10), plus the advisory fix turn (AL37) — a real model call, so it is
+    // billed; the scripted provider answers it with its last reply, (30 + 10) again.
+    expect(usage?.tokens).toBe(200);
     expect(usage?.usd).toBeGreaterThan(0);
   });
 
@@ -5886,6 +6056,245 @@ describe('load_tools changes what the next turn is offered', () => {
 });
 
 /**
+ * The model owns the plan; the loop honours it (run `d8d2e445`).
+ *
+ * That run made one montage in four steps, replied "Not done yet: colour, speed,
+ * transitions, fade, masking & graphics, SFX & levels, deliverables" — and COMPLETED,
+ * because a reply without a tool call ended the run whatever it said. `update_plan` is how
+ * the model states what is left as data; these drive it through the real loop.
+ */
+describe('update_plan keeps a run going while its plan has open items (run d8d2e445)', () => {
+  const planCall = (
+    id: string,
+    items: readonly { task: string; status: string; note?: string }[],
+  ) => ({ id, name: 'update_plan', arguments: { items } });
+  const opening = planCall('p1', [
+    { task: 'Tighten the intro', status: 'in_progress' },
+    { task: 'Warm grade across every shot', status: 'pending' },
+  ]);
+
+  it('draws the checklist, continues past an early reply, and briefs the next turn with the open item', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'Tightening the intro.', toolCalls: [opening, deleteRange('d1', 0, 1)] },
+      // The d8d2e445 reply: an honest list of what is left, and no tool call.
+      { text: 'Intro tightened. Not done yet: the grade.', toolCalls: [] },
+      {
+        text: 'The grade cannot be done here.',
+        toolCalls: [
+          planCall('p2', [
+            { task: 'Tighten the intro', status: 'done', note: 'delete_range 0–1s' },
+            {
+              task: 'Warm grade across every shot',
+              status: 'blocked',
+              note: 'The colour tools are not available on this surface.',
+            },
+          ]),
+        ],
+      },
+      { text: 'The intro is tighter; the grade needs the colour tools.', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // Four model calls: the early reply did not end the run; the reply on a blocked plan
+    // bought the one blocked-item turn (AL39) because `color` was never loaded, and the same
+    // reply again ended it — then the advisory fix turn (AL37): the delete left a picture gap
+    // the self-check warns about.
+    expect(provider.requests).toHaveLength(6);
+    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
+    // The blocked-item turn names the item, the domains never loaded, and both answers.
+    const retry = provider.requests[4]!.messages.at(-1)!.content;
+    expect(retry).toContain(
+      'DO THIS NOW\nYour plan leaves “Warm grade across every shot” blocked, and this run never loaded these tool domains:',
+    );
+    expect(retry).toContain('color (grade the picture');
+    expect(retry).toContain('reply without a tool call and the item stays blocked.');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('Blocked plan items, with tools never loaded ('),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: '2 plan items still open — continuing with “Tighten the intro”.',
+      }),
+    );
+    // The continuation turn is briefed with the plan and pointed at the open item.
+    const briefed = provider.requests[2]!.messages.at(-1)!.content;
+    expect(briefed).toContain('YOUR PLAN');
+    expect(briefed).toContain('[>] Tighten the intro');
+    expect(briefed).toContain('DO THIS NOW\nTighten the intro');
+    // The tool's answer is the counts and the next item, never the list back.
+    expect(provider.requests[1]!.messages.at(-1)!.content).toContain(
+      'Plan saved (1 pending, 1 in progress). Next: “Tighten the intro”.',
+    );
+    // Blocking an item is answered with what the run has not tried: harness run 8 blocked
+    // SFX as "no SFX assets" without ever loading `sourcing`, which names sound effects.
+    const blockedAnswer = provider.requests[3]!.messages.at(-1)!.content;
+    expect(blockedAnswer).toContain('Before leaving an item blocked: you have not loaded');
+    expect(blockedAnswer).toContain('color (grade the picture');
+    // One checklist, drawn by the tool and updated in place: its last state is the plan's.
+    const view = reduceEvents(events);
+    const plans = view.nodes.filter((node) => node.kind === 'plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      steps: [
+        { label: 'Tighten the intro', status: 'completed' },
+        {
+          label: 'Warm grade across every shot',
+          status: 'failed',
+          detail: 'The colour tools are not available on this surface.',
+        },
+      ],
+    });
+    // A blocked item is an answer: the run may end on it, and it is reported with its why.
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain(
+      '- Warm grade across every shot — blocked: The colour tools are not available on this surface.',
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
+  it('settles and reports the open items when a continuation changes nothing', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'Tightening the intro.', toolCalls: [opening, deleteRange('d1', 0, 1)] },
+      { text: 'Not done yet: the grade.', toolCalls: [] },
+      { text: 'Still not done: the grade.', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // One continuation, then the second identical reply settles it — progress, not a latch.
+    // The fourth call is the advisory fix turn (AL37), which only reports afterwards.
+    expect(provider.requests).toHaveLength(4);
+    expect(isAdvisoryTurn(provider.requests[3]!)).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('Stopping with 2 plan items still open'),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'warning',
+        text:
+          'Not everything in the plan was done — still open: “Tighten the intro”, ' +
+          '“Warm grade across every shot”.',
+      }),
+    );
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain('**Not done:**');
+    expect(report).toContain('- Warm grade across every shot — not done');
+  });
+
+  // AL44 — harness run 18's last update_plan sent two items over a 24-item plan. The call
+  // replaced the list, so the blocked masking items and the open ones it left out vanished:
+  // the run ended, and "Not done" named only what the last call happened to list.
+  it('keeps the items a later call leaves out: the run continues on them and reports them (run 18)', async () => {
+    const provider = new ScriptedProvider([
+      {
+        text: 'Planning and tightening the intro.',
+        toolCalls: [
+          planCall('p1', [
+            { task: 'Tighten the intro', status: 'in_progress' },
+            {
+              task: 'Masking: text behind the hero word',
+              status: 'blocked',
+              note: 'Cut-out job the editor must start',
+            },
+            { task: 'Sound design', status: 'pending' },
+            { task: 'QA', status: 'pending' },
+          ]),
+          deleteRange('d1', 0, 1),
+        ],
+      },
+      // The run-18 shape: only the items this turn touched.
+      {
+        text: 'Intro and QA done.',
+        toolCalls: [
+          planCall('p2', [
+            { task: 'Tighten the intro', status: 'done', note: 'delete_range 0–1s' },
+            { task: 'QA', status: 'done', note: 'scrubbed every cut' },
+          ]),
+        ],
+      },
+      { text: 'All done.', toolCalls: [] },
+      { text: 'All done.', toolCalls: [] },
+      { text: '', toolCalls: [] },
+      { text: '', toolCalls: [] },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+
+    // The second call's answer says what the plan kept, in the words that settle it.
+    expect(provider.requests[2]!.messages.at(-1)!.content).toContain(
+      'Plan saved (1 pending, 2 done, 1 blocked). Kept 2 items your list left out, as they ' +
+        'were: “Masking: text behind the hero word” (blocked), “Sound design” (pending). An ' +
+        'item leaves the plan only as done or blocked — list every item each call. Next: ' +
+        '“Sound design”.',
+    );
+    // The carried open item keeps the run going past the first reply.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: '1 plan item still open — continuing with “Sound design”.',
+      }),
+    );
+    // The checklist is the whole plan, in its original order.
+    const plans = reduceEvents(events).nodes.filter((node) => node.kind === 'plan');
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({
+      steps: [
+        { label: 'Tighten the intro', status: 'completed' },
+        { label: 'Masking: text behind the hero word', status: 'failed' },
+        { label: 'Sound design', status: 'failed' },
+        { label: 'QA', status: 'completed' },
+      ],
+    });
+    // And the report names both the carried blocked item and the carried open one.
+    const report = events
+      .filter(
+        (event): event is Extract<AiEvent, { type: 'assistant_message' }> =>
+          event.type === 'assistant_message',
+      )
+      .map((event) => event.text)
+      .join('\n');
+    expect(report).toContain('- Sound design — not done');
+    expect(report).toContain(
+      '- Masking: text behind the hero word — blocked: Cut-out job the editor must start',
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'warning',
+        text: 'Not everything in the plan was done — still open: “Sound design”.',
+      }),
+    );
+  });
+
+  it('is not offered on the read-only question route', () => {
+    const orchestrator = new Orchestrator(new ScriptedProvider([{ text: '' }]));
+    expect(orchestrator.agentTools('question').map((tool) => tool.name)).not.toContain(
+      'update_plan',
+    );
+    expect(orchestrator.agentTools('agent').map((tool) => tool.name)).toContain('update_plan');
+    expect(orchestrator.agentTools('action-recovery').map((tool) => tool.name)).toContain(
+      'update_plan',
+    );
+  });
+});
+
+/**
  * The picture-over-picture refusal, given once instead of four times — and, since
  * ADR 0169, given only where it is still true.
  *
@@ -5900,11 +6309,12 @@ describe('load_tools changes what the next turn is offered', () => {
  * 4.2–6s to 4.2–6.2s, believing each was a new attempt.
  *
  * That run's own request — plain full-frame b-roll over the narration — is now legal and
- * lands on a layer opened in front (first test below). What is still refused is the
- * placement the preview genuinely cannot show: a see-through or scaled layer over other
- * picture. The banking mechanism is unchanged and is pinned here against that.
+ * lands on a layer opened in front (first test below), and since ADR 0180's 2026-09-29
+ * amendment so does a see-through or scaled layer. What is still refused is a full-frame
+ * placement that would swallow another cutaway whole (`hides_a_cutaway`): a clip nobody would
+ * ever see. The banking mechanism is unchanged and is pinned here against that.
  */
-describe('picture over picture is refused once, not once per placement (run 369e8c82)', () => {
+describe('a picture refusal is given once, not once per placement (run 369e8c82)', () => {
   const asset = (id: string, path: string) => ({
     id,
     path,
@@ -5956,13 +6366,13 @@ describe('picture over picture is refused once, not once per placement (run 369e
     } as unknown as Partial<Project>);
 
   /**
-   * The same shape with a SEE-THROUGH clip parked out at 20–22s on `b_roll`.
+   * The same shape with a full-frame CUTAWAY at 1–3s on a lane in front of the narration.
    *
-   * Kept out of `overlayProject` deliberately: it extends the sequence to 22s, which the
-   * "hidden behind picture" digest below is measured against. This is the project for the
-   * refusal itself, which needs a clip the preview could not show over another.
+   * Kept out of `overlayProject` deliberately: the "hidden behind picture" digest below is
+   * measured against that one. This is the project for the refusal itself, which needs a
+   * cutaway a full-frame placement over 0–4s would swallow whole.
    */
-  const pipProject = (tailStart: number): Project =>
+  const cutawayProject = (tailStart: number): Project =>
     makeProject({
       assets: [
         asset('asset_main', 'media/narration.mp4'),
@@ -5972,28 +6382,28 @@ describe('picture over picture is refused once, not once per placement (run 369e
       timeline: {
         tracks: [
           {
-            id: 'v_main',
-            type: 'video',
-            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
-          },
-          {
-            id: 'b_roll',
+            id: 'cut_lane',
             type: 'video',
             clips: [
               {
-                id: 'clip_pip',
+                id: 'clip_cut',
                 assetId: 'asset_stock_a',
-                trackId: 'b_roll',
-                start: 20,
-                end: 22,
+                trackId: 'cut_lane',
+                start: 1,
+                end: 3,
                 sourceStart: 0,
                 sourceEnd: 2,
                 effects: [],
                 keyframes: [],
-                blendMode: 'screen',
               },
             ],
           },
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
+          },
+          { id: 'b_roll', type: 'video', clips: [] },
           { id: 'audio_1', type: 'audio', clips: [] },
         ],
       },
@@ -6004,15 +6414,15 @@ describe('picture over picture is refused once, not once per placement (run 369e
     project: overlayProject(5),
     userPrompt: 'add some b-roll over the intro',
   });
-  /** The same, holding the see-through clip the refusal is about. */
-  const coveredPip = (): ContextInput => ({
-    project: pipProject(5),
-    userPrompt: 'lay that overlay across the intro',
+  /** The same, holding the cutaway the refusal is about. */
+  const coveredCut = (): ContextInput => ({
+    project: cutawayProject(5),
+    userPrompt: 'add some b-roll over the intro',
   });
-  /** …with a real 5–7s hole in the narration for the overlay to land in. */
-  const gappedPip = (): ContextInput => ({
-    project: pipProject(7),
-    userPrompt: 'lay that overlay across the intro',
+  /** …with a real 5–7s hole in the narration for the b-roll to land in. */
+  const gappedCut = (): ContextInput => ({
+    project: cutawayProject(7),
+    userPrompt: 'add some b-roll over the intro',
   });
   /** The same, with a real 5–7s hole in the narration for a cutaway to land in. */
   const gapped = (): ContextInput => ({
@@ -6029,16 +6439,13 @@ describe('picture over picture is refused once, not once per placement (run 369e
   const fedBack = (provider: ScriptedProvider): string =>
     provider.requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n');
 
-  /** The overlay, moved onto the covered stretch — the placement still refused. */
-  const movePip = (id: string, toStart: number): ToolCall => ({
-    id,
-    name: 'move_clip',
-    arguments: { clipId: 'clip_pip', toTrackId: 'b_roll', toStart },
-  });
+  /** Full-frame b-roll over `start`–`end`: refused while that span swallows `clip_cut`. */
+  const bury = (id: string, start: number, end: number): ToolCall =>
+    place(id, 'asset_stock_b', start, end);
 
   it('lands the run’s own request — plain b-roll over the narration — on a front layer', async () => {
     // The captured run asked for exactly this and was refused four times. It is now a
-    // legal edit, because a full-frame cutaway previews the way it exports.
+    // legal edit: the monitor composites the stack exactly as the export does.
     const provider = new ScriptedProvider([
       { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
       { text: 'done', toolCalls: [] },
@@ -6063,23 +6470,23 @@ describe('picture over picture is refused once, not once per placement (run 369e
     // Under the prose key these were two unrelated failures and the run was told the
     // whole story twice.
     const provider = new ScriptedProvider([
-      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
-      { text: 'trying again', toolCalls: [movePip('p2', 6)] },
+      { text: 'placing b-roll', toolCalls: [bury('p1', 0, 4)] },
+      { text: 'trying again', toolCalls: [bury('p2', 0.5, 3.5)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 4 }),
+      new Orchestrator(provider).streamAgent(coveredCut(), opts(), { maxSteps: 4 }),
     );
     // The first attempt gets the full refusal…
-    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    expect(JSON.stringify(events)).toMatch(/it covers the whole of [^,]*on cut_lane \(1–3s\)/);
     // …and the second is answered as a repeat rather than run through the loop again.
     expect(JSON.stringify(events)).toMatch(/Refused repeat of[^,]*already failed this run/);
     const log = fedBack(provider);
-    expect(log).toMatch(/"move_clip" already failed this run for this same reason/);
+    expect(log).toMatch(/"add_clip" already failed this run for this same reason/);
     // The repeat answer REPLACES the refusal the model would otherwise have read, so it
-    // has to carry the way out with it. A repeat notice that drops both remedies turns a
+    // has to carry the way out with it. A repeat notice that drops the remedies turns a
     // helpful refusal into a dead end — worse than the loop it closes.
-    expect(log).toMatch(/split at 6s and 8s and add it on the same track as a cutaway/);
+    expect(log).toMatch(/delete_clip clip_cut/);
   });
 
   it('does not block a corrected placement that lands in a genuinely free span', async () => {
@@ -6089,20 +6496,20 @@ describe('picture over picture is refused once, not once per placement (run 369e
     // settles: a placement into the 5–7s hole never refuses, so it never has a key to
     // match, and the block never widens from the rule to the tool.
     const provider = new ScriptedProvider([
-      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
-      { text: 'taking the cutaway', toolCalls: [movePip('p2', 5)] },
+      { text: 'placing b-roll', toolCalls: [bury('p1', 0, 4)] },
+      { text: 'taking the gap', toolCalls: [bury('p2', 5, 7)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(gappedPip(), opts(), { maxSteps: 4 }),
+      new Orchestrator(provider).streamAgent(gappedCut(), opts(), { maxSteps: 4 }),
     );
-    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    expect(JSON.stringify(events)).toMatch(/it covers the whole of/);
     expect(JSON.stringify(events)).not.toMatch(/Refused repeat of/);
     // It LANDED — the corrected clip is on the timeline, not merely un-refused.
     const diff = events.filter((e) => e.type === 'diff').at(-1);
     const ops =
       diff?.type === 'diff' ? diff.edit.patch.operations.map((o: AnyOperation) => o.type) : [];
-    expect(ops).toContain('move_clip');
+    expect(ops).toContain('add_clip');
   });
 
   it('keys a refusal with no named cause on its text, exactly as before', async () => {
@@ -6135,23 +6542,23 @@ describe('picture over picture is refused once, not once per placement (run 369e
     // briefing never carried the rule once. A `failed` row puts it under the briefing's
     // "FAILED — fix the cause, do not retry unchanged", where it survives compaction.
     const provider = new ScriptedProvider([
-      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'placing b-roll', toolCalls: [bury('p1', 0, 4)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 3 }),
+      new Orchestrator(provider).streamAgent(coveredCut(), opts(), { maxSteps: 3 }),
     );
     const last = events.filter((e) => e.type === 'run_state').at(-1);
     const working = last?.type === 'run_state' ? last.working : undefined;
     const failed = working?.operations.filter((op) => op.status === 'failed') ?? [];
     expect(failed.length).toBeGreaterThan(0);
     expect(failed.map((op) => op.failureReason ?? '').join('\n')).toMatch(
-      /Refused "move_clip"[\s\S]*add it on the same track as a cutaway/,
+      /Refused "add_clip"[\s\S]*delete_clip clip_cut/,
     );
     // …and the row is not just stored, it is READ: the briefing puts it in front of the
     // model under the one heading that tells it what to do with a refusal.
     expect(fedBack(provider)).toMatch(
-      /FAILED — fix the cause, do not retry unchanged[\s\S]*add it on the same track as a cutaway/,
+      /FAILED — fix the cause, do not retry unchanged[\s\S]*delete_clip clip_cut/,
     );
   });
 
@@ -6166,7 +6573,7 @@ describe('picture over picture is refused once, not once per placement (run 369e
     ]);
     await drain(new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }));
     expect(fedBack(provider)).toMatch(
-      /b_roll \[video\] 0 clips — hidden behind picture 0–10s \(a full-frame clip added here lands on a new front layer\)/,
+      /b_roll \[video\] 0 clips — hidden behind picture 0–10s \(a clip added here lands on a new front layer\)/,
     );
   });
 

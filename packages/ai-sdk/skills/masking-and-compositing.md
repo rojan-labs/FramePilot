@@ -1,7 +1,7 @@
 ---
 name: masking-and-compositing
 description: Masks and cut-outs on request — remove a background, blur a face, hide or isolate a subject, grade part of the picture, split screen, gradients, heart/star shapes, video in text, text behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
-tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, measure_subject, put_text_behind_subject, follow_subject, get_masks, delete_mask]
+tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, measure_subject, put_text_behind_subject, follow_subject, reframe_to_subject, get_masks, delete_mask]
 ---
 
 # Masking and compositing
@@ -9,13 +9,12 @@ tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_ma
 ## Purpose
 
 Limit what a clip shows, or what an effect touches, to a real subject in the picture, as the
-editor would in the Inspector's Mask tab, with the same review list.
+editor would in the Inspector's Mask tab.
 
 ## When to use
 
 "Remove the background", "cut her out", "hide the logo", "darken everything but the presenter",
-"desaturate the car", "put the text behind him", "split screen", "a heart around her face",
-"video inside the text".
+"put the text behind him", "split screen", "video inside the text", "open on a growing shape".
 
 ## When not to use
 
@@ -67,9 +66,10 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   the head, shoulder line (the face is between), width covered per band — and, given your
   text overlay, the `xPercent`/`yPercent` and `sizePercent` where it reads as behind. Never edits.
 - `put_text_behind_subject` (clipId, text, start, end, style): needs the cut-out first;
-  `start`–`end` is the moment, not the shot. A heavy condensed `fontFamily` (Anton, Bebas Neue)
-  is the look. A second text overlay on the shot shares its layer.
-- `follow_subject` makes one mask reuse another mask's measured track. The source must be tracked.
+  `start`–`end` is the moment, not the shot. Unless the editor chose a font, a heavy condensed
+  `fontFamily` (Anton, Bebas Neue) reads best. A second text overlay on the shot shares its layer.
+- `follow_subject`: a mask reuses another's track. `reframe_to_subject`: a wide clip's window
+  follows one.
 - `get_masks` lists a clip's masks with ids; `delete_mask` removes one.
 
 ## Recipes
@@ -98,22 +98,23 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   and the candidateId.
 - **Sticker outline or shadow on a cut-out person:** cut-out first, then `style_cutout_edge`
   (`preset: "sticker-outline"` for a thick border).
-- **Video inside text:** put the text overlay above the clip (`add_text_layer`), then
-  `mask_with_layer` on the clip with `sourceClipId` = the text overlay and `channel: "alpha"`.
+- **Video inside text:** `add_text_layer` above the clip, then `mask_with_layer` on the clip
+  (`sourceClipId` = the text, `channel: "alpha"`).
+- **Shape-mask opener:** `add_shape` a `rounded-rect/filled`, `add_keyframes` its `scale`
+  0.4 → 1.15 (past the frame, so the corners leave it), then `mask_with_layer` as above.
 - **Everyone except the host:** `find_mask_targets` returns `needs_face_selection`; the editor
   picks the faces. Face recognition is their choice per project, off by default.
 
 ## Professional heuristics
 
-- A hard-edged grade shows its outline: effect masks want a soft edge, composites the exact one.
 - Track anything that moves more than a little. A locked-off shot with a still subject needs no
   track, and an untracked shape has no review list.
-- One mask per thing. Refine the mask you made rather than stacking a second on top of it.
+- One mask per thing: refine the mask you made rather than stacking a second.
 - Read the clip's row first: `masks: …` says what it already has, and `get_masks` gives the ids.
 
 ## Decision framework
 
-Target unclear → ask (the picker). Subject moves → track. Exact edge needed (hair, hands, a
+Target unclear → ask (the picker). Exact edge needed (hair, hands, a
 composite) → cutout. Soft-edged treatment (a spotlight, a grade) → shape with `edge: "soft"`.
 
 ## Common mistakes

@@ -43,6 +43,7 @@ import {
   type SourceMonitorInteraction,
   type ViewNode,
   decideReferenceRole,
+  modelPlanRecordsFromEvents,
 } from '@framepilot/ai-sdk';
 import type { AnyOperation } from '@framepilot/editor-core';
 import { safeParseProject, type Project } from '@framepilot/timeline-schema';
@@ -1464,6 +1465,10 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       // Where those references' files are, so the desktop host can show a model that reads
       // images the attached picture itself (EQ18). Same walk, same rules as the profiles.
       const readyReferenceFiles = activeReferenceFiles(conversationLog, dismissedNow);
+      // The plans this conversation's runs ended with (AL5). The SDK reads them only when
+      // the router says this message continues one of those requests; any other message
+      // starts with no plan.
+      const priorPlans = modelPlanRecordsFromEvents(conversation.events);
       const runInputFor = (runMode: AiSessionMode): AiSessionInput => {
         const currentEditor = editorRef.current;
         const projectSnapshot = projectSnapshotForAiRun(projectRef.current, currentEditor);
@@ -1504,7 +1509,13 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           // classifies to an edit it delegates to the very same agent loop (ADR 0055).
           ...(runMode === 'agent' || runMode === 'auto'
             ? {
-                agentOptions: { planFirst, requirePlanApproval: planFirst, maxUsd, maxMinutes },
+                agentOptions: {
+                  planFirst,
+                  requirePlanApproval: planFirst,
+                  maxUsd,
+                  maxMinutes,
+                  ...(priorPlans.length > 0 ? { priorPlans } : {}),
+                },
                 controls: { planApproval: planApprovalGate, steering: steeringQueue },
               }
             : {}),
@@ -1862,6 +1873,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             log: cp.log,
             stepsCompleted: cp.stepsCompleted,
             working: cp.working,
+            // The run's own to-do list (AL5), so Resume carries on with it.
+            modelPlan: cp.modelPlan,
           },
         },
       })) {

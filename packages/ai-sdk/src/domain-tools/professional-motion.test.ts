@@ -86,6 +86,19 @@ function context(
   };
 }
 
+/** What an agent run sees: nothing selected, the playhead wherever the editor left it. */
+function agentContext(base: Project, playheadSeconds: number): ToolContext {
+  return {
+    project: base,
+    interaction: captureEditorInteractionContext({
+      project: base,
+      projectRevision: 7,
+      playheadSeconds,
+      selectedClipIds: [],
+    }),
+  };
+}
+
 function dispatch(base: Project, ctx: ToolContext, args: Record<string, unknown>) {
   const operations = operationsForCall(
     { id: 'motion_call', name: 'professional_motion', arguments: args },
@@ -264,6 +277,111 @@ describe('professional_motion domain tool', () => {
       status: 'rejected',
       code: 'insufficient_motion_history',
     });
+  });
+
+  it('animates a clip it names by id, with nothing selected', () => {
+    // Issue #138: an agent run has no selection, so "this" could not reach the clip.
+    const base = project();
+    const edited = dispatch(base, agentContext(base, 12), {
+      intent: 'animate_to',
+      clipIds: ['hero'],
+      property: 'scale',
+      value: 1.2,
+      durationFrames: 15,
+    });
+    const scale = edited.tracks[0]!.clips[0]!.keyframes.filter(
+      (keyframe) => keyframe.property === 'scale',
+    );
+    expect(scale.map((keyframe) => [keyframe.time, keyframe.value])).toEqual([
+      [1, 1],
+      [2, 1.1],
+      [2.5, 1.2],
+    ]);
+  });
+
+  it('continues a named clip from its latest keyframes when the playhead is elsewhere', () => {
+    const base = project();
+    const objective = MotionObjectiveSchema.parse({
+      intent: 'continue',
+      clipIds: ['hero'],
+      property: 'scale',
+      durationFrames: 30,
+    });
+    const interaction = agentContext(base, 0).interaction!;
+    expect(resolveMotionObjective({ project: base, interaction, objective })).toMatchObject({
+      status: 'resolved',
+      commands: [
+        {
+          clipId: 'hero',
+          points: [
+            { frame: 60, value: 1.1 },
+            { frame: 90, value: 1.2 },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('says animate_to needs the playhead over a named clip, and which tool does not', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, agentContext(base, 0), {
+        intent: 'animate_to',
+        clipIds: ['hero'],
+        property: 'scale',
+        value: 1.2,
+        durationFrames: 15,
+      }),
+    ).toThrow(/playhead_outside_clip: .*add_keyframes/);
+  });
+
+  it('refuses an id the project does not hold rather than guessing', () => {
+    const base = project();
+    expect(() =>
+      dispatch(base, agentContext(base, 12), {
+        intent: 'continue',
+        clipIds: ['hero_clip'],
+        property: 'scale',
+        durationFrames: 15,
+      }),
+    ).toThrow(/missing_explicit_target/);
+  });
+
+  it('takes one clip, because a motion has one trajectory', () => {
+    expect(
+      MotionObjectiveSchema.safeParse({
+        intent: 'continue',
+        clipIds: ['hero', 'other'],
+        durationFrames: 15,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('names clipIds when an id is put in target', () => {
+    const parsed = MotionObjectiveSchema.safeParse({
+      intent: 'continue',
+      target: 'hero',
+      durationFrames: 15,
+    });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error!.issues[0]!.message).toContain('pass its id in clipIds');
+  });
+
+  it('says how to settle an ambiguous playhead: name the clip', () => {
+    const base = project();
+    const hero = base.timeline.tracks[0]!.clips[0]!;
+    base.timeline.tracks.push({
+      ...base.timeline.tracks[0]!,
+      id: 'v2',
+      clips: [{ ...hero, id: 'overlay', trackId: 'v2' }],
+    });
+    expect(() =>
+      dispatch(base, agentContext(base, 12), {
+        intent: 'continue',
+        property: 'scale',
+        durationFrames: 15,
+      }),
+    ).toThrow(/target_ambiguous: .*name the clip you mean with clipIds/);
   });
 
   it('is a host-only professional mutation surface', () => {

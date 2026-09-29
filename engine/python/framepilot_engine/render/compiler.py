@@ -102,6 +102,7 @@ from framepilot_engine.effects.transform import (
 )
 from framepilot_engine.media.assets import AssetIndex
 from framepilot_engine.render import transition_passes, transitions
+from framepilot_engine.render.audio_reads import bound_audio_reads
 from framepilot_engine.render.blend import apply_blend_mode
 from framepilot_engine.render.caption_templates import layer_caption_style
 from framepilot_engine.render.captions import (
@@ -131,6 +132,7 @@ from framepilot_engine.render.edge_styles import (
 from framepilot_engine.render.frame_effects import apply_effect_layers
 from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.frame_plan import (
+    LayerMatteSources,
     back_to_front,
     caption_tracks,
     clips_in_sequence,
@@ -148,6 +150,7 @@ from framepilot_engine.render.frame_plan import (
     text_overlay_text,
     title_envelope_animates,
     transition_underlays,
+    underlay_clock_offset,
     underlay_material,
     uses_legacy_transition_path,
     video_source_time,
@@ -184,7 +187,11 @@ from framepilot_engine.render.mattes import (
     assert_frames_align,
     prepare_matte,
 )
-from framepilot_engine.render.picture_window import PictureWindow
+from framepilot_engine.render.picture_window import (
+    REACH_SLACK_SECONDS,
+    PictureWindow,
+    clip_reach,
+)
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.pts_reader import (
     VideoTiming,
@@ -233,9 +240,32 @@ class CompileError(Exception):
 
 def _subclipped_source(source: Any, clip: Clip) -> Any:
     end = clip.source_end
-    if end is not None and end >= float(source.duration):
-        end = None
-    return source.subclipped(clip.source_start, end)
+    if end is None or end < float(source.duration):
+        return source.subclipped(clip.source_start, end)
+    played = source.subclipped(clip.source_start, None)
+    return _hold_past_end(played, float(end) - float(clip.source_start))
+
+
+def _hold_past_end(played: Any, span: float) -> Any:
+    """``played`` lasting ``span`` seconds: its last frame held and silence past its file.
+
+    AL42: a clip's source out-point can sit a little past its file — a span rounded up to the
+    frame grid on a sub-frame-length asset, or an asset whose probed length is its container's
+    rather than its stream's. Cut to the file, the layer used to end early and the frame(s)
+    after it showed the layer beneath (black on a single track) while the frame plan, and so
+    the preview, held the shot. Held here, the export agrees with them. Sound past the file is
+    silence: every audio reader answers a read past its end with zeros (``audio_reads``).
+    """
+    from moviepy import VideoClip
+
+    if span <= float(played.duration):
+        return played
+    if isinstance(played, VideoClip):
+        # The last whole frame inside the file: a read at or past the end asks the decoder for a
+        # frame it does not have, which MoviePy answers with whatever it read before.
+        last = max(0.0, float(played.duration) - 1.0 / float(played.fps))
+        played = played.time_transform(lambda t: np.minimum(t, last), keep_duration=True)
+    return played.with_duration(span)
 
 
 def _apply_crop(source: Any, clip: Clip) -> Any:
@@ -244,12 +274,22 @@ def _apply_crop(source: Any, clip: Clip) -> Any:
         return source
     from moviepy import vfx
 
+    from framepilot_engine.render.lazy_frames import LazySize
+
     width, height = source.size
     x1 = crop.x * width
     y1 = crop.y * height
     x2 = (crop.x + crop.width) * width
     y2 = (crop.y + crop.height) * height
-    return source.with_effects([vfx.Crop(x1=x1, y1=y1, x2=x2, y2=y2)])
+    cropped = source.with_effects([vfx.Crop(x1=x1, y1=y1, x2=x2, y2=y2)])
+    if isinstance(cropped, LazySize):
+        # MoviePy's Crop is `frame[int(y1):int(y2), int(x1):int(x2)]`, a zero bound meaning the
+        # frame's edge: the slice's size, known without rendering frame 0 to measure it.
+        cropped.size = (
+            len(range(int(width))[int(x1 or 0) : int(x2 or width)]),
+            len(range(int(height))[int(y1 or 0) : int(y2 or height)]),
+        )
+    return cropped
 
 
 _SPEED_DURATION_TOLERANCE_SECONDS = 0.05
@@ -756,6 +796,7 @@ def _place_video_clip(
     centre: tuple[float, float] | None = None,
     still: bool = False,
     project_size: tuple[int, int] | None,
+    clock_offset: float = 0.0,
 ) -> VideoClip:
     """Scale, animate and position one picture layer inside the target frame.
 
@@ -773,6 +814,10 @@ def _place_video_clip(
     :param project_size: The project's frame, which the clip's ``x``/``y`` keyframes are authored
         in; ``None`` only when ``target`` is that frame or the clip has no such keyframes.
         Required so no caller at another size can forget it (frame grabs, review renders).
+    :param clock_offset: Added to the layer's time before its transform is read. Non-zero only
+        for a transition under-layer, which is the neighbour carried across the cut and so reads
+        its reframe on the neighbour's own clip clock (:func:`underlay_clock_offset`). Adding
+        ``0.0`` leaves every other layer's time exactly as it was.
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
@@ -791,19 +836,19 @@ def _place_video_clip(
     # The arithmetic lives in `frame_plan` so the plan the preview is tested against and the
     # export are one computation, not two that agree today.
     def scale_at(t: float) -> float:
-        return base_scale * layer_scale_at(clip, t, transition)
+        return base_scale * layer_scale_at(clip, t + clock_offset, transition)
 
     # A stretched layer (scaleX/scaleY) resizes to a per-axis pixel size; MoviePy truncates a
     # (w, h) exactly as it truncates ``scale * size``. An unstretched one keeps the uniform
     # factor, so its resize is the one it always was.
     def size_at(t: float) -> tuple[float, float]:
-        scale_x, scale_y = layer_axis_scales_at(clip, t, base_scale, transition)
+        scale_x, scale_y = layer_axis_scales_at(clip, t + clock_offset, base_scale, transition)
         return (clip_w * scale_x, clip_h * scale_y)
 
     def position_at(t: float) -> tuple[float, float]:
         return layer_position_at(
             clip,
-            t,
+            t + clock_offset,
             (clip_w, clip_h),
             base_scale,
             target,
@@ -814,7 +859,9 @@ def _place_video_clip(
 
     placed = _resized(source, size_at if has_stretch(clip) else scale_at, still)
     if ROTATION in animated_properties(clip):
-        placed = placed.rotated(lambda t: evaluate_clip_transform(clip, t).rotation, expand=False)
+        placed = placed.rotated(
+            lambda t: evaluate_clip_transform(clip, t + clock_offset).rotation, expand=False
+        )
     return placed.with_position(position_at)
 
 
@@ -857,6 +904,9 @@ def _underlay_layer(
     max_decode_dimension: int | None,
     opened: list[Any],
     pixel_aspect_ratio: float = 1.0,
+    decoder_threads: int | None = None,
+    *,
+    project_size: tuple[int, int] | None,
 ) -> Any:
     """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
 
@@ -872,10 +922,12 @@ def _underlay_layer(
     :param window: The sequence span to cover, from :func:`transition_underlay_window`.
     :param opened: The compiler's resource ledger; everything opened here is appended so a
         failed compile still closes it.
+    :param project_size: The project's frame, which the neighbour's ``x``/``y`` keyframes are
+        authored in (see :func:`_place_video_clip`).
     """
     start, _end = window
     reader = _open_source_reader(
-        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio
+        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio, decoder_threads
     )
     opened.append(reader)
     # Which handle (past the out-point for "in", before the in-point for "out") and whether
@@ -895,18 +947,27 @@ def _underlay_layer(
 
     material = _apply_crop(material, neighbour)
     material = _apply_color_grade(material, neighbour, lut_base_dir)
-    # Placed with the NEIGHBOUR's framing, but without its transition (an under-layer is
-    # plain picture — it is the thing being revealed, never a second reveal) and without its
-    # keyframed motion, which is timed to the neighbour's own clip-local clock.
-    plain = neighbour.model_copy(update={"keyframes": []})
-    # No keyframes, so there is no x/y to convert: the project's size would change nothing.
-    placed = _place_video_clip(material, plain, target, None, project_size=None)
+    # Placed as the NEIGHBOUR places itself, but without its transition (an under-layer is
+    # plain picture: it is the thing being revealed, never a second reveal). Its keyframed
+    # reframe is read on its own clip clock, carried across the cut, so it holds its last
+    # keyframe past its out-point (AL40: dropping it letterboxed a reframed 16:9 shot under a
+    # portrait dissolve, and the ramp showed the bars through the incoming picture).
+    placed = _place_video_clip(
+        material,
+        neighbour,
+        target,
+        None,
+        project_size=project_size,
+        clock_offset=underlay_clock_offset(neighbour, window),
+    )
     return placed.with_start(start).with_duration(span)
 
 
 def _apply_transition_blur(
     source: VideoClip, transition: transitions.Transition | None
 ) -> VideoClip:
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if transition is None or not transitions.affects_blur(transition):
         return source
     width, height = source.size
@@ -922,7 +983,7 @@ def _apply_transition_blur(
         image = Image.fromarray(frame.astype(np.uint8)).filter(ImageFilter.GaussianBlur(radius))
         return np.asarray(image)
 
-    return source.transform(blurred, keep_duration=True)
+    return same_size_transform(source, blurred)
 
 
 def _pixel_aspect_ratio(project: Project, clip: Clip) -> float:
@@ -1227,6 +1288,8 @@ def _bind_mattes(
 
 def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
     """Replace edge colour with each matte's foreground estimate before any effect or alpha."""
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if stacks is None:
         return source
     cleaning = [mask for mask in stacks.matte_masks() if mask.decontaminate]
@@ -1245,7 +1308,7 @@ def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | Non
             )
         return picture
 
-    return source.transform(cleaned, keep_duration=True)
+    return same_size_transform(source, cleaned)
 
 
 def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
@@ -1256,6 +1319,8 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
     it is looking for. This is the same order a hardware keyer uses — extract, then suppress —
     and it is why despill is a stage of its own rather than a step inside the qualifier.
     """
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     if stacks is None:
         return source
     despilling = stacks.despilling_keys()
@@ -1268,7 +1333,7 @@ def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> Vide
             picture = despill(picture, str(mask.despill))
         return picture
 
-    return source.transform(cleaned, keep_duration=True)
+    return same_size_transform(source, cleaned)
 
 
 def _refuse_still_only_video_masks(clip: Clip) -> None:
@@ -1388,6 +1453,8 @@ def _apply_edge_styles(
         is the one it would compute (``test_element_layer_export.py``). The entry is held in the
         process's reuse budget. A video's frames differ every frame, so it never compares them.
     """
+    from framepilot_engine.render.lazy_frames import FrameClip, same_size_transform, size_of
+
     styles = clip_edge_styles(clip)
     if not styles or media_size is None:
         return source
@@ -1448,14 +1515,13 @@ def _apply_edge_styles(
     def picture_at(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
         return evaluate(t, get_frame(t))[0]
 
-    styled = source.transform(picture_at, keep_duration=True)
+    styled = same_size_transform(source, picture_at)
 
     def alpha_at(t: float) -> Any:
         return evaluate(t, source.get_frame(t))[1]
 
-    from moviepy import VideoClip as _VideoClip
-
-    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    # The cut-out alpha is drawn on the picture's raster, so it is the picture's size.
+    mask = FrameClip(alpha_at, size=size_of(source), is_mask=True).with_duration(source.duration)
     _log.debug("edge styles on clip %s: %s", clip.id, ",".join(style.kind for style in styles))
     return styled.with_mask(mask)
 
@@ -1534,6 +1600,8 @@ def _attach_mask(
     :param with_stack: ``False`` for layers whose mask stack the export does not draw yet
         (stills and titles, plan/elements EL2a); the stack is then neither computed nor applied.
     """
+    from framepilot_engine.render.lazy_frames import FrameClip
+
     width, height = source.size
     # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
     # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
@@ -1599,9 +1667,8 @@ def _attach_mask(
         geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
     )
     if time_varying:
-        from moviepy import VideoClip as _VideoClip
-
-        mask = _VideoClip(frame_function=combined_alpha_at, is_mask=True).with_duration(
+        # Drawn at (height, width), the picture's size read above.
+        mask = FrameClip(combined_alpha_at, size=(width, height), is_mask=True).with_duration(
             source.duration
         )
     else:
@@ -1615,6 +1682,8 @@ _uses_legacy_transition_path = uses_legacy_transition_path
 
 
 def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -> VideoClip:
+    from framepilot_engine.render.lazy_frames import FrameClip, same_size_transform, size_of
+
     live = live_catalog_transitions(clip, use_legacy)
     if not live:
         return source
@@ -1667,7 +1736,7 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
             return np.asarray(scaled.astype(np.uint8))
         return np.asarray(np.clip(rgb, 0.0, 1.0))
 
-    transformed = source.transform(picture_at, keep_duration=True)
+    transformed = same_size_transform(source, picture_at)
 
     def alpha_at(t: float) -> Any:
         _, alpha = evaluate(t, source.get_frame(t))
@@ -1675,9 +1744,8 @@ def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -
             alpha = alpha * existing_mask.get_frame(t)
         return alpha
 
-    from moviepy import VideoClip as _VideoClip
-
-    mask = _VideoClip(frame_function=alpha_at, is_mask=True).with_duration(source.duration)
+    # The alpha is the shape of the source's frame, which is the source's size.
+    mask = FrameClip(alpha_at, size=size_of(source), is_mask=True).with_duration(source.duration)
     return transformed.with_mask(mask)
 
 
@@ -1708,6 +1776,10 @@ def _apply_color_grade(
     lut_base_dir: Path,
     stacks: ClipMaskStacks | None = None,
 ) -> VideoClip:
+    from moviepy import ImageClip
+
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     for effect in picture_effects(clip):
         if effect.type == "color_grade":
             grade = color_grade_from_params(effect.params)
@@ -1723,9 +1795,21 @@ def _apply_color_grade(
             apply = partial(apply_lut, lut=lut)
         if stacks is not None and stacks.by_effect.get(effect.id):
             source = _masked_effect(source, stacks, effect.id, apply)
-        else:
+        elif isinstance(source, ImageClip):
+            # A still's grade is computed once, on its one picture (MoviePy's ImageClip path).
             source = source.image_transform(apply)
+        else:
+            source = same_size_transform(source, partial(_image_stage, apply))
     return source
+
+
+def _image_stage(
+    apply: Callable[[np.ndarray], np.ndarray],
+    get_frame: Callable[[float], np.ndarray],
+    t: float,
+) -> np.ndarray:
+    """MoviePy's ``image_transform`` stage: ``apply`` on the frame at ``t``."""
+    return apply(get_frame(t))
 
 
 def _masked_effect(
@@ -1739,6 +1823,8 @@ def _masked_effect(
     The effect runs on the whole frame and is mixed with the untouched frame by the stack's
     alpha at the clip's source instant, so a face blur or sky grade stays glued to the picture.
     """
+    from framepilot_engine.render.lazy_frames import same_size_transform
+
     width, height = source.size
     static_alpha = (
         None
@@ -1761,7 +1847,7 @@ def _masked_effect(
         mixed: np.ndarray = mix_by_alpha(frame, effected, alpha)
         return mixed
 
-    return source.transform(masked, keep_duration=True)
+    return same_size_transform(source, masked)
 
 
 def _audio_settings(clip: Clip) -> dict[str, Any]:
@@ -1863,7 +1949,9 @@ def _stream_audio_processors(source: Any, clip: Clip, params: Mapping[str, Any])
             apply_audio_filter(raw_path, processed_path, filter_str)
             raw_path.unlink(missing_ok=True)
             final_path = processed_path
-        processed = AudioFileClip(str(final_path)).with_duration(float(source.duration))
+        processed = bound_audio_reads(AudioFileClip(str(final_path))).with_duration(
+            float(source.duration)
+        )
         return _attach_owned_resource(processed, workspace)
     except BaseException:
         workspace.close()
@@ -1947,6 +2035,7 @@ def compile_timeline(
     max_decode_dimension: int | None = None,
     on_progress: Callable[[float], None] | None = None,
     window: PictureWindow | None = None,
+    decoder_threads: int | None = None,
 ) -> VideoClip:
     """Build the MoviePy composition for ``project``.
 
@@ -1963,14 +2052,19 @@ def compile_timeline(
     compositor would hold ITS picture's last frame, which this composite does not have, so a
     caller must not read at or beyond it. Raises :class:`PictureWindowMiss` when the window
     builds no picture layer.
+
+    ``decoder_threads`` caps each source reader's ffmpeg decoder threads
+    (:mod:`framepilot_engine.render.video_reader`); the preview and evidence composites pass
+    ``PREVIEW_DECODER_THREADS``, the export leaves ffmpeg's default.
     """
     from moviepy import (
         AudioFileClip,
         ColorClip,
         CompositeAudioClip,
         ImageClip,
-        VideoFileClip,
     )
+
+    from framepilot_engine.render import video_reader
 
     # MoviePy's composite, blending each transparent layer over only the pixels it covers:
     # the same pixels, without a full-frame blend per sticker (render/bounded_composite.py).
@@ -1978,7 +2072,11 @@ def compile_timeline(
 
     # A window composites a picture: its readers skip the audio probe and decoder that
     # `VideoFileClip` opens by default, which nothing downstream of a picture would read.
-    open_video: Any = VideoFileClip if window is None else partial(VideoFileClip, audio=False)
+    open_video: Any = (
+        video_reader.ProbedVideoFileClip
+        if window is None
+        else partial(video_reader.ProbedVideoFileClip, audio=False)
+    )
     target = (preset.width, preset.height)
     # Keyframed x/y are project pixels; a preset at another size converts them (frame_plan).
     project_size = (project.resolution.width, project.resolution.height)
@@ -2000,21 +2098,40 @@ def compile_timeline(
             on_progress(min(1.0, prepared / total_clips))
 
     picture_by_track: list[list[_PictureLayer]] = []
+    # A window's layers in the full compile's order, with the blended layers it leaves out
+    # (`_window_blend_guard`); one list per track, like `picture_by_track`.
+    blend_plan_by_track: list[list[_PictureLayer | _SkippedBlend]] = []
+    may_frost_elsewhere = False
     audio_layers: list[Any] = []
     opened: list[Any] = []
     try:
         for track in project.timeline.tracks:
             track_pictures: list[_PictureLayer] = []
+            track_plan: list[_PictureLayer | _SkippedBlend] = []
+            synced = 0
             # Clips in sequence order, so a transition can find the shot on the other side of
             # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
             ordered = clips_in_sequence(track)
             for position, clip in enumerate(ordered):
+                # The layers the previous clip built, in the order it built them.
+                track_plan.extend(track_pictures[synced:])
+                synced = len(track_pictures)
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
                 if window is not None and clip.id not in window.clip_ids:
                     # Still in `ordered`, so a windowed clip's transition finds this one as
                     # its neighbour and borrows its handle exactly as the full compile does.
                     _refuse_like_the_full_compile(clip, kind, track, asset_index)
+                    if not track.hidden:
+                        track_plan.extend(
+                            _SkippedBlend(end)
+                            for end in _skipped_blend_ends(
+                                track.id, clip, position, ordered, kind, asset_kinds, matte_sources
+                            )
+                        )
+                        may_frost_elsewhere = may_frost_elsewhere or (
+                            kind == "text" and _may_frost(clip)
+                        )
                     continue
                 if kind in _PICTURE_KINDS:
                     if track.hidden:
@@ -2058,6 +2175,7 @@ def compile_timeline(
                             else decode_cap_for_clip(clip, target),
                             target if static_fit else None,
                             _pixel_aspect_ratio(project, clip),
+                            decoder_threads,
                         )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
@@ -2122,6 +2240,8 @@ def compile_timeline(
                                 max_decode_dimension,
                                 opened,
                                 _pixel_aspect_ratio(project, resolved_neighbour),
+                                decoder_threads,
+                                project_size=project_size,
                             )
                             if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
                                 layer_mattes.add(track.id, clip.id, underlay)
@@ -2139,7 +2259,7 @@ def compile_timeline(
                     if track.muted:
                         continue
                     path = _resolve_clip_asset(clip, asset_index)
-                    reader = AudioFileClip(path)
+                    reader = bound_audio_reads(AudioFileClip(path))
                     opened.append(reader)
                     source = _subclipped_source(reader, clip)
                     source = _apply_speed(source, clip)
@@ -2165,11 +2285,21 @@ def compile_timeline(
                             layer_mattes.add(track.id, clip.id, graphic.picture)
                         else:
                             track_pictures.append(graphic)
+            track_plan.extend(track_pictures[synced:])
             picture_by_track.append(track_pictures)
+            blend_plan_by_track.append(track_plan)
 
         video_layers: list[_PictureLayer] = []
         for track_pictures in back_to_front(picture_by_track):
             video_layers.extend(track_pictures)
+        window_guard = (
+            None
+            if window is None
+            else _window_blend_guard(
+                [entry for plan in back_to_front(blend_plan_by_track) for entry in plan],
+                may_frost_elsewhere,
+            )
+        )
 
         if not video_layers and audio_layers:
             video_layers.append(
@@ -2241,6 +2371,8 @@ def compile_timeline(
         if window is not None and picture_end is not None:
             # See the docstring: only instants before the picture's end are the full frame.
             composite = composite.with_duration(float(picture_end))
+        if window_guard is not None:
+            composite._framepilot_window_guard = window_guard
         return composite
     except BaseException:
         for clip_obj in opened:
@@ -2272,6 +2404,127 @@ class _PictureLayer(NamedTuple):
     frost: _Frost | None = None
 
 
+#: `_blend_layer_over` reads the frame beneath a blended layer at ``min(t, end - 1e-6)``.
+_HOLD_EPSILON = 1e-6
+
+
+class _SkippedBlend(NamedTuple):
+    """A blended layer the full compile builds that a picture window leaves out, and its end."""
+
+    end: float
+
+
+def _blends(mode: str | None) -> bool:
+    return mode is not None and mode != "normal"
+
+
+def _skipped_blend_ends(
+    track_id: str,
+    clip: Clip,
+    position: int,
+    ordered: Sequence[Clip],
+    kind: str,
+    asset_kinds: Mapping[str, str | None],
+    matte_sources: LayerMatteSources,
+) -> list[float]:
+    """When the blended layers the full compile builds for ``clip`` can end, in placement order.
+
+    A video's transition under-layers (placed before it, each taking its NEIGHBOUR's mode, and
+    ending with its ramp), then its own layer (as far as :func:`clip_reach` lets it play). Layers
+    consumed as a track matte are never composited and are not counted.
+    """
+    if kind not in (*_PICTURE_KINDS, "text", "shape"):
+        return []
+    ends: list[float] = []
+    if kind == "video":
+        for planned in transition_underlays(clip, position, ordered, asset_kinds):
+            neighbour = planned.neighbour
+            if _blends(neighbour.blend_mode) and not matte_sources.consumes(
+                track_id, neighbour.id, clip.id
+            ):
+                ends.append(float(planned.window[1]) + REACH_SLACK_SECONDS)
+    if _blends(clip.blend_mode) and not matte_sources.consumes(track_id, clip.id, None):
+        ends.append(clip_reach(clip, kind)[1])
+    return ends
+
+
+def _may_frost(clip: Clip) -> bool:
+    """Whether a text overlay may draw a frosted chip (``typography.background.blur``)."""
+    content = text_overlay_text(clip)
+    if content is None:
+        return False
+    typography = content[1].get("typography")
+    chip = typography.get("background") if isinstance(typography, Mapping) else None
+    blur = chip.get("blur") if isinstance(chip, Mapping) else None
+    return isinstance(blur, (int, float)) and not isinstance(blur, bool) and blur > 0
+
+
+def _plan_end(entry: _PictureLayer | _SkippedBlend) -> float:
+    if isinstance(entry, _SkippedBlend):
+        return entry.end
+    end = entry.picture.end
+    return math.inf if end is None else float(end)
+
+
+def _window_blend_guard(
+    plan: Sequence[_PictureLayer | _SkippedBlend], may_frost_elsewhere: bool
+) -> Callable[[float], bool] | None:
+    """The instants at which a window's blend composite is the export's, or ``None``: all.
+
+    ``plan`` is the full compile's layers in composite order: the window's, built, and the
+    blended ones it left out. :func:`_composite_with_blend_modes` puts the first layer on without
+    its mode, and blends a layer that outlives everything beneath it over their last frame,
+    held; a layer that is not playing changes nothing (an 8-bit frame survives its float round
+    trip, and a blend at alpha 0 is the base). So when every blended layer that has not ended by
+    ``t`` has a layer beneath it, built here, lasting past ``t``, no blended layer playing at
+    ``t`` is first or holds a frame — in the export or in the window — and both are the
+    composite of the layers playing at ``t``. A window holding a frosted overlay is the export's
+    at every instant: both go through the frost compositor, which composites exactly those.
+
+    :raises PictureWindowMiss: The export goes through the frost compositor for an overlay the
+        window leaves out, which rounds a blend differently from the window's compositor.
+    """
+    blended = [
+        index
+        for index, entry in enumerate(plan)
+        if isinstance(entry, _SkippedBlend) or _blends(entry.blend_mode)
+    ]
+    if not blended:
+        return None
+    if any(isinstance(entry, _PictureLayer) and entry.frost is not None for entry in plan):
+        return None
+    if may_frost_elsewhere:
+        raise PictureWindowMiss(
+            "A blended layer is composited through a frosted text overlay outside the window."
+        )
+
+    def answers(t: float) -> bool:
+        for index in blended:
+            if _plan_end(plan[index]) <= t:
+                continue
+            if not any(
+                isinstance(entry, _PictureLayer) and _plan_end(entry) > t + _HOLD_EPSILON
+                for entry in plan[:index]
+            ):
+                return False
+        return True
+
+    return answers
+
+
+def window_answers(composition: Any, at: float) -> bool:
+    """Whether a windowed composite gives the full compile's frame at ``at``.
+
+    A windowed composite is cached by the clips it holds and read at every instant of them, but
+    it is the export's frame only before its picture ends, and — when a layer is blended — only
+    where :func:`_window_blend_guard` says so. A caller composites the whole timeline elsewhere.
+    """
+    if composition.duration is not None and at >= float(composition.duration):
+        return False
+    guard = getattr(composition, "_framepilot_window_guard", None)
+    return guard is None or bool(guard(at))
+
+
 def _composite_with_blend_modes(
     video_layers: Sequence[_PictureLayer], target: tuple[int, int], fps: float
 ) -> VideoClip:
@@ -2290,7 +2543,8 @@ def _composite_with_blend_modes(
 
 def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int, int]) -> VideoClip:
     from moviepy import CompositeVideoClip as _CompositeVideoClip
-    from moviepy import VideoClip as _VideoClip
+
+    from framepilot_engine.render.lazy_frames import FrameClip
 
     canvas = _CompositeVideoClip([layer], size=target)
     base_duration = float(base.duration)
@@ -2310,7 +2564,8 @@ def _blend_layer_over(base: VideoClip, layer: Any, mode: str, target: tuple[int,
         out = base_rgb * (1.0 - alpha3) + blended * alpha3
         return cast(np.ndarray, np.clip(out * 255.0, 0, 255).astype(np.uint8))
 
-    result = _VideoClip(frame_function=frame_at).with_duration(new_duration)
+    # The base's frames are the composite's size.
+    result = FrameClip(frame_at, size=target).with_duration(new_duration)
     # `base` and `canvas` (and, through it, `layer`) are only reachable from `frame_at`'s
     # closure, not from any attribute `close_clip_tree` walks — without this, every blend-mode
     # composite would leak the ffmpeg readers underneath it on every close.
@@ -2614,7 +2869,7 @@ def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps:
     each placed by MoviePy's own ``compose_on``, so the geometry is the one the
     plain composite path uses.
     """
-    from moviepy import VideoClip as _VideoClip
+    from framepilot_engine.render.lazy_frames import FrameClip, size_of
 
     base_duration = float(base.duration)
 
@@ -2631,7 +2886,7 @@ def _composite_captions(base: VideoClip, captions: Sequence[_CaptionLayer], fps:
             frame = _draw_caption_on(frame, caption, t)
         return np.asarray(frame.convert("RGB"), dtype=np.uint8)
 
-    result = _VideoClip(frame_function=frame_at).with_duration(base_duration).with_fps(fps)
+    result = FrameClip(frame_at, size=size_of(base)).with_duration(base_duration).with_fps(fps)
     # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
     result._framepilot_children = [
         base,
@@ -2651,8 +2906,9 @@ def _composite_frosted(
     layer is drawn with MoviePy's own ``compose_on`` (the geometry the plain composite uses) and
     its blend mode; only a timeline with a frosted chip takes this path.
     """
-    from moviepy import VideoClip as _VideoClip
     from PIL import Image
+
+    from framepilot_engine.render.lazy_frames import FrameClip
 
     ends = [float(layer.picture.end) for layer in layers if layer.picture.end is not None]
     duration = max(ends) if ends else 0.0
@@ -2668,7 +2924,7 @@ def _composite_frosted(
             frame = _draw_layer_on(frame, layer.picture, layer.blend_mode, t)
         return np.asarray(frame.convert("RGB"), dtype=np.uint8)
 
-    result = _VideoClip(frame_function=frame_at).with_duration(duration).with_fps(fps)
+    result = FrameClip(frame_at, size=target).with_duration(duration).with_fps(fps)
     # Only reachable from `frame_at`'s closure; `close_clip_tree` walks this list.
     result._framepilot_children = [
         *(layer.picture for layer in layers),
@@ -2768,6 +3024,12 @@ def _draw_layer_on(frame: Any, picture: Any, mode: str | None, t: float) -> Any:
     )
 
 
+#: ffmpeg decoder threads for the readers of a preview or evidence composite (frame grabs,
+#: sheet tiles, review windows, scopes, the whole-timeline preview); the export passes none and
+#: keeps ffmpeg's default. See :mod:`framepilot_engine.render.video_reader` for why, and for
+#: the measurements behind the value.
+PREVIEW_DECODER_THREADS = 4
+
 #: Extra source pixels kept beyond the exact need, so a cropped/fitted frame never upsamples.
 DECODE_CAP_HEADROOM = 1.25
 
@@ -2824,49 +3086,49 @@ def _even(value: float) -> int:
     return max(2, round(value / 2) * 2)
 
 
-def _open_moviepy_reader(
-    video_file_clip_cls: Any,
-    path: str,
+def decode_resolution(
+    stored: tuple[int, int],
+    rotation: int,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
     pixel_aspect_ratio: float = 1.0,
-) -> Any:
-    """MoviePy's reader at the decode size the export needs (see :func:`_open_source_reader`)."""
-    reader = video_file_clip_cls(path)
-    width, height = reader.size
+) -> tuple[int, int] | None:
+    """The size ffmpeg should decode a source at for the export, or ``None`` for its own.
+
+    :param stored: The source's upright frame size as MoviePy decodes it natively
+        (:func:`~framepilot_engine.render.video_reader.stored_size`).
+    :param rotation: Its rotation in degrees (``abs`` of the probe's); a quarter turn puts the
+        sample aspect ratio's stretch on the upright height.
+    See :func:`_open_source_reader` for the rest.
+    """
+    width, height = stored
     par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
     # The sample aspect ratio stretches STORAGE width. ffmpeg autorotates a quarter-turned
     # source and MoviePy swaps `size` first, so there the stretched axis is the upright height
     # (PX2.11: stretching the upright width squashed rotated anamorphic footage).
-    rotation = abs(int(getattr(getattr(reader, "reader", None), "rotation", 0) or 0))
     display = (width, height * par) if rotation in (90, 270) else (width * par, height)
     anamorphic = par != 1.0
     if fit_target is not None:
         exact = fitted_decode_size(display, fit_target)
         if exact is None and anamorphic:
             exact = (_even(display[0]), _even(display[1]))
-        if exact is not None:
-            reader.close()
-            return video_file_clip_cls(path, target_resolution=exact)
-        return reader
+        return exact
     longest = max(display)
     if max_decode_dimension is None or longest <= max_decode_dimension:
         if not anamorphic:
-            return reader
-        reader.close()
-        return video_file_clip_cls(path, target_resolution=(_even(display[0]), _even(display[1])))
+            return None
+        return (_even(display[0]), _even(display[1]))
     scale = max_decode_dimension / longest
-    target = (_even(display[0] * scale), _even(display[1] * scale))
-    reader.close()
-    return video_file_clip_cls(path, target_resolution=target)
+    return (_even(display[0] * scale), _even(display[1] * scale))
 
 
 def _open_source_reader(
-    video_file_clip_cls: Any,
+    open_video: Any,
     path: str,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
     pixel_aspect_ratio: float = 1.0,
+    decoder_threads: int | None = None,
 ) -> Any:
     """Open a source, decoding no larger than the export actually needs.
 
@@ -2882,22 +3144,40 @@ def _open_source_reader(
     sees square pixels. ffmpeg autorotates and MoviePy swaps the size, so for a quarter-turned
     source the stretch lands on the upright height (PX2.11).
 
+    The size is worked out from the source's probe, so the source is opened once, at that size,
+    and no frame is decoded until one is asked for (:mod:`~framepilot_engine.render.video_reader`;
+    AL38: it used to be opened twice, each open decoding a first frame with every core).
+
     A variable-frame-rate source (BR2.5) then reads frames by pts
     (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps
     MoviePy's reader, so its export is unchanged.
+
+    :param open_video: :class:`~framepilot_engine.render.video_reader.ProbedVideoFileClip`, or a
+        partial of it (a picture-only composite opens no sound).
+    :param decoder_threads: The reader's ffmpeg decoder threads (``None``: ffmpeg's default).
     """
-    clip = _open_moviepy_reader(
-        video_file_clip_cls, path, max_decode_dimension, fit_target, pixel_aspect_ratio
-    )
     from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 
+    from framepilot_engine.render.video_reader import probe_video, stored_size
+
+    infos = probe_video(path)
+    resolution = decode_resolution(
+        stored_size(infos),
+        abs(int(infos.get("video_rotation", 0) or 0)),
+        max_decode_dimension,
+        fit_target,
+        pixel_aspect_ratio,
+    )
+    clip = open_video(
+        path, infos=infos, target_resolution=resolution, decoder_threads=decoder_threads
+    )
     if not isinstance(getattr(clip, "reader", None), FFMPEG_VideoReader):
         return clip
     try:
-        return use_pts_reader(clip, path)
+        clip = use_pts_reader(clip, path, decoder_threads=decoder_threads)
     except (VideoTimingError, OSError) as exc:
         _log.warning("could not check %s for a variable frame rate: %s", Path(path).name, exc)
-        return clip
+    return clip
 
 
 def _resolve_clip_asset(clip: Clip, asset_index: AssetIndex) -> str:

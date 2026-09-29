@@ -351,7 +351,9 @@ export function pictureRasterStep(
   // The plan's `scale` is its own base × the authored scale × a geometry transition's zoom; the
   // compiler's base comes from the integer-cropped decoded size, so recover the factor.
   const authoredScale = geometry.baseScale === 0 ? 1 : geometry.scale / geometry.baseScale;
-  const keyframes = layer.role === 'underlay' ? [] : clip.keyframes;
+  // An under-layer is the neighbour (`clip`) with its own reframe: the plan evaluated its
+  // keyframes on its clip clock, and the export's `_underlay_layer` places it the same way (AL40).
+  const keyframes = clip.keyframes;
   const transformed = keyframes.some((keyframe) =>
     RENDERED_TRANSFORM_PROPERTIES.has(keyframe.property),
   );

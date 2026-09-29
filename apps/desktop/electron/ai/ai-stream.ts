@@ -45,6 +45,7 @@ import {
   Orchestrator,
   PROVIDER_NAMES,
   createAskUserGate,
+  parseModelPlanRecords,
   ReferenceProfileSchema,
 } from '@framepilot/ai-sdk';
 import { type Project, parseProject } from '@framepilot/timeline-schema';
@@ -318,7 +319,8 @@ export function parseInteraction(value: unknown): AiStreamInteractionContext | u
 
 /**
  * Validate the optional agent options. Numeric caps must be finite non-negative;
- * `targetPlatform` is allowlist-checked; unknown fields are ignored. Returns
+ * `targetPlatform` is allowlist-checked; `priorPlans` keeps only well-formed plan records;
+ * unknown fields are ignored. Returns
  * `undefined` when absent so the loop keeps its defaults.
  */
 export function parseAgentOptions(value: unknown): AiStreamAgentOptions | undefined {
@@ -354,6 +356,10 @@ export function parseAgentOptions(value: unknown): AiStreamAgentOptions | undefi
     }
     out['targetPlatform'] = platform;
   }
+  // Earlier runs' plans (AL5): validated item by item with the SDK's own reader and bounded
+  // in count, so a malformed entry costs a continuation its carried plan, never the run.
+  const priorPlans = parseModelPlanRecords(record['priorPlans']);
+  if (priorPlans.length > 0) out['priorPlans'] = priorPlans;
   return out as AiStreamAgentOptions;
 }
 

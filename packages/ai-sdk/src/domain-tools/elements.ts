@@ -17,6 +17,7 @@ import {
   buildAddShapeOps,
   planElementAnimation,
   setShapeParamsOp,
+  shapeBounds,
   shapeClipParams,
   type AnimationEdge,
   type AnimationKind,
@@ -32,6 +33,7 @@ import {
   presetShapeParams,
   resolveShapePresetId,
   searchShapes,
+  shapeDescriptor,
   shapeParamsProblem,
   type ShapeDescriptor,
 } from '@framepilot/timeline-schema';
@@ -122,7 +124,77 @@ const styleArgs = {
     .describe('the shape’s own knobs by name, as search_elements lists them'),
 };
 
+/**
+ * A box shape's params with its centre moved just enough that what it draws — outline, stroke
+ * and all, as `shapeBounds` rasterises it — lies inside the frame, the way `add_text_layer`
+ * keeps its text box in frame (#150). An axis the drawing is bigger than is left where it was
+ * asked (a frame larger than the picture is meant to be), and so is a line or an arrow: its
+ * ends are the target it points at and where it comes from, and may start off the frame.
+ *
+ * Only the frame is enforced, not the 10% safe margin: a callout sits where its target is, so
+ * a box around a toolbar button at the top edge belongs there (the critic's
+ * `element_safe_area` exempts shapes for the same reason).
+ */
+export function shapeBoxInFrame(
+  params: Readonly<Record<string, unknown>>,
+  resolution: { readonly width: number; readonly height: number },
+): Record<string, unknown> {
+  const descriptor = typeof params.shape === 'string' ? shapeDescriptor(params.shape) : undefined;
+  if (descriptor?.frame !== 'box' || typeof params.x !== 'number' || typeof params.y !== 'number') {
+    return { ...params };
+  }
+  const bounds = shapeBounds(params, resolution.width, resolution.height);
+  if (bounds === null) return { ...params };
+  // Pixels to move so [start, start + size] lies inside [0, frame]; 0 when it already does or
+  // cannot. `shapeBounds` floors and ceils to whole pixels, so the move is exact.
+  const into = (start: number, size: number, frame: number): number =>
+    size > frame ? 0 : start < 0 ? -start : Math.min(0, frame - (start + size));
+  const dx = into(bounds.x, bounds.width, resolution.width);
+  const dy = into(bounds.y, bounds.height, resolution.height);
+  return {
+    ...params,
+    x: params.x + (dx / resolution.width) * 100,
+    y: params.y + (dy / resolution.height) * 100,
+  };
+}
+
 /** The param changes a tool call's style, box and ends ask for; refuses a colour it cannot read. */
+/**
+ * Why a lane the model named for a shape cannot take it, or `null` when it can.
+ *
+ * The shared builder (`buildAddShapeOps`) quietly falls back to the ordinary choice for a named
+ * lane it cannot use, which suits the Shapes tab (a drop on the footage still lands the shape).
+ * For the agent it hid the mistake: a `trackId` that named nothing, or a picture lane, put the
+ * shape somewhere the model never asked for and never heard about (AL43). A named lane is
+ * honoured or refused. A named graphics lane that is merely busy over the span is still the
+ * allocator's to resolve: it stacks the shape on another lane where it is valid.
+ *
+ * No echo of the id: the repeated-failure guard keys on this text, and a new wrong id each attempt
+ * must not read as progress.
+ */
+function namedShapeLaneProblem(
+  tracks: readonly { id: string; type: string; locked?: boolean | undefined }[],
+  trackId: string,
+): string | null {
+  const lane = tracks.find((track) => track.id === trackId);
+  if (lane === undefined) {
+    return (
+      'trackId names no track on the timeline. Leave trackId out and the shape lands on a ' +
+      'graphics lane with room (a new one if needed), or name a graphics lane from get_timeline.'
+    );
+  }
+  if (lane.type !== 'overlay') {
+    return (
+      'Shapes go on a graphics lane, and trackId names a picture or audio lane. Leave trackId ' +
+      'out, or name a graphics lane from get_timeline.'
+    );
+  }
+  if (lane.locked === true) {
+    return 'trackId names a locked lane. Leave trackId out, or name an unlocked graphics lane.';
+  }
+  return null;
+}
+
 function styleChanges(args: { readonly [key: string]: unknown }): Record<string, unknown> {
   const box = args.box as Record<string, number> | undefined;
   const ends = args.ends as Record<string, number> | undefined;
@@ -387,9 +459,16 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
           `That shape is not in the catalogue. Find one with search_elements, or use a staple: ${FEATURED_IDS}.`,
         );
       }
-      const params = { ...presetShapeParams(presetId)!, ...styleChanges(a) };
+      const params = shapeBoxInFrame(
+        { ...presetShapeParams(presetId)!, ...styleChanges(a) },
+        ctx.project.resolution,
+      );
       const problem = shapeParamsProblem(params);
       if (problem !== null) throw new ToolRefusalError(problem);
+      if (a.trackId !== undefined) {
+        const laneProblem = namedShapeLaneProblem(ctx.project.timeline.tracks, a.trackId);
+        if (laneProblem !== null) throw new ToolRefusalError(laneProblem);
+      }
       const placed = buildAddShapeOps(ctx.project.timeline, params, a.start, a.end, a.trackId);
       const ops: Operation[] = [...placed.operations];
       if (a.rotation !== undefined && a.rotation !== 0) {
@@ -439,6 +518,11 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       const params = shapeClipParams(clip)!;
       const problem = shapeParamsProblem({ ...params, ...changes });
       if (problem !== null) throw new ToolRefusalError(problem);
+      if (a.box !== undefined) {
+        // A box the call moves or resizes is kept in frame like a new one.
+        const placed = shapeBoxInFrame({ ...params, ...changes }, ctx.project.resolution);
+        Object.assign(changes, { x: placed.x, y: placed.y });
+      }
       return [setShapeParamsOp(a.clipId, changes)];
     },
   ),

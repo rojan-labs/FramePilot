@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { estimateTokens } from '../context-builder.js';
 import { EXECUTION_PACE, buildStateBriefing, distil } from './briefing.js';
+import type { ModelPlanItem } from './model-plan.js';
 import {
   advanceStage,
   commitDecision,
@@ -623,5 +624,51 @@ describe('buildStateBriefing', () => {
       });
     }
     expect(buildStateBriefing(state).length).toBeLessThan(2_000);
+  });
+});
+
+describe('buildStateBriefing — the model-owned plan (update_plan)', () => {
+  const base = (): RunWorkingState =>
+    initialWorkingState({ runId: 'run_1', request: 'cut the travel reel', projectRevision: 0 });
+  const plan: readonly ModelPlanItem[] = [
+    { task: 'Build the 24-shot montage from the shot list', status: 'done' },
+    { task: 'Warm teal-orange grade', status: 'in_progress', note: 'shots 1–12 done' },
+    { task: 'Speed ramps on shots 7 and 19', status: 'pending' },
+    { task: 'Voice-over', status: 'blocked', note: 'There is no text-to-speech tool.' },
+  ];
+
+  it('shows the whole plan, one line per item, because each update takes the whole list', () => {
+    const text = buildStateBriefing(base(), [], plan);
+    expect(text).toContain(
+      [
+        'YOUR PLAN — keep it current with update_plan (send every item each call)',
+        '[x] Build the 24-shot montage from the shot list',
+        '[>] Warm teal-orange grade — shots 1–12 done',
+        '[ ] Speed ramps on shots 7 and 19',
+        '[!] Voice-over — There is no text-to-speech tool.',
+      ].join('\n'),
+    );
+  });
+
+  it('points DO THIS NOW at the item in progress, over a ledger-derived action', () => {
+    const state = setNextAction(base(), { stage: 'apply', action: 'Apply the cut' });
+    const text = buildStateBriefing(state, [], plan);
+    expect(text).toContain('DO THIS NOW\nWarm teal-orange grade');
+    expect(text).not.toContain('Apply the cut');
+  });
+
+  it('falls back to the recorded next action once nothing in the plan is open', () => {
+    const state = setNextAction(base(), { stage: 'apply', action: 'Apply the cut' });
+    const finished: readonly ModelPlanItem[] = [
+      { task: 'Build the montage', status: 'done' },
+      { task: 'Voice-over', status: 'blocked', note: 'No text-to-speech.' },
+    ];
+    expect(buildStateBriefing(state, [], finished)).toContain('DO THIS NOW\nApply the cut');
+  });
+
+  it('is unchanged for a run whose model never wrote a plan', () => {
+    const state = setNextAction(base(), { stage: 'apply', action: 'Apply the cut' });
+    expect(buildStateBriefing(state, [], undefined)).toBe(buildStateBriefing(state));
+    expect(buildStateBriefing(state)).not.toContain('YOUR PLAN');
   });
 });

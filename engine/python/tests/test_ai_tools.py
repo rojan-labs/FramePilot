@@ -29,20 +29,26 @@ from framepilot_engine.ai_tools import (
 from framepilot_engine.ai_tools.contract_overrides import MAX_CLIPS_PER_BATCH
 from framepilot_engine.ai_tools.handlers import _derive_id
 from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
-from framepilot_engine.ai_tools.text_overlay_styles import text_overlay_style_params
+from framepilot_engine.ai_tools.text_overlay_styles import (
+    PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+    text_overlay_style_params,
+)
+from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.timeline.models import (
     Asset,
     AssetMedia,
     AssetSource,
     Clip,
     Folder,
+    Keyframe,
     Project,
+    Resolution,
     Timeline,
     Track,
     TrackType,
     TranscriptWord,
 )
-from framepilot_engine.timeline.operations import Operation
+from framepilot_engine.timeline.operations import Operation, apply_operation, invert_operation
 from framepilot_engine.validation.patch_validation import validate_patch
 
 _OPERATION_ADAPTER: TypeAdapter[Operation] = TypeAdapter(Operation)
@@ -758,6 +764,35 @@ def test_add_clip(ctx: ToolContext, project: Project) -> None:
     assert result.operations[0]["sourceEnd"] == pytest.approx(0.46)
 
 
+def test_add_clip_with_a_crop_places_a_window(ctx: ToolContext, project: Project) -> None:
+    """A split-screen panel: the rect rides the same patch, addressed to the named clip."""
+    panel = {"x": 0.25, "y": 0.0, "width": 0.5, "height": 1.0}
+    result = run_tool(
+        "add_clip",
+        {"trackId": "v", "assetId": "asset_001", "start": 10.0, "end": 10.46, "crop": panel},
+        ctx,
+    )
+    _assert_patch_ok(result, project)
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_clip", "set_clip_crop"]
+    assert result.operations[0]["clipId"] == "clip__v_asset_001_10000"
+    assert result.operations[1] == {
+        "type": "set_clip_crop",
+        "clipId": "clip__v_asset_001_10000",
+        "crop": panel,
+    }
+
+
+def test_add_clip_with_crop_null_is_the_whole_picture(ctx: ToolContext) -> None:
+    result = run_tool(
+        "add_clip",
+        {"trackId": "v", "assetId": "asset_001", "start": 10.0, "end": 10.46, "crop": None},
+        ctx,
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["add_clip"]
+
+
 def test_add_clips_places_a_sequence_in_one_patch(ctx: ToolContext, project: Project) -> None:
     """GAP-004: laying out a sequence should cost one call, not one per shot.
 
@@ -1009,6 +1044,95 @@ def test_add_text_layer_refuses_what_the_catalogs_do_not_ship(
         )
 
 
+def test_add_text_layer_typography_args_override_one_field_of_the_style(
+    ctx: ToolContext, project: Project
+) -> None:
+    """#135: a brief's tracking/leading lands in ``typography``; the rest of the style is kept."""
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Weekend",
+            "start": 0.0,
+            "end": 3.0,
+            "style": "tracked-caps",
+            "letterSpacing": 0.1,
+            "lineHeight": 0.9,
+            "shadow": "none",
+        },
+        ctx,
+    )
+    style = text_overlay_style_params("tracked-caps")["typography"]
+    expected = {key: value for key, value in style.items() if key != "shadow"}
+    assert _text_params(result)["typography"] == {
+        **expected,
+        "letterSpacing": 0.1,
+        "lineHeight": 0.9,
+    }
+    _assert_patch_ok(result, project)
+
+
+def test_add_text_layer_typography_on_a_plain_overlay_keeps_its_stroke(ctx: ToolContext) -> None:
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Weekend",
+            "start": 0.0,
+            "end": 3.0,
+            "fontFamily": "Playfair Display",
+            "fontStyle": "italic",
+            "shadow": {"color": "#000000b3", "blur": 0.2, "offsetX": 0, "offsetY": 0.06},
+        },
+        ctx,
+    )
+    assert _text_params(result)["typography"] == {
+        **PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+        "fontStyle": "italic",
+        "shadow": {"color": "#000000b3", "blur": 0.2, "offsetX": 0.0, "offsetY": 0.06},
+    }
+
+
+def test_add_text_layer_refuses_italic_in_a_family_without_one(ctx: ToolContext) -> None:
+    with pytest.raises(ToolSemanticError, match=r"Montserrat ships no italic.*Playfair Display"):
+        run_tool(
+            "add_text_layer",
+            {
+                "trackId": "ov",
+                "text": "Hi",
+                "start": 0.0,
+                "end": 2.0,
+                "fontFamily": "Montserrat",
+                "fontStyle": "italic",
+            },
+            ctx,
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"letterSpacing": -0.3},
+        {"letterSpacing": 0.7},
+        {"lineHeight": 3.5},
+        {"textOpacity": 1.2},
+        {"outlineWidth": 9},
+        {"fontStyle": "oblique"},
+        {"shadow": {"color": "#000", "blur": 0.2, "offsetX": 0, "offsetY": 2}},
+        {"shadow": "soft"},
+    ],
+)
+def test_add_text_layer_refuses_typography_out_of_bounds(
+    ctx: ToolContext, extra: dict[str, Any]
+) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool(
+            "add_text_layer",
+            {"trackId": "ov", "text": "Hi", "start": 0.0, "end": 2.0, **extra},
+            ctx,
+        )
+
+
 def test_add_caption_layer(ctx: ToolContext, project: Project) -> None:
     result = run_tool("add_caption_layer", {"trackId": "cap", "start": 0.0, "end": 2.0}, ctx)
     _assert_patch_ok(result, project)
@@ -1119,6 +1243,85 @@ def test_punch_in_unknown_clip_falls_back_to_default_window(ctx: ToolContext) ->
     assert kfs[1]["time"] == pytest.approx(1.5)  # DEFAULT_PUNCH_IN_SECONDS
 
 
+# Issue #139: a punch-in on a reframe_pan clip multiplies the cover zoom instead of replacing it.
+_COVER = (1920 / 1080) / (1080 / 1920)  # 16:9 source in a 9:16 frame
+
+
+def _panned_project() -> Project:
+    clip = _clip("P", "v", 0, 4).model_copy(
+        update={
+            "keyframes": [
+                Keyframe(id="r_s0", time=0.0, property="scale", value=_COVER, easing="ease-in-out"),
+                Keyframe(id="r_s4", time=4.0, property="scale", value=_COVER, easing="ease-in-out"),
+                Keyframe(id="r_x0", time=0.0, property="x", value=900.0, easing="ease-in-out"),
+                Keyframe(id="r_x4", time=4.0, property="x", value=-900.0, easing="ease-in-out"),
+            ]
+        }
+    )
+    return Project(
+        id="project_pan",
+        name="Pan",
+        resolution=Resolution(width=1080, height=1920),
+        assets=[
+            Asset(
+                id="asset_001",
+                path="media/aerial.mp4",
+                kind="video",
+                durationSeconds=20,
+                media=AssetMedia(width=1920, height=1080),
+            )
+        ],
+        timeline=Timeline(tracks=[Track(id="v", type=TrackType.VIDEO, clips=[clip])]),
+    )
+
+
+def _apply(timeline: Timeline, ops: list[dict[str, Any]]) -> Timeline:
+    for op in ops:
+        timeline = apply_operation(timeline, _OPERATION_ADAPTER.validate_python(op))
+    return timeline
+
+
+def test_punch_in_multiplies_a_pans_cover_zoom_and_undo_restores_it() -> None:
+    project = _panned_project()
+    result = run_tool(
+        "punch_in",
+        {"clipId": "P", "startTime": 1.0, "endTime": 3.0, "toScale": 1.3},
+        ToolContext(project=project),
+    )
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["remove_keyframes", "add_keyframes"]
+    _assert_patch_ok(result, project)
+    after = _apply(project.timeline, result.operations)
+    keyframes = after.tracks[0].clips[0].keyframes
+    assert evaluate_keyframes(keyframes, "scale", 0.5) == pytest.approx(_COVER)
+    assert evaluate_keyframes(keyframes, "scale", 1.0) == pytest.approx(_COVER)
+    assert evaluate_keyframes(keyframes, "scale", 3.0) == pytest.approx(_COVER * 1.3)
+    assert evaluate_keyframes(keyframes, "scale", 3.5) == pytest.approx(_COVER * 1.3)
+    for t in (0.0, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0):
+        assert evaluate_keyframes(keyframes, "scale", t) >= _COVER - 1e-9  # type: ignore[operator]
+    assert [k for k in keyframes if k.property == "x"] == [
+        k for k in project.timeline.tracks[0].clips[0].keyframes if k.property == "x"
+    ]
+    # Undo: invert each op against the state it applied to, then replay in reverse.
+    inverse: list[Operation] = []
+    working = project.timeline
+    for raw in result.operations:
+        op = _OPERATION_ADAPTER.validate_python(raw)
+        inverse = invert_operation(working, op) + inverse
+        working = apply_operation(working, op)
+    undone = working
+    for op in inverse:
+        undone = apply_operation(undone, op)
+    assert undone.tracks[0].clips[0].keyframes == project.timeline.tracks[0].clips[0].keyframes
+
+
+def test_punch_in_refuses_zooming_a_panned_clip_out_below_its_cover() -> None:
+    ctx = ToolContext(project=_panned_project())
+    with pytest.raises(ToolSemanticError, match="black bars"):
+        run_tool("punch_in", {"clipId": "P", "fromScale": 1.0, "toScale": 0.8}, ctx)
+    assert run_tool("punch_in", {"clipId": "P", "fromScale": 1.2, "toScale": 1.0}, ctx).operations
+
+
 def test_apply_color_grade_default_type(ctx: ToolContext, project: Project) -> None:
     result = run_tool("apply_color_grade", {"clipId": "A"}, ctx)
     assert result.operations is not None
@@ -1145,6 +1348,32 @@ def test_apply_color_grade_lut_requires_a_path(ctx: ToolContext) -> None:
         run_tool(
             "apply_color_grade", {"clipId": "A", "type": "lut", "params": {"name": "teal"}}, ctx
         )
+
+
+def test_apply_color_grade_blur_is_the_whole_clip_blur(ctx: ToolContext, project: Project) -> None:
+    """The blurred-fill background: the Inspector's blur id, so a second call replaces it."""
+    result = run_tool(
+        "apply_color_grade", {"clipId": "A", "type": "blur", "params": {"amount": 0.06}}, ctx
+    )
+    assert result.operations is not None
+    assert result.operations[0]["effect"] == {
+        "id": "A__blur",
+        "type": "blur",
+        "params": {"amount": 0.06},
+        "keyframes": [],
+    }
+    _assert_patch_ok(result, project)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{}, {"amount": 0.5}, {"amount": -0.1}, {"amount": 0.05, "radius": 3}, {"amount": True}],
+)
+def test_apply_color_grade_blur_refuses_what_the_renderer_would_clamp(
+    ctx: ToolContext, params: dict[str, object]
+) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool("apply_color_grade", {"clipId": "A", "type": "blur", "params": params}, ctx)
 
 
 def test_apply_color_grade_rejects_unsupported_type(ctx: ToolContext) -> None:

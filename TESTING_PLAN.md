@@ -1092,6 +1092,21 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     "judge on direction and proportionality" advice is now backed by numbers.
   - Follow-up for the maintainer: a `signalstats`-over-rendered-file fit to settle the
     chroma range, then adopt `WARMTH_PER_TEMPERATURE ≈ 0.59` if it survives.
+  - **Settled 09/29/2026 (#107).** `engine/python/tests/color_response_measure.py` exports
+    the grid through `export_video` and reads each file with tier-0's own `signalstats`
+    graph (five real clips, 25 exports each). The renderer's curve is NOT shallower:
+    temperature lands at 0.983-1.002 and tint at 0.991-1.001 of the derivation. The
+    disagreement was the solver's units: the ledger is limited-range BT.709 (×224/255),
+    `luma.mean` carries the 16-code floor, and temperature scales red and blue, not luma.
+    Measured per unit `luma.mean`, ledger units: 0.566 / 0.577 / 0.503 / 0.567 / 0.611,
+    against a channel-mean model predicting 0.569 / 0.587 / 0.512 / 0.569 / 0.610 and the
+    old constant's 0.6936. The solver now uses that model (no constant is adopted), solves
+    saturation before white balance (it scales the cast too), and `measure_color` readings
+    are written into the same limited-range units. Rendered check: `apply_look warmer`
+    (+0.10) now lands 0.094-0.097 (was 0.070-0.083). Still open (follow-up issue): luma read
+    as code/255 (`EXPOSURE_RESPONSE` 0.73-0.82 through `luma.mean`, 0.90-0.97 through light),
+    material clipping (`CONTRAST_RESPONSE` 0.64-0.99), the white balance → `satMean` cross
+    term (matches over-shoot `satMean` 19-38%), and exports encoded as untagged BT.601.
 
 - [ ] **T16.5. Pack weights and licences** — VU5/VU6 cannot go live until each pack's
       quantisation/export/release artifact licence is verified and `models.lock.toml` carries

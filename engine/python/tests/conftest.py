@@ -11,7 +11,11 @@ import pytest
 
 from framepilot_engine.config import get_settings
 from framepilot_engine.media.ffmpeg import FFmpegNotFoundError, find_ffmpeg, find_ffprobe
-from framepilot_engine.render.composition_cache import COMPOSITION_CACHE, FRAME_WINDOW_CACHE
+from framepilot_engine.render.composition_cache import (
+    COMPOSITION_CACHE,
+    FRAME_WINDOW_CACHE,
+    REVIEW_WINDOW_CACHE,
+)
 from framepilot_engine.render.preview_text import CAPTION_LAYER_CACHE
 
 # Factory signature: (name, *, seconds, with_audio, with_video, color, size, fps) -> Path
@@ -63,14 +67,17 @@ def _reset_composition_cache() -> Iterator[None]:
     monkeypatches ``compile_timeline`` could be served the previous test's fake.
     Clearing around each test also closes the readers it opened, which is what
     keeps the suite's leak assertions meaningful. The monitor's caption layers are the same
-    kind of cache and are cleared with it, as are the single-frame grab's windowed composites.
+    kind of cache and are cleared with it, as are the windowed composites of the single-frame
+    grab and of the temporal review.
     """
     COMPOSITION_CACHE.clear()
     FRAME_WINDOW_CACHE.clear()
+    REVIEW_WINDOW_CACHE.clear()
     CAPTION_LAYER_CACHE.clear()
     yield
     COMPOSITION_CACHE.clear()
     FRAME_WINDOW_CACHE.clear()
+    REVIEW_WINDOW_CACHE.clear()
     CAPTION_LAYER_CACHE.clear()
 
 

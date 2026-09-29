@@ -161,13 +161,19 @@ describe('agent step reasoning effort follows the run stage (TRACKING.md §U1)',
       {},
     )); /* drain */
     const steps = provider.requests.filter((r) => r.tools && r.tools.length > 0);
-    expect(steps).toHaveLength(4);
-    const [planning, apply, applyAgain, recovery] = steps as [
+    // The fifth is the advisory fix turn (AL37): the self-check passed with advice about the
+    // placed clip, and a run that delivered work hears it once, in `repair`.
+    expect(steps).toHaveLength(5);
+    const [planning, apply, applyAgain, recovery, advisory] = steps as [
+      AiCompletionRequest,
       AiCompletionRequest,
       AiCompletionRequest,
       AiCompletionRequest,
       AiCompletionRequest,
     ];
+    expect(JSON.stringify(advisory.messages)).toContain('SELF-CHECK ADVICE');
+    // Repair keeps `medium`, like planning and recovery.
+    expect(advisory.reasoningEffort).toBe('medium');
 
     // Planning surface: analysis is still offered.
     expect(offers(planning, 'get_transcript')).toBe(true);

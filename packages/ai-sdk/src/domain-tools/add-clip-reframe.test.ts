@@ -176,7 +176,7 @@ describe('add_clip — measured landscape source in a portrait project', () => {
       reason: 'place',
       operations: place(project, { trackId: 'v_main', assetId: 'src', start: 0, end: 5 }),
     });
-    const report = critique({ ...project, timeline }, { minShotCount: 1 });
+    const report = critique({ ...project, timeline }, { targetPlatform: 'reels' });
     expect(report.checks.find((c) => c.id === 'reframe_coverage')).toMatchObject({
       status: 'pass',
     });

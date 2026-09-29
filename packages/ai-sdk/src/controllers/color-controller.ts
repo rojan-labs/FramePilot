@@ -32,10 +32,48 @@ const ColorAdjustmentsSchema = z
     message: 'At least one color adjustment is required.',
   });
 
+const TARGET_REFERENTS = ['this', 'these', 'playhead'] as const;
+
+/**
+ * The message a model gets when it puts an id where a referent belongs. Zod's own words
+ * (`expected "this"`) read as a typo, not as "an id is the wrong kind of thing here" —
+ * the same lesson `professional_audio` learned in run `137d8fd0`.
+ */
+const targetHint = (input: unknown): string | undefined =>
+  typeof input === 'string' &&
+  !TARGET_REFERENTS.includes(input as (typeof TARGET_REFERENTS)[number])
+    ? `target names what is selected in the editor — "this" (the selected clip), "these" ` +
+      `(all selected clips) or "playhead" (the clip under the playhead). It is never a clip ` +
+      `or track id, so "${input}" cannot be resolved. To grade a clip you can name, pass ` +
+      `its id in clipIds — get_clips lists them.`
+    : undefined;
+
 export const ColorObjectiveSchema = z
   .object({
     intent: z.enum(['correct', 'match_reference']),
-    target: z.enum(['this', 'these', 'playhead']).default('this'),
+    target: z
+      .enum(TARGET_REFERENTS, { error: (issue) => targetHint(issue.input) })
+      .default('this')
+      .describe(
+        'What the editor has selected: "this" (the selected clip), "these" (all selected ' +
+          'clips), or "playhead" (the clip under the playhead). Never a clip or track id — ' +
+          'name clips with clipIds instead.',
+      ),
+    /**
+     * The shots to grade, by id — the resolver's `explicit` referent, which ranks above the
+     * selection and refuses an id the project does not hold. Without it an agent run, which
+     * has no selection, could not reach reference matching at all (issue #138;
+     * `professional_audio` had the same gap, run `6cb12e30`).
+     */
+    clipIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        'The clips to grade, by id (get_clips lists them). When given, target is ignored. ' +
+          'match_reference and groupShots take exactly one.',
+      ),
     adjustments: ColorAdjustmentsSchema.optional(),
     targetEvidenceId: z.string().trim().min(1).optional(),
     referenceEvidenceId: z.string().trim().min(1).optional(),
@@ -72,7 +110,17 @@ export const ColorObjectiveSchema = z
           message: 'Skin preservation applies to a measured match, not to an explicit correction.',
         });
       }
-      if (value.groupShots === true && value.target === 'these') {
+      if (value.groupShots === true && (value.clipIds?.length ?? 0) > 1) {
+        context.addIssue({
+          code: 'custom',
+          path: ['groupShots'],
+          message: 'Grouping expands from one shot; name exactly one clip in clipIds.',
+        });
+      } else if (
+        value.groupShots === true &&
+        value.clipIds === undefined &&
+        value.target === 'these'
+      ) {
         context.addIssue({
           code: 'custom',
           path: ['groupShots'],
@@ -81,7 +129,13 @@ export const ColorObjectiveSchema = z
       }
       return;
     }
-    if (value.target === 'these') {
+    if (value.clipIds !== undefined && value.clipIds.length > 1) {
+      context.addIssue({
+        code: 'custom',
+        path: ['clipIds'],
+        message: 'Reference matching accepts exactly one target shot; name one clip in clipIds.',
+      });
+    } else if (value.clipIds === undefined && value.target === 'these') {
       context.addIssue({
         code: 'custom',
         path: ['target'],
@@ -115,12 +169,16 @@ export type ColorObjective =
   | {
       readonly intent: 'correct';
       readonly target: 'this' | 'these' | 'playhead';
+      /** Explicit clip ids; when present they are the target and `target` is ignored. */
+      readonly clipIds?: readonly string[];
       readonly adjustments: ProfessionalColorAdjustments;
       readonly groupShots?: boolean;
     }
   | {
       readonly intent: 'match_reference';
       readonly target: 'this' | 'playhead';
+      /** One explicit clip id; when present it is the target and `target` is ignored. */
+      readonly clipIds?: readonly string[];
       readonly targetEvidenceId: string;
       readonly referenceEvidenceId: string;
       readonly groupShots?: boolean;
@@ -139,13 +197,16 @@ export function parseColorObjective(raw: unknown): ColorObjective {
     return {
       intent: value.intent,
       target: value.target,
+      ...(value.clipIds === undefined ? {} : { clipIds: value.clipIds }),
       adjustments,
       ...(value.groupShots === undefined ? {} : { groupShots: value.groupShots }),
     };
   }
   return {
     intent: value.intent,
-    target: value.target as 'this' | 'playhead',
+    // `these` is refused above unless clipIds names the shot, and then target is ignored.
+    target: value.target === 'these' ? 'this' : value.target,
+    ...(value.clipIds === undefined ? {} : { clipIds: value.clipIds }),
     targetEvidenceId: value.targetEvidenceId!,
     referenceEvidenceId: value.referenceEvidenceId!,
     ...(value.groupShots === undefined ? {} : { groupShots: value.groupShots }),
@@ -420,12 +481,29 @@ function readMeasurement(
   expectedClipId: string | undefined,
 ): ColorMeasurement | Rejection {
   const entry = input.evidence?.byHandle(evidenceId);
-  if (!entry)
+  if (!entry) {
+    // A handle the run ISSUED and then retired is not a handle that never existed. The run
+    // retires every colour reading when an edit lands that could change the picture, and
+    // "No color evidence exists" for one the model was given sent run 11 to try nine more
+    // (`ev_12`…`ev_21`) before it re-measured anything.
+    const expired = input.evidence?.expiredHandle?.(evidenceId);
+    if (expired !== undefined) {
+      const target = expired.clipId === undefined ? '' : ` on "${expired.clipId}"`;
+      return rejected(
+        input.objective,
+        'evidence_stale',
+        `Evidence "${evidenceId}" (${expired.descriptor}) is out of date: ` +
+          `${expired.staledBy} changed the timeline after it was measured, so it no longer ` +
+          `describes the picture. In one step, call measure_color${target} again and pass the ` +
+          'handle it returns.',
+      );
+    }
     return rejected(
       input.objective,
       'evidence_missing',
       `No color evidence exists for handle "${evidenceId}".`,
     );
+  }
   if (entry.source !== 'measure_color') {
     return rejected(
       input.objective,
@@ -469,13 +547,17 @@ export function resolveColorObjective(input: ResolveColorObjectiveInput): ColorC
   const resolution = resolveEditorTarget(
     input.project,
     input.interaction,
-    { kind: 'clips', referent: input.objective.target },
+    input.objective.clipIds === undefined
+      ? { kind: 'clips', referent: input.objective.target }
+      : { kind: 'clips', referent: 'explicit', clipIds: input.objective.clipIds },
     { projectRevision: input.projectRevision ?? input.interaction.projectRevision },
   );
   if (resolution.status !== 'resolved') {
+    // The way out is part of the refusal: without it a run concludes the editor must select.
     const detail =
       resolution.status === 'ambiguous'
-        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')}`
+        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')} — name the clip(s) ` +
+          'you mean with clipIds'
         : `${resolution.reason}: ${resolution.detail}`;
     return rejected(
       input.objective,

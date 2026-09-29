@@ -188,8 +188,10 @@ export function summarizeSkillsManifest(skills: readonly Skill[]): string {
       `- ${s.name} — ${s.description}${s.tools.length > 0 ? ` (tools: ${s.tools.join(', ')})` : ''}`,
   );
   return [
-    'Skills (expert playbooks). Before starting work that matches one, call load_skill',
-    'with its name and follow the returned instructions:',
+    // Reference, not instructions to follow: a run that followed a skill built the
+    // skill's recipe instead of the request (run `d8d2e445`).
+    'Skills (reference guidance from experienced editors). Before specialised work one',
+    'covers, call load_skill with its name and use it to do that part well:',
     ...lines,
   ].join('\n');
 }

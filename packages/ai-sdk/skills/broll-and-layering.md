@@ -1,7 +1,7 @@
 ---
 name: broll-and-layering
 description: Source footage the user never filmed (stock clips and photos, via search_stock/add_stock — explained here and nowhere else) and place it as b-roll, overlays, or a whole montage that clarifies narration and preserves visual hierarchy without decorative clutter.
-tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_keyframes, set_track_flags]
+tools: [list_assets, get_timeline, get_mapped_transcript, search_visual, get_frame, search_stock, add_stock, add_clip, add_clips, trim_clip, set_clip_blend_mode, add_keyframes, set_track_flags]
 ---
 
 # B-roll and layering
@@ -12,9 +12,10 @@ Turn narration into visual proof while keeping the speaker, graphics, and textur
 
 ## When to use
 
-Cutaways, jump-cut coverage, product/process illustration, textures, picture-in-picture,
-or masked overlays — and any sequence assembled from stock, including a montage with no
-footage of the user's own. `search_stock` / `add_stock` are explained here and nowhere
+Cutaways, jump-cut coverage, product/process illustration, textures, or split and shaped
+layers (built with `masking-and-compositing`) — and any sequence assembled from stock, including
+a montage with no footage of the user's own. When the request says which cutaway goes where,
+place those; this skill then judges source spans, entry timing and hierarchy. `search_stock` / `add_stock` are explained here and nowhere
 else.
 
 ## When not to use
@@ -41,7 +42,8 @@ and it just arrives in the media bin. Reach for them **last**, not first.
   need a gap and must not append past the end of the edit to find one. It fails
   only when the clip could not hide what it covers (an unmeasured or odd-shaped
   source) or would bury another cutaway — a real constraint, not a retry, so do
-  not respond by trying adjacent seconds until one sticks.
+  not respond by trying adjacent seconds until one sticks. To layer stock as a
+  window instead, download it to the bin and place it with `add_clip`.
 - A photo has no duration; it lands at the project's default still length and can
   be trimmed like any other clip afterwards.
 - The provider is metered. `search_stock` tells you how many requests remain when
@@ -85,6 +87,14 @@ B-roll is evidence, not wallpaper. Show concrete nouns and actions; return to fa
 - Enter slightly before the referenced word so recognition and language land together.
 - Typical cutaways last 2–4 seconds; vary duration with information density.
 - Keep A-roll audio continuous beneath b-roll.
+- A placed cutaway covers the frame by default. Picture-in-picture and split screens are the
+  same `add_clip` with geometry, and every layer previews as it exports:
+  - PiP: `add_clip` with `crop: null` (or a rect), then `add_keyframes` at time 0: `scale`
+    0.3–0.45 and `x`/`y` in project pixels from the frame centre.
+  - Split screen: one layer per shot, each `crop`ped to its panel's aspect and moved with a
+    `y` (or `x`) keyframe. A 9:16 3-up of 16:9 shots: crop `{ x: 0.025391, y: 0, width:
+    0.949219, height: 1 }` gives 1080×640 panels at `y` −640, 0 and +640. A shaped or wiped
+    split comes from masks (`masking-and-compositing`).
 - Use `normal` for footage; reserve `screen`, `multiply`, or `soft-light` for suitable graphic textures.
 - Fade designed overlays; hard pop-ons should be intentional.
 

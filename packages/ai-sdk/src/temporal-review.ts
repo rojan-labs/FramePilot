@@ -2,7 +2,7 @@
 import { z } from 'zod/v4';
 import { fromEngine } from './engine-optional.js';
 import { framePlanAt, type EditorCommand, type EditorCommandFact } from '@framepilot/editor-core';
-import { effectLayersOf, masksOf, type Project } from '@framepilot/timeline-schema';
+import { effectLayersOf, masksOf, type Keyframe, type Project } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import type { EditResult } from './assemble.js';
 import {
@@ -264,6 +264,8 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
         integratedLufs: finite,
         loudnessRangeLu: fromEngine(finite),
         truePeakDbfs: fromEngine(finite),
+        /** The mix's highest sample before the full-scale clip (the true peak is after it). */
+        samplePeakDbfs: fromEngine(finite),
       })
       .strict(),
   }).strict(),
@@ -613,7 +615,7 @@ export function reviewTemporalEvidence(
         requestId: request.requestId,
         kind: request.kind,
         status: 'skipped',
-        issues: ['Evidence was not returned.'],
+        issues: [`Evidence was not returned for ${describeTemporalMoment(request)}.`],
       };
     if (result.projectRevision !== request.projectRevision) {
       return {
@@ -646,6 +648,68 @@ export function reviewTemporalEvidence(
   };
 }
 
+/**
+ * Where in the programme a request looks, in words a finding can carry.
+ *
+ * A check the review did NOT make has to say which moment went unchecked: a partial review
+ * that names only request ids tells the editor nothing about what might still be wrong.
+ *
+ * @param request - The evidence request.
+ * @returns e.g. `frame 0`, `frames 1480–1500`, `frames 899 and 900`.
+ */
+export function describeTemporalMoment(request: TemporalEvidenceRequest): string {
+  switch (request.kind) {
+    case 'frame':
+      return `frame ${String(request.atFrame)}`;
+    case 'comparison':
+      return `frames ${String(request.leftFrame)} and ${String(request.rightFrame)}`;
+    default:
+      return `frames ${String(request.startFrame)}–${String(request.endFrame)}`;
+  }
+}
+
+/** Opens every account of a review that looked at some requested moments and not others. */
+export const PARTIAL_REVIEW_PREFIX = 'Partial review:';
+/** How many unchecked moments an account names before it summarises the rest. */
+const MAX_NAMED_UNCHECKED = 6;
+
+/**
+ * The honest account of a review over partial evidence (#99): how many of the requested
+ * moments it checked, and which ones it did NOT, by place in the programme.
+ *
+ * Only for an acquisition that stopped early. Reviewing three of five moments is strictly
+ * better than reviewing none, but only if the account never reads as a full review.
+ *
+ * @param requests - Every request the review planned.
+ * @param report - The review over whatever evidence came back.
+ * @param reason - Why the rest came back without evidence (the acquirer's `incomplete`).
+ * @returns `undefined` when every request was checked; the account otherwise.
+ */
+export function describePartialTemporalReview(
+  requests: readonly TemporalEvidenceRequest[],
+  report: TemporalReviewReport,
+  reason: string,
+): string | undefined {
+  const unchecked = report.checks.filter((check) => check.status === 'skipped');
+  if (unchecked.length === 0) return undefined;
+  const byId = new Map(requests.map((request) => [request.requestId, request]));
+  const checked = report.checks.length - unchecked.length;
+  const failed = report.checks.filter((check) => check.status === 'fail').length;
+  const named = unchecked.slice(0, MAX_NAMED_UNCHECKED).map((check) => {
+    const request = byId.get(check.requestId);
+    return request ? `${check.requestId} (${describeTemporalMoment(request)})` : check.requestId;
+  });
+  const more =
+    unchecked.length > MAX_NAMED_UNCHECKED
+      ? `, and ${String(unchecked.length - MAX_NAMED_UNCHECKED)} more`
+      : '';
+  const verdict = failed === 0 ? ' and found nothing wrong there' : '';
+  return (
+    `${PARTIAL_REVIEW_PREFIX} checked ${String(checked)} of ${String(report.checks.length)} ` +
+    `requested moments${verdict}; not checked: ${named.join(', ')}${more}. ${reason}`
+  );
+}
+
 /** The earliest black frame a range sampled that the edit did not author, if any. */
 function firstBlackFrame(
   result: Extract<TemporalEvidenceResult, { kind: 'range' }>,
@@ -665,8 +729,15 @@ export type AuthoredBlack = (frame: number) => boolean;
 
 const NOTHING_AUTHORED_BLACK: AuthoredBlack = () => false;
 
-/** At or below this authored opacity a picture layer contributes no picture. */
-const AUTHORED_BLACK_OPACITY = 0.02;
+/**
+ * The engine's black level: a sampled pixel at or below this luma counts as black
+ * (`engine/python/.../validation/temporal_evidence.py` `_BLACK_LUMA_THRESHOLD`). A picture
+ * composited over black at this opacity or less cannot put a brighter pixel on screen, so it
+ * is the opacity at which an authored fade REACHES black by the review's own measure. The
+ * old 0.02 disagreed with the engine: the last frames of every fade rendered black while
+ * still reading as "authored visible" (run `d8d2e445`, frames 1797–1799 at 0.110/0.074/0.037).
+ */
+const BLACK_LUMA = 0.1;
 
 /**
  * Frames at which the timeline, as authored, shows no picture — so a black frame there is
@@ -691,6 +762,9 @@ const AUTHORED_BLACK_OPACITY = 0.02;
  */
 export function authoredBlackFrames(project: Project): AuthoredBlack {
   const cache = new Map<number, boolean>();
+  const clips = new Map(
+    project.timeline.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)),
+  );
   return (frame) => {
     const known = cache.get(frame);
     if (known !== undefined) return known;
@@ -709,10 +783,37 @@ export function authoredBlackFrames(project: Project): AuthoredBlack {
       // top picture dipping through black hides everything under it, the outgoing shot's
       // under-layer included.
       (top.transitions.some((transition) => dipsToBlack(transition.kind)) ||
-        pictures.every((layer) => layer.opacity <= AUTHORED_BLACK_OPACITY));
+        pictures.every((layer) => fadedToBlack(layer, clips.get(layer.clipId ?? ''))));
     cache.set(frame, authored);
     return authored;
   };
+}
+
+/**
+ * Whether a picture layer is, by its own authored opacity, black or on its way to or from
+ * black at this instant.
+ *
+ * At or below {@link BLACK_LUMA} it is black outright. Above it, the layer may still be inside
+ * an opacity ramp the edit authored to end at black (a fade-out) or to start from it (a
+ * fade-in): a frame the review measures black there is that fade's own tail, not a defect.
+ * A fade that ends exactly at the sequence end reaches black on a frame that is never
+ * rendered, so without the ramp its last rendered frames could never be excused.
+ */
+function fadedToBlack(
+  layer: { readonly opacity: number; readonly localTime: number },
+  clip: { readonly keyframes: readonly Keyframe[] } | undefined,
+): boolean {
+  if (layer.opacity <= BLACK_LUMA) return true;
+  if (clip === undefined) return false;
+  const ramp = clip.keyframes
+    .filter((keyframe) => keyframe.property === 'opacity')
+    .sort((a, b) => a.time - b.time);
+  const next = ramp.find((keyframe) => keyframe.time > layer.localTime);
+  const previous = ramp.filter((keyframe) => keyframe.time <= layer.localTime).at(-1);
+  if (next === undefined || previous === undefined) return false;
+  const fadingOut = next.value <= BLACK_LUMA && previous.value > next.value;
+  const fadingIn = previous.value <= BLACK_LUMA && next.value > previous.value;
+  return fadingOut || fadingIn;
 }
 
 /** A catalogue transition that passes through solid black (Fade to Black, Dip to Black). */

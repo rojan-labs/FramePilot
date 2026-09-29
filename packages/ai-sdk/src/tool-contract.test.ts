@@ -141,6 +141,8 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'create_shape_mask',
     'remove_background',
     'track_mask',
+    // #137: reads a mask's track, then keyframes the clip.
+    'reframe_to_subject',
   ];
 
   /** Host-backed ANALYSIS tools that only measure and report. */
@@ -156,6 +158,7 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'map_footage',
     'measure_color',
     'measure_subject',
+    'measure_loudness',
     'check_caption_legibility',
     'search_media',
     'search_music',

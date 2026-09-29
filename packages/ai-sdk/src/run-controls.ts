@@ -168,12 +168,41 @@ export function createAskUserGate(): AskUserGate {
 }
 
 /**
+ * This run's perceptual reviews, as the agent loop sees them when the model says it is done.
+ *
+ * Wired by `Orchestrator.streamEditorRun` when review is on; the loop itself holds no review
+ * state. It exists because the loop only ever collected reviews that had ALREADY finished at
+ * an edit boundary, and waited only once the agent had stopped — so the review of the LAST
+ * edit could never steer anything (run d8d2e445: "The review of the last edit came back
+ * after the run had finished, so nothing was done about it").
+ */
+export interface LateReviewControl {
+  /** True while any review of this run is queued or rendering. */
+  hasPending(): boolean;
+  /**
+   * Wait until every pending review settles or `signal` aborts, publish what they found,
+   * and queue the steerable findings on the run's steering channel (the same path a
+   * mid-run finding takes). Reviews still running when `signal` aborts keep running and
+   * are reported at the end of the run as before (ADR 0187).
+   *
+   * @param signal - Bounds the wait.
+   * @returns True when at least one finding was queued for the model to act on.
+   */
+  settle(signal: AbortSignal): Promise<boolean>;
+}
+
+/**
  * Live execution-side hooks for one streaming agent run (see module doc for why
  * these are not part of {@link Command}). All are optional and independent: a
  * caller can wire steering without approval-gating, or vice versa.
  */
 export interface AgentRunControls {
   readonly steering?: SteeringQueue;
+  /**
+   * Pending perceptual reviews, awaited (bounded) once when the model declares itself done
+   * so the last edit's findings can still buy one steering turn. Absent ⇒ no wait.
+   */
+  readonly lateReviews?: LateReviewControl;
   /**
    * Timer API backing the run's wall-clock deadline (`reliability/deadline.ts`).
    *
@@ -201,27 +230,29 @@ export interface AgentRunControls {
    */
   readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
   /**
-   * Re-reads the shot ledger for footage this run ACQUIRED, once the engine has measured it.
+   * Re-reads the shot ledger for footage placed mid-run that the run's snapshot has no rows for.
    *
    * A run's understanding of the footage is fixed for the whole `runAiStream` call, and in
    * agent mode that call spans the entire multi-turn run — half an hour and sixty turns in
    * run `19e20922`. That is deliberate: the ledger renders into the prompt prefix, and
    * re-reading it every turn would spend the cache on facts that did not move. It is wrong
-   * for exactly one asset: one the run downloaded itself. Enrolment measures it about ninety
+   * for two kinds of asset. One the run downloaded itself: enrolment measures it about ninety
    * seconds later, and the run reasons about it with `picture: undefined` for the rest of
    * its life — no shot words in its row, nothing in the digest, and `match_color` /
-   * `add_transitions` declining on it for want of measurements.
+   * `add_transitions` declining on it for want of measurements. And any bin asset placed by
+   * a run that started on an EMPTY timeline: the host scopes its initial read to what the
+   * timeline references, so that run started with no snapshot at all (run `d8d2e445`).
    *
-   * So the trade is made narrowly: called only when an asset the TIMELINE references was
-   * acquired by this run and still has no rows, at a turn boundary, and at most a few times
-   * (see `MAX_LEDGER_REFRESHES`). One cache miss, in exchange for the facts about footage
-   * the run itself chose.
+   * So the trade is made narrowly: called only when an asset the TIMELINE references has no
+   * rows and was either acquired by this run or never yet asked about, at a turn boundary,
+   * in one request, and at most a few times (see `MAX_LEDGER_REFRESHES`). One cache miss,
+   * in exchange for the facts about the footage the run is actually cutting.
    *
    * Fire-and-forget in spirit like `rememberDecision`: a host that cannot read returns
    * `null`/`undefined` and the run carries on with what it has. Absent ⇒ the ledger stays
    * fixed for the run, exactly as before (the browser build has no brain).
    *
-   * @param assetIds - The acquired assets to re-read; the host re-reads the whole run's
+   * @param assetIds - The placed, unmeasured assets to re-read; the host re-reads the whole run's
    *   asset set and refreshes these entries (`LedgerClient.snapshot`'s `refresh`).
    * @param signal - The run's abort signal.
    * @returns A fresh snapshot, or `null` when nothing could be read.

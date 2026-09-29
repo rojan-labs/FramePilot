@@ -4,6 +4,15 @@ Perceptual evidence is intentionally bounded, while technical colour scopes are 
 captionless full-resolution composition so resize/caption pixels cannot change legal-range data.
 Every rendered result carries the exact composition identity that produced it. A caller-supplied
 cancellation predicate is checked between expensive units of work.
+
+WHY frames are composited from the clips on screen: a review samples a handful of instants
+(representative frames and a few frames either side of each changed boundary), and compiling
+the whole timeline for them opened a reader for every clip — 32.8s of a 36.2s batch on a
+29-clip, 60-second edit, which is how a desktop run's (``d8d2e445``) review of its last edit
+arrived after the run had ended. Each sampled instant is composited from the clips that can be
+playing there (:mod:`framepilot_engine.render.picture_window`, the single-frame grab's window),
+which is the full compile's frame to the pixel; instants the window cannot reproduce, and every
+batch that needs the programme's sound anyway, keep the whole-timeline composition.
 """
 
 from __future__ import annotations
@@ -12,12 +21,12 @@ import logging
 import math
 import tempfile
 import wave
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
-from itertools import pairwise
+from itertools import chain, pairwise
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, cast
+from typing import Annotated, Any, ClassVar, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -28,12 +37,27 @@ from framepilot_engine.analysis.loudness import measure_loudness
 from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render.color import skin_qualifier_mask
-from framepilot_engine.render.compiler import compile_timeline, timeline_duration
+from framepilot_engine.render.compiler import (
+    PREVIEW_DECODER_THREADS,
+    PictureWindowMiss,
+    compile_timeline,
+    timeline_duration,
+    window_answers,
+)
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE as COMPOSITION_CACHE,
 )
-from framepilot_engine.render.composition_cache import composition_key
+from framepilot_engine.render.composition_cache import (
+    HEAVY_BUILD_GATE,
+    CompositionBuildCancelled,
+    composition_key,
+    read_frame,
+)
+from framepilot_engine.render.composition_cache import (
+    REVIEW_WINDOW_CACHE as REVIEW_WINDOW_CACHE,
+)
 from framepilot_engine.render.masks import clip_source_clock, mask_frame_box, mask_scalar_at
+from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Effect, Project, TrackType
@@ -43,11 +67,18 @@ _log = logging.getLogger(__name__)
 TEMPORAL_EVIDENCE_VERSION: Literal[1] = 1
 MAX_REQUESTS = 64
 MAX_WINDOW_FRAMES = 300
+#: A loudness window is sound only — no frame is rendered — and integrated loudness is a
+#: property of the WHOLE programme (EBU R128 gates relative to the programme's own level),
+#: so it cannot be assembled from 300-frame pieces. Thirty minutes at 60 fps; the audio is
+#: streamed to disk a chunk at a time, so the window's length costs time, not memory.
+MAX_LOUDNESS_WINDOW_FRAMES = 30 * 60 * 60
 MAX_RENDERED_FRAMES = 400
 _FRAME_CHANNELS = 3
 REVIEW_MAX_DIMENSION = 960
 MAX_RESIDENT_FRAME_BYTES = 512 * 1024 * 1024
-_BLACK_LUMA_THRESHOLD = 0.10
+#: A pixel is black when its BRIGHTEST channel is at most 10%, the render QC's rule
+#: (analysis/black.py). Luma would call a saturated blue card black: BT.709 weights blue 7%.
+_BLACK_VALUE_THRESHOLD = 0.10
 _AUDIO_SAMPLE_RATE = 48_000
 _AUDIO_CHUNK_SAMPLES = 32_768
 _MIN_DBFS = -120.0
@@ -83,6 +114,9 @@ class FrameEvidenceRequest(_RequestBase):
 
 
 class _WindowRequest(_RequestBase):
+    #: The widest window this kind of request may span.
+    max_window_frames: ClassVar[int] = MAX_WINDOW_FRAMES
+
     start_frame: int = Field(ge=0)
     end_frame: int = Field(ge=0)
 
@@ -91,8 +125,8 @@ class _WindowRequest(_RequestBase):
         width = self.end_frame - self.start_frame
         if width <= 0:
             raise ValueError("endFrame must be greater than startFrame")
-        if width > MAX_WINDOW_FRAMES:
-            raise ValueError(f"evidence windows may span at most {MAX_WINDOW_FRAMES} frames")
+        if width > self.max_window_frames:
+            raise ValueError(f"evidence windows may span at most {self.max_window_frames} frames")
         return self
 
 
@@ -167,6 +201,8 @@ class AudioEvidenceRequest(_WindowRequest):
 
 
 class LoudnessEvidenceRequest(_WindowRequest):
+    max_window_frames: ClassVar[int] = MAX_LOUDNESS_WINDOW_FRAMES
+
     kind: Literal["loudness"]
     channels: Literal["mix", "dialogue", "music", "sfx"]
     target_lufs: float = Field(default=-14.0, le=0)
@@ -236,7 +272,13 @@ class AudioSample(_ContractModel):
 class LoudnessSample(_ContractModel):
     integrated_lufs: float
     loudness_range_lu: float | None = None
+    #: ebur128's 4x-oversampled TRUE peak (dBTP) of the window as 16-bit PCM — the samples
+    #: clipped at full scale, as an export writes them.
     true_peak_dbfs: float | None = None
+    #: The highest SAMPLE of the composed mix before any clipping (dBFS). Above 0 means the
+    #: mix is over full scale and an export will clip it — which the true peak, measured
+    #: after the clip, cannot show.
+    sample_peak_dbfs: float | None = None
 
 
 class TemporalRenderSettings(_ContractModel):
@@ -335,6 +377,8 @@ class _AudioLike(Protocol):
 
 class _CompositionLike(Protocol):
     audio: _AudioLike | None
+    #: Where the composition's picture ends; a windowed one is the full frame only before it.
+    duration: float | None
 
     def get_frame(self, time: float) -> object: ...
 
@@ -378,7 +422,7 @@ def _frame_sample(frame_index: int, pixels: npt.NDArray[np.uint8]) -> FrameSampl
     return FrameSample(
         frame=frame_index,
         luma=float(np.mean(luma_pixels)),
-        black_ratio=float(np.mean(luma_pixels <= _BLACK_LUMA_THRESHOLD)),
+        black_ratio=float(np.mean(rgb.max(axis=-1) <= _BLACK_VALUE_THRESHOLD)),
         perceptual_hash=str(hash_value),
     )
 
@@ -601,14 +645,46 @@ def _window_wav(
     fps: int,
     destination: Path,
     cancelled: CancelCheck | None,
-) -> None:
-    samples = _audio_frames(composition, start_frame / fps, end_frame / fps, cancelled)
-    pcm = (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2")
+) -> float:
+    """Write the window's sound to ``destination`` as 16-bit PCM, one chunk at a time.
+
+    Streamed rather than materialised: a loudness window may be a whole programme, and
+    holding thirty minutes of float64 stereo (plus its sample clock) is gigabytes.
+
+    :returns: The highest absolute sample BEFORE the full-scale clip, so a caller can tell
+        an over-full-scale mix from one that merely peaks at 0 dBFS.
+    """
+    audio = composition.audio
+    if audio is None:
+        raise TemporalEvidenceError("The compiled timeline has no audio for audio evidence.")
+    start_seconds = start_frame / fps
+    end_seconds = end_frame / fps
+    count = max(2, math.ceil((end_seconds - start_seconds) * _AUDIO_SAMPLE_RATE))
+    # The same sample clock `_audio_frames` builds with `np.linspace(..., endpoint=False)`.
+    step = (end_seconds - start_seconds) / count
+
+    def blocks() -> Iterator[npt.NDArray[np.float64]]:
+        for offset in range(0, count, _AUDIO_CHUNK_SAMPLES):
+            _check_cancelled(cancelled)
+            indices = np.arange(offset, min(offset + _AUDIO_CHUNK_SAMPLES, count), dtype=np.float64)
+            times: npt.NDArray[np.float64] = start_seconds + indices * step
+            block = np.asarray(audio.get_frame(times), dtype=np.float64)
+            if block.size > 0:
+                yield block if block.ndim > 1 else block[:, np.newaxis]
+
+    chunks = blocks()
+    first = next(chunks, None)
+    if first is None:
+        raise TemporalEvidenceError("The compiled timeline returned no audio samples.")
+    peak = 0.0
     with wave.open(str(destination), "wb") as handle:
-        handle.setnchannels(pcm.shape[1])
+        handle.setnchannels(first.shape[1])
         handle.setsampwidth(2)
         handle.setframerate(_AUDIO_SAMPLE_RATE)
-        handle.writeframes(pcm.tobytes())
+        for block in chain([first], chunks):
+            peak = max(peak, float(np.max(np.abs(block))))
+            handle.writeframes((np.clip(block, -1.0, 1.0) * 32767.0).astype("<i2").tobytes())
+    return peak
 
 
 def _loudness_sample(
@@ -619,7 +695,7 @@ def _loudness_sample(
 ) -> LoudnessSample:
     with tempfile.TemporaryDirectory(prefix="fp-loudness-") as directory:
         wav = Path(directory) / "window.wav"
-        _window_wav(composition, request.start_frame, request.end_frame, fps, wav, cancelled)
+        peak = _window_wav(composition, request.start_frame, request.end_frame, fps, wav, cancelled)
         _check_cancelled(cancelled)
         analysis = measure_loudness(wav)
     if analysis is None:
@@ -628,6 +704,7 @@ def _loudness_sample(
         integrated_lufs=analysis.integrated_lufs,
         loudness_range_lu=analysis.loudness_range_lu,
         true_peak_dbfs=analysis.true_peak_dbfs,
+        sample_peak_dbfs=_dbfs(peak),
     )
 
 
@@ -740,6 +817,22 @@ def _validate_requests(project: Project, requests: Sequence[TemporalEvidenceRequ
     return project_revision
 
 
+def _hold_uncached(
+    stack: ExitStack, build: Callable[[], _CompositionLike], cancelled: CancelCheck | None
+) -> _CompositionLike:
+    """Compile under a slot of the process-wide gate, and close it when ``stack`` unwinds.
+
+    For the full-resolution scope composites (``measure_color``): each is looked at for three
+    frames and then, almost always, never again — the grade it measures changes the project and
+    so its key. Cached, they sat in the review cache with full-resolution readers of every clip
+    they hold until six later composites pushed them out (run-3).
+    """
+    with HEAVY_BUILD_GATE.slot(cancelled):
+        composition = build()
+    stack.callback(close_clip_tree, composition)
+    return composition
+
+
 def _borrow_programme(
     stack: ExitStack,
     project: Project,
@@ -749,7 +842,11 @@ def _borrow_programme(
     *,
     burn_captions: bool,
     max_decode_dimension: int | None,
+    cancelled: CancelCheck | None,
+    cached: bool = True,
 ) -> _CompositionLike:
+    """The whole timeline's composite; ``cached=False`` compiles one closed with ``stack``."""
+
     def build() -> _CompositionLike:
         return cast(
             _CompositionLike,
@@ -759,9 +856,12 @@ def _borrow_programme(
                 preset,
                 burn_captions=burn_captions,
                 max_decode_dimension=max_decode_dimension,
+                decoder_threads=PREVIEW_DECODER_THREADS,
             ),
         )
 
+    if not cached:
+        return _hold_uncached(stack, build, cancelled)
     return cast(
         _CompositionLike,
         stack.enter_context(
@@ -774,9 +874,216 @@ def _borrow_programme(
                     max_decode_dimension=max_decode_dimension,
                 ),
                 build,
+                cancelled=cancelled,
             )
         ),
     )
+
+
+def _as_pixels(frame: object) -> npt.NDArray[np.uint8]:
+    pixels = np.asarray(frame)
+    if pixels.dtype != np.uint8:
+        pixels = pixels.astype(np.uint8)
+    return cast(npt.NDArray[np.uint8], pixels)
+
+
+def _contiguous_runs(frames: Sequence[int]) -> list[list[int]]:
+    """``frames`` (ascending, distinct) split wherever a frame is skipped."""
+    runs: list[list[int]] = []
+    for frame_index in frames:
+        if runs and frame_index == runs[-1][-1] + 1:
+            runs[-1].append(frame_index)
+        else:
+            runs.append([frame_index])
+    return runs
+
+
+def _review_windows(
+    project: Project,
+    frames: Sequence[int],
+    asset_kinds: Mapping[str, str | None],
+    *,
+    merge_runs: bool = False,
+) -> dict[int, PictureWindow]:
+    """One window per contiguous run of ``frames``: the clips any of its instants can show.
+
+    A range request is a run of consecutive frames, usually across the cut it checks. Each
+    instant's window is a superset of the layers playing then, so their union is too, and one
+    composite answers the whole run — the frame at each instant is still the full compile's.
+    An instant the window cannot reproduce (``picture_window_at`` answers ``None``) is left out
+    and reads the whole timeline. ``merge_runs`` treats every frame as one run, for frames that
+    all belong to one shot (:func:`_scope_windows`).
+    """
+    planned: dict[int, PictureWindow] = {}
+    runs = [sorted(frames)] if merge_runs and frames else _contiguous_runs(frames)
+    for run in runs:
+        instants = {
+            frame_index: picture_window_at(project, frame_index / project.fps, asset_kinds)
+            for frame_index in run
+        }
+        clip_ids = frozenset(
+            clip_id
+            for window in instants.values()
+            if window is not None
+            for clip_id in window.clip_ids
+        )
+        for frame_index, window in instants.items():
+            if window is not None:
+                planned[frame_index] = PictureWindow(time=window.time, clip_ids=clip_ids)
+    return planned
+
+
+def _scope_windows(
+    project: Project,
+    requests: Sequence[TemporalEvidenceRequest],
+    asset_kinds: Mapping[str, str | None],
+) -> dict[int, PictureWindow]:
+    """One window per scope request: the clips any of its sampled instants can show.
+
+    A scope samples three instants of one shot (:func:`_representative_frames`) — its first
+    frame, which a transition or the outgoing clip may share, its middle, and its last, which
+    the next clip's transition may share. Planned per contiguous run (:func:`_review_windows`)
+    those are three runs, so three full-resolution composites of the same shot were compiled
+    and cached, each opening its own reader of the shot (run-3: 6 readers, ~2 GB resident, for
+    one ``measure_color``). Their union is still a superset of the layers playing at every one
+    of the instants, so one composite answers all three with the full compile's frame.
+    """
+    planned: dict[int, PictureWindow] = {}
+    for request in requests:
+        if not isinstance(request, ScopeEvidenceRequest):
+            continue
+        frames = [
+            frame_index
+            for frame_index in _representative_frames(request.start_frame, request.end_frame)
+            if frame_index not in planned
+        ]
+        planned.update(_review_windows(project, frames, asset_kinds, merge_runs=True))
+    return planned
+
+
+class _ReviewFrames:
+    """Frames of one review composition, each composited from the clips on screen at its instant.
+
+    ``frames`` is every instant the batch will ask for, in ascending order, planned into one
+    window per contiguous run (:func:`_review_windows`). The windowed composite is borrowed
+    once per run of frames naming the same clips and released when the next frame needs other
+    clips. An instant the window cannot give the full compile's frame for — the project uses a
+    construct the window cannot reproduce, no picture plays there, the window builds no picture
+    layer, or its picture ends at or before the instant — reads the whole-timeline composition
+    from ``whole``, which is borrowed only then. ``cached=False`` compiles each window outside
+    the review cache and closes it as soon as the frames that need it are read.
+    """
+
+    def __init__(
+        self,
+        project: Project,
+        base_dir: Path,
+        assets: AssetIndex,
+        preset: ExportPreset,
+        frames: Sequence[int],
+        *,
+        burn_captions: bool,
+        max_decode_dimension: int | None,
+        whole: Callable[[], _CompositionLike],
+        use_windows: bool,
+        windows: Mapping[int, PictureWindow] | None = None,
+        cancelled: CancelCheck | None = None,
+        cached: bool = True,
+    ) -> None:
+        self._project = project
+        self._cached = cached
+        self._base_dir = base_dir
+        self._assets = assets
+        self._preset = preset
+        self._burn_captions = burn_captions
+        self._max_decode_dimension = max_decode_dimension
+        self._whole = whole
+        self._cancelled = cancelled
+        if not use_windows:
+            self._windows: Mapping[int, PictureWindow] = {}
+        elif windows is not None:
+            self._windows = windows
+        else:
+            kinds = {entry.asset_id: entry.kind for entry in assets.entries}
+            self._windows = _review_windows(project, frames, kinds)
+        self._held = ExitStack()
+        self._held_ids: frozenset[str] | None = None
+        self._held_composition: _CompositionLike | None = None
+        self.windowed_frames = 0
+
+    def frame(self, frame_index: int) -> npt.NDArray[np.uint8]:
+        """The composited picture of ``frame_index``, as the export draws it.
+
+        Decoded under a slot of the process-wide gate, like the build (AL33,
+        ``composition_cache.read_frame``): a batch's reads must not stack on every grab's.
+        """
+        at = frame_index / self._project.fps
+        composition = self._window_at(frame_index, at)
+        if composition is None:
+            composition = self._whole()
+        else:
+            self.windowed_frames += 1
+        return _as_pixels(
+            read_frame(composition, at, gate=HEAVY_BUILD_GATE, cancelled=self._cancelled)
+        )
+
+    def close(self) -> None:
+        self._held.close()
+
+    def _window_at(self, frame_index: int, at: float) -> _CompositionLike | None:
+        window = self._windows.get(frame_index)
+        if window is None:
+            return None
+        if window.clip_ids != self._held_ids:
+            self._held.close()
+            self._held = ExitStack()
+            self._held_ids = window.clip_ids
+            self._held_composition = self._borrow_window(window)
+        composition = self._held_composition
+        if composition is None:
+            return None
+        # A composite borrowed for an earlier instant of these clips may not answer this one:
+        # past its end the full compile would hold its own picture's last frame (captions), and
+        # a blend may take in layers the window left out (``compiler.window_answers``).
+        if not window_answers(composition, at):
+            return None
+        return composition
+
+    def _borrow_window(self, window: PictureWindow) -> _CompositionLike | None:
+        def build() -> _CompositionLike:
+            return cast(
+                _CompositionLike,
+                compile_timeline(
+                    self._project,
+                    self._assets,
+                    self._preset,
+                    burn_captions=self._burn_captions,
+                    max_decode_dimension=self._max_decode_dimension,
+                    decoder_threads=PREVIEW_DECODER_THREADS,
+                    window=window,
+                ),
+            )
+
+        key = composition_key(
+            self._project,
+            self._base_dir,
+            self._preset,
+            burn_captions=self._burn_captions,
+            max_decode_dimension=self._max_decode_dimension,
+            window=window.clip_ids,
+        )
+        try:
+            if not self._cached:
+                return _hold_uncached(self._held, build, self._cancelled)
+            return cast(
+                _CompositionLike,
+                self._held.enter_context(
+                    REVIEW_WINDOW_CACHE.borrow(key, build, cancelled=self._cancelled)
+                ),
+            )
+        except PictureWindowMiss as exc:
+            _log.debug("temporal evidence: %s", exc)
+            return None
 
 
 def acquire_temporal_evidence(
@@ -843,20 +1150,13 @@ def acquire_temporal_evidence(
     borrowed = ExitStack()
     scope_borrowed = ExitStack()
 
-    try:
-        needs_programme = bool(ordinary_frames) or any(
-            isinstance(request, AudioEvidenceRequest | LoudnessEvidenceRequest)
-            for request in requests
-        )
-        if needs_programme or scope_frames:
-            _check_cancelled(cancelled)
-            assets = index_assets(
-                [asset.model_dump() for asset in project.assets], base_dir=base_dir
-            )
+    ordinary_source: _ReviewFrames | None = None
+    scope_source: _ReviewFrames | None = None
 
-        if needs_programme:
+    def whole_programme() -> _CompositionLike:
+        nonlocal programme
+        if programme is None:
             assert assets is not None
-            _check_cancelled(cancelled)
             programme = _borrow_programme(
                 borrowed,
                 project,
@@ -865,52 +1165,124 @@ def acquire_temporal_evidence(
                 ordinary_preset,
                 burn_captions=True,
                 max_decode_dimension=REVIEW_MAX_DIMENSION,
+                cancelled=cancelled,
             )
+        return programme
+
+    def whole_scope() -> _CompositionLike:
+        nonlocal scope_composition
+        if scope_composition is None:
+            assert assets is not None
+            scope_composition = _borrow_programme(
+                scope_borrowed,
+                project,
+                base_dir,
+                assets,
+                scope_preset,
+                burn_captions=False,
+                max_decode_dimension=None,
+                cancelled=cancelled,
+                cached=False,
+            )
+        return scope_composition
+
+    try:
+        # The programme's sound is the whole timeline's, so audio evidence compiles it all;
+        # a batch that pays for that reads its frames from the same composition.
+        needs_audio = any(
+            isinstance(request, AudioEvidenceRequest | LoudnessEvidenceRequest)
+            for request in requests
+        )
+        if ordinary_frames or needs_audio or scope_frames:
+            _check_cancelled(cancelled)
+            assets = index_assets(
+                [asset.model_dump() for asset in project.assets], base_dir=base_dir
+            )
+
+        if ordinary_frames or needs_audio:
+            assert assets is not None
+            _check_cancelled(cancelled)
             try:
+                if needs_audio:
+                    whole_programme()
+                ordinary_source = _ReviewFrames(
+                    project,
+                    base_dir,
+                    assets,
+                    ordinary_preset,
+                    sorted(ordinary_frames),
+                    burn_captions=True,
+                    max_decode_dimension=REVIEW_MAX_DIMENSION,
+                    whole=whole_programme,
+                    use_windows=not needs_audio,
+                    cancelled=cancelled,
+                )
                 for frame_index in sorted(ordinary_frames):
                     _check_cancelled(cancelled)
-                    pixels = np.asarray(programme.get_frame(frame_index / project.fps))
-                    if pixels.dtype != np.uint8:
-                        pixels = pixels.astype(np.uint8)
+                    pixels = ordinary_source.frame(frame_index)
                     if frame_index in plan.sample_frames:
                         frame_samples[frame_index] = _frame_sample(frame_index, pixels)
                     if frame_index in plan.comparison_frames:
                         frame_cache[frame_index] = pixels
             except TemporalEvidenceCancelled:
                 raise
+            except CompositionBuildCancelled as exc:
+                raise TemporalEvidenceCancelled(
+                    "Temporal evidence acquisition was cancelled."
+                ) from exc
             except Exception as exc:
                 raise TemporalEvidenceError(
                     f"Could not compile or sample temporal evidence: {exc}"
                 ) from exc
+            finally:
+                if ordinary_source is not None:
+                    ordinary_source.close()
 
         if scope_frames:
             assert assets is not None
             _check_cancelled(cancelled)
             try:
-                scope_composition = _borrow_programme(
-                    scope_borrowed,
+                scope_source = _ReviewFrames(
                     project,
                     base_dir,
                     assets,
                     scope_preset,
+                    sorted(scope_frames),
                     burn_captions=False,
                     max_decode_dimension=None,
+                    whole=whole_scope,
+                    use_windows=True,
+                    windows=_scope_windows(
+                        project,
+                        requests,
+                        {entry.asset_id: entry.kind for entry in assets.entries},
+                    ),
+                    cancelled=cancelled,
+                    # Frames are read in order and each scope's three share one window, so a
+                    # window is released once, when the next scope's frames need other clips;
+                    # two scopes of one shot in a batch share it.
+                    cached=False,
                 )
                 for frame_index in sorted(scope_frames):
                     _check_cancelled(cancelled)
-                    pixels = np.asarray(scope_composition.get_frame(frame_index / project.fps))
-                    if pixels.dtype != np.uint8:
-                        pixels = pixels.astype(np.uint8)
+                    pixels = scope_source.frame(frame_index)
                     for channels in scope_plan.get(frame_index, ()):
                         scope_cache[frame_index, channels] = _scope_values(
                             frame_index, pixels, channels
                         )
             except TemporalEvidenceCancelled:
                 raise
+            except CompositionBuildCancelled as exc:
+                raise TemporalEvidenceCancelled(
+                    "Temporal evidence acquisition was cancelled."
+                ) from exc
             except Exception as exc:
                 raise TemporalEvidenceError(
                     f"Could not compile or sample technical scope evidence: {exc}"
                 ) from exc
+            finally:
+                if scope_source is not None:
+                    scope_source.close()
 
         for request in requests:
             _check_cancelled(cancelled)
@@ -975,16 +1347,25 @@ def acquire_temporal_evidence(
                         _check_cancelled(cancelled)
                         if assets is None:
                             raise TemporalEvidenceError("Role evidence requires indexed assets.")
-                        role_compositions[request.channels] = cast(
-                            _CompositionLike,
-                            compile_timeline(
-                                _role_isolated_project(project, request.channels),
-                                assets,
-                                ordinary_preset,
-                                burn_captions=False,
-                                max_decode_dimension=REVIEW_MAX_DIMENSION,
-                            ),
-                        )
+                        # Uncached, but a whole-timeline compile all the same: it takes a
+                        # slot of the process-wide gate like every cached build.
+                        try:
+                            with HEAVY_BUILD_GATE.slot(cancelled):
+                                role_compositions[request.channels] = cast(
+                                    _CompositionLike,
+                                    compile_timeline(
+                                        _role_isolated_project(project, request.channels),
+                                        assets,
+                                        ordinary_preset,
+                                        burn_captions=False,
+                                        max_decode_dimension=REVIEW_MAX_DIMENSION,
+                                        decoder_threads=PREVIEW_DECODER_THREADS,
+                                    ),
+                                )
+                        except CompositionBuildCancelled as exc:
+                            raise TemporalEvidenceCancelled(
+                                "Temporal evidence acquisition was cancelled."
+                            ) from exc
                     source = role_compositions[request.channels]
                     audio_settings = role_settings
                 if isinstance(request, LoudnessEvidenceRequest):
@@ -1010,10 +1391,17 @@ def acquire_temporal_evidence(
         borrowed.close()
 
     _log.info(
-        "ACT temporal evidence acquired: revision=%d requests=%d review_frames=%d scope_frames=%d",
+        "ACT temporal evidence acquired: revision=%d requests=%d review_frames=%d "
+        "scope_frames=%d windowed_frames=%d whole_timeline=%s",
         project_revision,
         len(requests),
         len(ordinary_frames),
         len(scope_frames),
+        sum(
+            source.windowed_frames
+            for source in (ordinary_source, scope_source)
+            if source is not None
+        ),
+        programme is not None or scope_composition is not None,
     )
     return TemporalEvidenceBatch(render_settings=render_settings, results=results)

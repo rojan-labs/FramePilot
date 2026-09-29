@@ -90,3 +90,30 @@ export function laneTypeForKind(kind: ClipRenderKind): Track['type'] {
       return 'video';
   }
 }
+
+/**
+ * The clip kinds drawn as a layer in their own lane's place: video, stills, text overlays and
+ * shapes. The frame plan walks every lane and draws exactly these (the export's compile loop
+ * does the same), so a clip of one of these kinds is a picture another clip can read as its
+ * track matte. Audio draws nothing; a caption cue is burned by its own pass over the whole
+ * frame, not composited in its lane, so it is not one either.
+ */
+export const DRAWN_CLIP_KINDS: ReadonlySet<ClipRenderKind> = new Set([
+  'video',
+  'image',
+  'text',
+  'shape',
+]);
+
+/** True when a clip of `kind` is drawn as a picture layer in its lane (`DRAWN_CLIP_KINDS`). */
+export function isDrawnClipKind(kind: ClipRenderKind): boolean {
+  return DRAWN_CLIP_KINDS.has(kind);
+}
+
+/**
+ * The advisory lane types that host drawn clips (`laneTypeForKind` of each drawn kind): `video`
+ * and `overlay`. A track matte may read a whole track of one of these types.
+ */
+export const PICTURE_LANE_TYPES: ReadonlySet<Track['type']> = new Set(
+  [...DRAWN_CLIP_KINDS].map(laneTypeForKind),
+);

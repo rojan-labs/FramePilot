@@ -866,6 +866,39 @@ describe('create_shape_mask (MK8)', () => {
     });
   });
 
+  it('lays a frame preset out on the part of a cropped clip that is on screen', () => {
+    // Harness run 6: a rounded frame on the cliff aerial, cropped to a 9:16 window of its
+    // 16:9 source, was laid out on the whole source and blacked out the hook's centre.
+    const base = project();
+    const cropped = {
+      ...base,
+      timeline: {
+        ...base.timeline,
+        tracks: base.timeline.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((clip) =>
+            clip.id === 'shot'
+              ? { ...clip, crop: { x: 0.4, y: 0, width: 0.3164, height: 1 } }
+              : clip,
+          ),
+        })),
+      },
+    } as Project;
+    const split = masksOf(
+      clipOf(land(cropped, shapeCall({ preset: 'split', side: 'right' }, cropped).operations)),
+    )[0];
+    // The crop spans 768…1375.5 px of the 1920-wide source: the split sits at its centre.
+    expect(split).toMatchObject({ kind: 'linear', originY: 540 });
+    expect((split as { originX: number }).originX).toBeCloseTo((0.4 + 0.3164 / 2) * 1920, 6);
+    const [outer] = masksOf(
+      clipOf(land(cropped, shapeCall({ preset: 'rounded_frame' }, cropped).operations)),
+    );
+    if (outer?.kind !== 'path') throw new Error('expected a path');
+    const xs = outer.pathKeyframes[0]!.points.filter((_, index) => index % 6 === 0);
+    expect(Math.min(...xs)).toBeGreaterThanOrEqual(0.4 * 1920 - 1e-6);
+    expect(Math.max(...xs)).toBeLessThanOrEqual((0.4 + 0.3164) * 1920 + 1e-6);
+  });
+
   it('takes a userBox only with numbers the editor typed, and one placement', () => {
     const p = project();
     const args = { preset: 'heart', userBox: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } };

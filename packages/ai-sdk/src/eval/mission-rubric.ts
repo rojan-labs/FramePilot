@@ -15,16 +15,14 @@ import {
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
   clipAnimation,
-  coverageVerdict,
   elementArtFraction,
   isElementAsset,
   isSyntheticAssetId,
   repeatedSourcePairs,
   shapeClipParams,
-  type ShapedClip,
-  type SourceShape,
 } from '@framepilot/editor-core';
 import { detectTranscriptLoop, timelineDuration } from '../critic.js';
+import { hiddenPictureClips } from '../domain-tools/picture-layers.js';
 
 export interface RubricCheck {
   readonly id: string;
@@ -773,74 +771,33 @@ export function checkCutawayInWindow(
 }
 
 /**
- * Every cross-track picture overlap is one the PREVIEW CAN SHOW — i.e. the clip in front
- * covers the frame opaquely, so the monitor and the export produce the same picture.
+ * Every picture clip the run stacked is one the viewer can SEE — nothing is buried end to end
+ * behind picture that hides it.
  *
- * WHY this is not "no picture over picture". It was, until ADR 0169. Refusing every stack
- * meant the agent could not build a montage or a layered cutaway at all on a project whose
- * main track is occupied — which, on a talking head, is always — and
- * `beat-grid-wiring.test.ts` sat at 2 of 10 for exactly that reason. 0169 narrowed the rule
- * to what actually diverges: the preview resolves by z-order now, so a FULL-FRAME OPAQUE
- * layer previews as it exports, while a cropped, blended, keyframed or masked one still
- * does not.
+ * WHY this is not "no picture over picture", and no longer "every stack is full-frame". ADR
+ * 0169 let a full-frame cutaway take a front layer; this check then asserted that every stack
+ * previewed as it exported, because the monitor painted one picture layer. Since ADR 0180 the
+ * monitor composites every stack, so that invariant is true of any timeline and the agent
+ * places picture-in-picture on purpose (amendment 2026-09-29). What a stacked edit can still
+ * get wrong is the outcome the scenario is about: b-roll the editor never sees.
  *
- * So this asserts the invariant directly rather than a proxy for it, which makes it a
- * stronger check than the one it replaces: a run may stack picture, and every stack it
- * makes must be one the editor will actually see before they approve it.
- *
- * `coverageVerdict` is imported from `editor-core` — the same predicate the placement guard
- * and the preview read. A second definition here is how a rubric starts grading a rule the
- * product no longer has. ADR 0170 made it a RELATION: the renderer fits rather than covers,
- * so whether a letterboxed layer diverges depends on the shape of what is under it, and
- * grading the front clip alone both passed leaks and failed honest stacks.
+ * `hiddenPictureClips` is the Critic's own predicate — a clip is hidden only behind picture
+ * that hides it (coverage is a relation, ADR 0170) — so the rubric grades the rule the
+ * product has rather than a second copy of it.
  */
-export function checkStackedPictureIsPreviewable(project: Project): RubricCheck {
-  const byTrack = pictureTracks(project).map((t) => ({ id: t.id, clips: t.clips }));
-  const shapeById = new Map<string, SourceShape | undefined>(
-    project.assets.map((asset) => {
-      const { width, height } = asset.media ?? {};
-      const measured =
-        typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0;
-      return [asset.id, measured ? { width, height } : undefined];
-    }),
-  );
-  const shaped = (clip: Clip): ShapedClip => ({ clip, source: shapeById.get(clip.assetId) });
-  const divergent: string[] = [];
-  let stacks = 0;
-  // Tracks are front-to-back, so the LOWER index is the clip the viewer sees. Whether it
-  // hides the one behind is a question about BOTH shapes and the project frame.
-  for (let front = 0; front < byTrack.length; front++) {
-    for (let back = front + 1; back < byTrack.length; back++) {
-      for (const a of byTrack[front]!.clips) {
-        for (const b of byTrack[back]!.clips) {
-          if (a.start < b.end - FRAME_EPSILON && b.start < a.end - FRAME_EPSILON) {
-            stacks += 1;
-            const verdict = coverageVerdict(shaped(a), [shaped(b)], project.resolution);
-            if (!verdict.hides) {
-              divergent.push(
-                `${a.id} on ${byTrack[front]!.id} over ${b.id} on ${byTrack[back]!.id} ` +
-                  `(${verdict.reason})`,
-              );
-            }
-          }
-        }
-      }
-    }
-  }
+export function checkStackedPictureIsVisible(project: Project): RubricCheck {
+  const hidden = hiddenPictureClips(project);
   return {
-    id: 'stacked-picture-is-previewable',
-    ok: divergent.length === 0,
+    id: 'stacked-picture-is-visible',
+    ok: hidden.length === 0,
     detail:
-      divergent.length > 0
-        ? `previews differently from the export: ${divergent.join('; ')}`
-        : stacks === 0
-          ? 'no picture over picture'
-          : `${String(stacks)} stacked span(s), all full-frame`,
+      hidden.length > 0
+        ? `never seen: ${hidden.map((clip) => `${clip.clipId} on ${clip.trackId}`).join('; ')}`
+        : 'every picture clip is seen',
     weight: 2,
     facet: 'target',
   };
 }
-
 
 /** Duration is unchanged within half a second — a cutaway covers, it does not lengthen. */
 export function checkDurationKept(ctx: RubricContext, toleranceSeconds = 0.5): RubricCheck {
@@ -1014,7 +971,7 @@ const MATCH_COLOR_REFERENCE_INDEX = 0;
  * shot's measured luma and "the solver decides that". Those two statements cannot both
  * stand, and the flat cap was the one that was wrong.
  *
- * `WARMTH_PER_TEMPERATURE` scales with the frame's mean luma, because white balance is
+ * The white-balance response scales with the light it multiplies, because white balance is
  * multiplicative: a dark shot's chroma moves less in absolute terms, so the SAME measured
  * warmth change costs more parameter there. That is not a defect, it is the whole point of
  * VU3 — "a bit warmer" must land the same amount of warmer on every shot, in measured units
@@ -1023,8 +980,10 @@ const MATCH_COLOR_REFERENCE_INDEX = 0;
  *
  * Measured, on `mission-montage` (`vu-ledger-all/warmer-subtle`): asset_004 measures
  * luma_mean **0.1271**, the darkest clip in the fixture. A +0.05 warmth target there solves
- * to 0.05 / (0.6936 × 0.1271) ≈ **0.57** — and the run produced 0.56. The old cap failed a
- * correct, scale-free solve for being applied to dark footage.
+ * to 0.05 / (0.6936 × 0.1271) ≈ **0.57** — and the run produced 0.56 (that is the pre-#107
+ * grey-patch model; the render-calibrated one costs more on the same clip, which only
+ * strengthens the point). The old cap failed a correct, scale-free solve for being applied
+ * to dark footage.
  *
  * So the bound is the renderer's contract range itself. What "not a little any more"
  * actually looks like is the solve hitting the RAIL — at which point the solver reports
@@ -1834,7 +1793,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
-        checkStackedPictureIsPreviewable(p),
+        checkStackedPictureIsVisible(p),
         checkDurationKept(ctx),
         ...COMMON(ctx),
       ]);
