@@ -32,6 +32,11 @@ import {
   type ProjectOperation,
   reservedAssetIdProblem,
 } from './project-operations.js';
+import {
+  mediaLengthSeconds,
+  sourcePastMediaToleranceSeconds,
+  type MediaLength,
+} from './frame-grid.js';
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 import { postValidationScope } from './validation-scope.js';
@@ -103,6 +108,11 @@ export type ValidationCode =
   /** An apply path threw something the operations layer did not raise deliberately. */
   | 'invalid_operation'
   /**
+   * A clip's source out-point is more than one frame past the end of its audio or video
+   * (AL42, #156). There is nothing there to play; the edit meant a shorter clip.
+   */
+  | 'source_past_media_end'
+  /**
    * An element (a sticker or a shape) would be off the frame for its whole span, so the edit
    * renders as nothing (plan/elements EL8.1). Raised where the agent's edits are assembled.
    */
@@ -143,8 +153,19 @@ export interface ValidateOptions {
    * is stored in source pixels, and adding one to media nobody measured is refused with
    * "Measure this media first". Omitted, those size rules are skipped rather than guessed.
    */
-  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'> & { readonly kind?: Asset['kind'] }>;
+  readonly assets?: Iterable<
+    Pick<Asset, 'id' | 'media'> & {
+      readonly kind?: Asset['kind'];
+      readonly durationSeconds?: Asset['durationSeconds'];
+    }
+  >;
 }
+
+/**
+ * The frame rate the source-overrun tolerance falls back to when a caller validates without
+ * a grid: 30 fps, the editor's own, so "one frame" still means a frame and not zero.
+ */
+const UNGRIDDED_TOLERANCE_FPS = 30;
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([
   'trim_clip',
@@ -241,18 +262,29 @@ export function validatePatch(
   const fps = gridFps(options.fps);
   const issues: ValidationIssue[] = [];
   const clipTracks = clipTrackIndex(timeline);
+  const assetList = options.assets === undefined ? undefined : [...options.assets];
   const maskContext: MaskValidationContext = {
     fps,
-    ...(options.assets === undefined
+    ...(assetList === undefined
       ? {}
-      : { assets: new Map([...options.assets].map((asset) => [asset.id, asset])) }),
+      : { assets: new Map(assetList.map((asset) => [asset.id, asset])) }),
   };
+  // Lengths of the media clips read, including media an earlier `add_asset` in this patch
+  // brought in (`add_music`, a stock drop): the clip after it reads that asset.
+  const media = new Map<string, MediaLength>(
+    (assetList ?? []).flatMap((asset) =>
+      asset.kind === undefined
+        ? []
+        : [[asset.id, { id: asset.id, kind: asset.kind, durationSeconds: asset.durationSeconds }]],
+    ),
+  );
   let working = timeline;
 
   patch.operations.forEach((op, index) => {
     if (isProjectOperation(op)) {
       issues.push(...projectChecks(working, op, index, assetIds, folders, markers));
       advanceProjectState(op, assetIds, folders, markers);
+      if (op.type === 'add_asset') media.set(op.asset.id, op.asset);
       return;
     }
     if (!SUPPORTED_OPERATIONS.has(op.type)) {
@@ -277,6 +309,10 @@ export function validatePatch(
         issues.push(...speedConsistencyChecks(tracks, index, fps));
         // A trim, slip, split or retime can move a clip's source range past its matte.
         issues.push(...matteCoverageIssues(tracks, index, maskContext));
+        if (op.type !== 'restore_clips') {
+          const before = tracksById(working, scope.trackIds);
+          issues.push(...sourcePastMediaIssues(before, tracks, index, media, fps));
+        }
       }
       if (isMaskOperation(op)) issues.push(...maskOperationIssues(next, op, index, maskContext));
       refreshClipTrackIndex(clipTracks, next, scope.trackIds);
@@ -624,6 +660,60 @@ function speedConsistencyChecks(
         });
       }
     }
+  }
+  return issues;
+}
+
+/**
+ * Clips this operation left reading more than a frame past the end of their media (AL42).
+ *
+ * There is nothing there: the render plays silence and holds the last frame for the
+ * overrun, and the edit it stands for — a clip that length — does not exist. Harness run
+ * 17 placed a 0.45 s whoosh as 0.47 s and a 1.998 s hit as 2.0 s; nothing looked at a
+ * clip's source range against its asset's length until then (#156). The frame grid pulls
+ * an overrun within one frame back inside the media (`frame-grid.ts#snapAddClip`); this
+ * refuses one beyond it.
+ *
+ * Judged on the DELTA, like every inherited defect: a clip is reported only when this
+ * operation made it read further into an asset than any clip on these tracks already did.
+ * A project saved with a legacy overrun can still be split, moved, trimmed shorter and
+ * undone; a clip newly placed or extended past its media cannot be. `restore_clips` is not
+ * checked at all — it restores exact prior state. Stills and media of unknown length are
+ * exempt ({@link mediaLengthSeconds}).
+ *
+ * The message names the clip, the asset and the asset's length, never the overrun: the
+ * text keys the repeated-failure guard, and the amount changes with every retry.
+ */
+function sourcePastMediaIssues(
+  before: readonly Track[],
+  after: readonly Track[],
+  index: number,
+  media: ReadonlyMap<string, MediaLength>,
+  fps: number | null,
+): ValidationIssue[] {
+  const tolerance = sourcePastMediaToleranceSeconds(fps ?? UNGRIDDED_TOLERANCE_FPS);
+  const furthestRead = new Map<string, number>();
+  for (const clip of before.flatMap((track) => track.clips)) {
+    furthestRead.set(
+      clip.assetId,
+      Math.max(furthestRead.get(clip.assetId) ?? -Infinity, clip.sourceEnd),
+    );
+  }
+  const issues: ValidationIssue[] = [];
+  for (const clip of after.flatMap((track) => track.clips)) {
+    const length = mediaLengthSeconds(media.get(clip.assetId));
+    if (length === undefined || clip.sourceEnd - length <= tolerance) continue;
+    if (clip.sourceEnd <= (furthestRead.get(clip.assetId) ?? -Infinity) + EPSILON) continue;
+    const seconds = length.toFixed(3);
+    issues.push({
+      code: 'source_past_media_end',
+      severity: 'error',
+      message:
+        `Clip '${clip.id}' reads past the end of asset '${clip.assetId}', which is ` +
+        `${seconds}s long. Its source range must end by ${seconds}s: trim it with trim_clip, ` +
+        `place it shorter, or slow it down, so the clip plays no more of the asset than it holds.`,
+      operationIndex: index,
+    });
   }
   return issues;
 }

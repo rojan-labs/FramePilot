@@ -14,13 +14,14 @@ registered engine operation (``unsupported_operation``).
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+import math
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from framepilot_engine.effects.speed_curve import clip_timeline_duration, has_speed_ramp
-from framepilot_engine.timeline.models import Timeline, Track
+from framepilot_engine.timeline.models import Asset, Timeline, Track
 from framepilot_engine.timeline.operations import (
     SUPPORTED_COLOR_GRADE_EFFECTS,
     AddClip,
@@ -34,6 +35,14 @@ from framepilot_engine.timeline.operations import (
 from framepilot_engine.timeline.transition_policy import transition_eligibility
 
 _EPSILON = 1e-9
+
+#: Seconds of float noise a source out-point may carry and still be "at" its media's end
+#: (the TS ``SOURCE_SECONDS_EPSILON``).
+_SOURCE_SECONDS_EPSILON = 1e-6
+
+#: The frame rate the source-overrun tolerance falls back to without a grid (the TS
+#: ``UNGRIDDED_TOLERANCE_FPS``): the editor's 30 fps, so "one frame" still means a frame.
+_UNGRIDDED_TOLERANCE_FPS = 30.0
 
 ValidationCode = Literal[
     "missing_reference",
@@ -56,6 +65,9 @@ ValidationCode = Literal[
     "duplicate_mask",
     # A shape's params cannot be drawn (schema v25). Mirrors the TS `invalid_style` code.
     "invalid_style",
+    # A clip reads more than one frame past the end of its audio/video (AL42, #156).
+    # Mirrors the TS `source_past_media_end` code.
+    "source_past_media_end",
 ]
 ValidationSeverity = Literal["error", "warning"]
 
@@ -117,20 +129,32 @@ def validate_patch(
     operations: Sequence[Operation],
     *,
     asset_ids: Iterable[str] | None = None,
+    assets: Iterable[Asset] | None = None,
+    fps: float | None = None,
 ) -> ValidationResult:
     """Validate ``operations`` against ``timeline`` (PRD §8.5).
 
     Checks: references exist, no negative/invalid duration, valid layer order, no
     missing asset (when ``asset_ids`` is given), supported color-grade effect, no
-    broken audio link, no clip overlap, op is engine-supported (== reversible).
+    broken audio link, no clip overlap, no clip placed or extended more than a frame
+    past the end of its media (when ``assets`` is given), op is engine-supported
+    (== reversible).
 
     :param timeline: Timeline the patch would be applied to.
     :param operations: The patch operations, in order.
     :param asset_ids: Known asset ids; enables the missing-asset check for
         ``add_clip``. Omit to skip it (the timeline alone cannot prove an asset).
+    :param assets: The media bin; enables ``source_past_media_end``. Omit to skip it.
+    :param fps: The project frame rate, which sets that check's one-frame tolerance.
     :returns: A :class:`ValidationResult` (``valid`` false if any error issue).
     """
     known_assets = set(asset_ids) if asset_ids is not None else None
+    media = {
+        asset.id: length
+        for asset in assets or ()
+        if (length := media_length_seconds(asset)) is not None
+    }
+    tolerance = source_past_media_tolerance_seconds(fps or _UNGRIDDED_TOLERANCE_FPS)
     issues: list[ValidationIssue] = []
     working = timeline
 
@@ -155,6 +179,8 @@ def validate_patch(
             issues.extend(_overlap_checks(nxt, index))
             issues.extend(_transition_overlap_checks(nxt, index))
             issues.extend(_speed_consistency_checks(nxt, index))
+            if op.type != "restore_clips":
+                issues.extend(_source_past_media_checks(working, nxt, index, media, tolerance))
             working = nxt
         except OperationError as exc:
             issues.append(_from_operation_error(exc, index))
@@ -328,6 +354,90 @@ def _speed_consistency_checks(timeline: Timeline, index: int) -> list[Validation
                     )
                 )
     return issues
+
+
+def media_length_seconds(asset: Asset) -> float | None:
+    """The length a clip of ``asset`` may read up to (TS ``mediaLengthSeconds``).
+
+    ``None`` for a still (drawn for as long as it is placed) and for media whose length is
+    unknown.
+    """
+    if asset.kind not in ("audio", "video"):
+        return None
+    seconds = asset.duration_seconds
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        return None
+    return float(seconds)
+
+
+def source_past_media_tolerance_seconds(fps: float) -> float:
+    """How far past its media a source out-point may sit: one project frame (TS mirror)."""
+    return 1.0 / fps + _SOURCE_SECONDS_EPSILON
+
+
+def _source_past_media_checks(
+    before: Timeline,
+    after: Timeline,
+    index: int,
+    media: Mapping[str, float],
+    tolerance: float,
+) -> list[ValidationIssue]:
+    """Clips this operation left reading more than a frame past their media (AL42, #156).
+
+    Mirrors the TS ``sourcePastMediaIssues``: judged on the delta, over the tracks whose
+    clips the operation changed. A clip is reported only when it reads further into its
+    asset than any clip on those tracks already did, so a project saved with an overrun
+    can still be split, moved and trimmed shorter. The message names the clip, the asset
+    and its length — never the overrun, which changes with every retry and would split
+    the repeated-failure guard's key.
+    """
+    if not media:
+        return []
+    previous = {track.id: track for track in before.tracks}
+    touched = [track for track in after.tracks if previous.get(track.id) != track]
+    if not touched:
+        return []
+    touched_ids = {track.id for track in touched}
+    furthest: dict[str, float] = {}
+    for track in before.tracks:
+        if track.id not in touched_ids and not _holds_a_clip_of(track, touched):
+            continue
+        for clip in track.clips:
+            if clip.source_end is not None:
+                furthest[clip.asset_id] = max(
+                    furthest.get(clip.asset_id, -math.inf), clip.source_end
+                )
+    issues: list[ValidationIssue] = []
+    for track in touched:
+        for clip in track.clips:
+            length = media.get(clip.asset_id)
+            if length is None or clip.source_end is None:
+                continue
+            if clip.source_end - length <= tolerance:
+                continue
+            if clip.source_end <= furthest.get(clip.asset_id, -math.inf) + _EPSILON:
+                continue
+            seconds = f"{length:.3f}"
+            issues.append(
+                ValidationIssue(
+                    code="source_past_media_end",
+                    severity="error",
+                    message=(
+                        f"Clip '{clip.id}' reads past the end of asset '{clip.asset_id}', "
+                        f"which is {seconds}s long. Its source range must end by {seconds}s: "
+                        "trim it with trim_clip, place it shorter, or slow it down, so the "
+                        "clip plays no more of the asset than it holds."
+                    ),
+                    operation_index=index,
+                )
+            )
+    return issues
+
+
+def _holds_a_clip_of(track: Track, touched: Sequence[Track]) -> bool:
+    """Whether a clip of ``track`` now sits on a touched track (a clip moved between lanes)."""
+    ids = {clip.id for clip in track.clips}
+    return any(clip.id in ids for other in touched for clip in other.clips)
 
 
 def _from_operation_error(error: OperationError, index: int) -> ValidationIssue:
