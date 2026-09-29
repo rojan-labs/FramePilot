@@ -89,6 +89,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Short sound effects no longer break loudness checks, and clips no longer run past the end of
+  their media.** A sound under about 1.4 seconds (a whoosh, a hit) made the assistant's loudness
+  measurement fail with an engine error. On very short sounds the export could fail the same
+  way. Longer short sounds could be measured from the wrong samples. The audio reader now
+  handles any sound length. A clip whose source runs a little past the end of its file plays
+  silence there and holds the last video frame, where the export used to show what was
+  underneath. Placing a sound whose length is not a whole number of frames now ends the clip
+  on the last whole frame inside the file, instead of one frame past it. An edit that would
+  play more than a frame beyond the end of its audio or video, for example a fast speed change
+  or a trim, is refused with the file's length and how to fix it. Projects that already hold
+  such a clip can still be edited.
 - **Shapes and other graphics no longer land where they break a neighbour's animation.** A new
   shape could be put on a graphics lane ending exactly where a title with an In animation began.
   That turns the title's entrance into a cut, so the whole edit was refused. Every placement now

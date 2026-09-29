@@ -571,6 +571,45 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   style and template); animated overlays are skipped; a plain overlay's height is a floor, so a
   plain-title collision can go unreported; weight is bucketed up (Inter 600 read at 700, ~1.4 %
   wide); not re-run live on run 16's brief.
+- [x] **AL42** Harness run 17: `measure_loudness` (`/review/temporal-evidence` loudness) failed
+  twice with a 500, "OSError: Error in file Swipe_Whoosh.mp3, Accessing time t=1.00-1.00
+  seconds, with clip duration=0.500000". Three audio clips read a little past their files
+  (a 0.447506 s whoosh as 0.4667 s; a 1.998229 s hit as 2.0 s, twice). The overrun was NOT the
+  crash: with every sourceEnd clamped inside its asset, run 17's final project still failed the
+  same way. Root cause is MoviePy 2.1.2's `FFMPEG_AudioReader.get_frame` (`readers.py:222-230`).
+  When one request's in-file samples span more than half the reader's buffer, it recurses on
+  `in_time[...]`, the boolean MASK, instead of `tt[...]`, so `True` is read as t = 1.0 s.
+  `AudioFileClip` caps the buffer at a short file's own length (22051 samples for the whoosh),
+  so every 32768-sample loudness block took that path. Files under 1 s raise; from 1 s to
+  ~1.37 s the reader silently returns the samples at 0 s and 1 s. The export's 2000-sample
+  blocks reach it only below ~90 ms. The reader also raises when a composite asks for a block
+  entirely past the file (`is_playing`'s end is inclusive, the reader's is not). Fixes:
+  (1) engine: `render/audio_reads.py` answers every read in pieces under half the buffer and
+  returns silence outside the file; the compiler (audio assets, processed stems) and the video
+  reader's sound install it on every `AudioFileClip`. `compiler._subclipped_source` now keeps a
+  natural-rate clip's full span past its file: it holds the last frame and plays silence. The
+  export used to show the layer beneath for that frame while the frame plan and preview held
+  the shot. (2) placement: `frame-grid.ts#snapAddClip` rounded the out-point to the nearest
+  frame and rescaled the source, and its docstring accepted the overrun. `quantizePatch` /
+  `normalizeOperationTimes` now take the media bin (required; an `add_asset` earlier in the
+  patch joins it). An out-point within one frame past a known audio/video length ends on the
+  last whole frame inside; further past is left to the validator. (3) validator (#156):
+  `source_past_media_end` in TS and Python, error beyond one project frame. It is judged on the
+  delta: only a clip the op made read further into its asset than the touched tracks already
+  did is reported, so legacy overruns can still be split, moved, trimmed shorter and restored,
+  and `restore_clips` is never checked. Stills and unknown lengths are exempt. The message
+  names the clip, the asset and its length, never the overrun, and offers trim_clip, a shorter
+  placement or a slower speed. Evidence: run 17's final project, loudness 0–1350: before,
+  OSError in 6 s; after, -13.8 LUFS, TP -1.8 dBTP. Tests: `test_source_past_end.py` (9;
+  6 fail before, including the exact run-17 OSError; export passes validation; a video one
+  frame past holds its last frame in grab and export), `frame-grid.media-end.test.ts` (7),
+  `validator.media-end.test.ts` (12, including #156's 3x retime and fitted ramp),
+  `test_patch_validation_media_end.py` (8). Fallout: editor-core 1772/1772, 120 ai-sdk files that
+  place clips or carry asset lengths 3242/3244; the 2 failures are `orchestrator.test.ts`
+  expecting 28 critic checks, a count AL41's `text_collision` raised to 29 and did not update.
+  Open: the frame plan's `source.frame` still names the frame index past a file's end (pixels
+  agree: the reader returns the last frame); MoviePy's reader is still used directly by
+  `tests/audio_strip_vectors.py`.
 - [x] **AL43** Harness run 17: three `add_shape` calls (arrow 15.6–17.5, pin 16.3–17.5, pin
   `trackId: "STK"` 16.1–17.5) were refused with "Transition on clip 'text__CAP_17500' must
   reference the adjacent earlier clip on track 'CAP' as fromClipId." Cause: `trackHasRoomFor`

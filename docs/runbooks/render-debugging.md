@@ -203,3 +203,32 @@ and `vitest run src/frame-plan.test.ts` (editor-core) plus `src/preview/engine/l
 monitor's raster step change together: `underlay_clock_offset` / `underlayClipTime` put the
 neighbour's keyframes on its own clip clock across the cut. Still not carried to an under-layer:
 the neighbour's opacity keyframes, mask stack and speed.
+
+## Recurring failure mode: "Accessing time t=… seconds, with clip duration=…"
+
+Symptom: an engine 500 from the loudness or audio evidence route (or, on sounds under ~90 ms, the
+export) with `OSError: Error in file X.mp3, Accessing time t=1.00-1.00 seconds, with clip
+duration=0.500000 seconds`. The file is a short sound effect. The clip may or may not read a
+little past it; that is not the cause (AL42, harness run 17).
+
+Why: MoviePy 2.1.2's `FFMPEG_AudioReader.get_frame` splits a request whose in-file samples span
+more than half its buffer, and recurses on the in-range MASK instead of the times
+(`moviepy/audio/io/readers.py:222-230`), so `True` is read as t = 1.0 s. `AudioFileClip` caps the
+buffer at a short file's own length, so a 0.45 s whoosh has a 22051-sample buffer and every
+32768-sample loudness block splits. Under 1 s it raises; up to ~1.37 s it silently returns the
+samples at 0 s and 1 s. Separately, the reader raises when a composite asks it for a block lying
+entirely past the file, which `CompositeAudioClip.is_playing` (inclusive end) does.
+
+Check: every `AudioFileClip` the engine opens must go through
+`render/audio_reads.bound_audio_reads` (the compiler's audio assets and processed stems, and
+`video_reader.ProbedVideoFileClip`'s sound). A new call site that skips it brings the bug back.
+`uv run pytest tests/test_source_past_end.py` covers the reader contract, a loudness window and an
+export over a clip that reads a frame past a 0.45 s file, and a video clip one frame past its file
+holding its last frame. To reproduce against a real project, call `acquire_temporal_evidence`
+with a `loudness` request over the whole programme. Instrumenting the reader's `get_frame` to
+print `tt.dtype` shows `bool` on the failing call.
+
+Related, and not a crash any more: a clip whose `sourceEnd` is past its asset plays silence and
+holds its last frame for the overrun (`compiler._hold_past_end`). The frame grid keeps new
+placements inside the media, and the validator refuses more than a frame past it
+(`source_past_media_end`), so an overrun in a project is legacy or hand-edited.
