@@ -333,7 +333,9 @@ const AGENT_CONTRACT_TAIL = [
   'NEVER put a question to the editor in plain reply text: text cannot be clicked or',
   'answered and just ends the run; ask_user renders your options as selectable choices,',
   'pauses for their pick, and returns it to you so you continue from their answer.',
-  'Honor explicit editor guidance and recorded decisions over defaults.',
+  'Honor explicit editor guidance and recorded decisions over defaults. A recorded decision',
+  'answers only the question it was asked, with the tools of its day; where the current',
+  'request asks for something else, the request is the editor changing it — do what it asks.',
   'Only organize the media bin (manage_assets) if it is actually disorganized, and',
   'never spend a turn on it alone — pair it with, or skip straight to, a timeline edit.',
   // Order of work. Captions built before the cuts are settled describe footage

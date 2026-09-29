@@ -285,6 +285,13 @@ audits of the layer engine, decode path, compositor and player, plus an engine b
 caption templates are time-varying; 720p build 5 ms / sample 7 ms median, 120 / 23 ms worst).
 Scope gate: no new subsystem; every fix is inside the existing monitor, sidecar route family and
 IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09-27`.
+- [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
+  "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
+  (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer
+  holds (text overlays take font families since ADR 0194/0195), and it was stretched to a
+  masking request it never answered. Contract: a recorded decision answers only its own
+  question with the tools of its day; a current request that asks otherwise is the editor
+  changing it. Goldens re-recorded.
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

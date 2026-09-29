@@ -70,6 +70,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A remembered answer no longer overrides what you ask for now.** If you once told the
+  assistant "imitate it in the default face", a later request for text behind a subject or a
+  masked opener was being refused on the strength of that old answer. A remembered decision
+  now covers only the question it answered; a new request that asks for something else wins.
 - **A fast-to-slow speed ramp keeps its clip's length.** A ramp that starts fast and slows down
   after the clip's current end ("builds fast, drops to 50%") was refused as not fitting its slot,
   because the fit assumed the speed stopped changing where the old footage ended. It now follows
