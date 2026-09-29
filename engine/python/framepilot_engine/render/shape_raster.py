@@ -29,7 +29,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw
 
-from framepilot_engine.render.captions import _load_font
+from framepilot_engine.render.captions import _load_font, basic_layout_features
 from framepilot_engine.render.shape_catalog import is_shape_label
 from framepilot_engine.render.shape_geometry import (
     ARROW_HALF_WIDTH,
@@ -47,7 +47,6 @@ from framepilot_engine.render.shape_geometry import (
     segment_polyline,
     shape_bounds,
 )
-from framepilot_engine.render.text_overlay import _basic_features
 
 #: Supersampling factor for anti-aliasing.
 SUPERSAMPLE = 4
@@ -432,7 +431,7 @@ def _label_mask(shape: ResolvedShape, canvas: _Canvas) -> Mask | None:
     width, height = right - left, bottom - top
     size = max(1, round(min(width, height) * LABEL_SIZE * canvas.scale))
     font = _load_font(LABEL_FAMILY, size, LABEL_WEIGHT)
-    features = _basic_features(font)
+    features = basic_layout_features(font)
     probe = ImageDraw.Draw(Image.new("L", (1, 1)))
     bbox = probe.textbbox((0, 0), label, font=font, features=features)
     room = width * LABEL_MAX_WIDTH * canvas.scale

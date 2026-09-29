@@ -70,6 +70,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant's mixing and grading tools keep working after its own edits in the same step.**
+  When one step placed or retimed clips and then used a tool that acts on your selection
+  (professional audio, colour, tracking), that tool was refused as "stale" even though your
+  selection still pointed at the same clips.
+- **Text overlays render the same on every machine.** On systems with the extra text-shaping
+  library installed, words were kerned and ligated in the export but not in the preview or the
+  size fit, so letter spacing and fitted title sizes drifted by a few pixels.
 - **Exported colours now match your footage in every player.** Exports were converted to video
   with an older colour formula (BT.601) and carried no colour labels, so players that assume the
   modern HD formula (BT.709) showed reds, greens and skin tones slightly shifted. Exports now use

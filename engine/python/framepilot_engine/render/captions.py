@@ -336,12 +336,13 @@ def _render_baseline_caption_image(text: str, frame_width: int, frame_height: in
     pad = int(font_size * _BOX_PAD_FRACTION)
     max_text_width = int(frame_width * _MAX_WIDTH_FRACTION) - 2 * pad
 
-    lines = wrap_lines(text.split(), font, max_text_width)
+    features = basic_layout_features(font)
+    lines = wrap_lines(text.split(), font, max_text_width, features)
 
     # Measure each line; the box wraps the widest line and the stacked heights.
     probe = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(probe)
-    line_metrics = [draw.textbbox((0, 0), line, font=font) for line in lines]
+    line_metrics = [draw.textbbox((0, 0), line, font=font, features=features) for line in lines]
     line_widths = [int(bbox[2] - bbox[0]) for bbox in line_metrics]
     line_height = int(max(bbox[3] - bbox[1] for bbox in line_metrics))
     line_gap = max(1, font_size // 6)
@@ -363,7 +364,7 @@ def _render_baseline_caption_image(text: str, frame_width: int, frame_height: in
     for line, width, bbox in zip(lines, line_widths, line_metrics, strict=True):
         x = (box_width - width) // 2
         # Subtract the bbox origin so glyphs with top-bearing align to the box.
-        canvas.text((x - bbox[0], y - bbox[1]), line, font=font, fill=_TEXT_FILL)
+        canvas.text((x - bbox[0], y - bbox[1]), line, font=font, fill=_TEXT_FILL, features=features)
         y += line_height + line_gap
 
     return np.asarray(image, dtype=np.uint8)
@@ -683,6 +684,26 @@ def _load_font(
     return ImageFont.load_default(size=size)
 
 
+def basic_layout_features(font: _Font) -> list[str] | None:
+    """The OpenType features that make libraqm lay text out as basic layout does.
+
+    WHY: the desktop's Pillow has no libraqm and lays text out with BASIC layout, which
+    never ligates or applies GPOS kerning, and the AI's title fit (``title_metrics``,
+    ``overlay-fit.ts``) measures glyph by glyph on that basis. A Pillow that finds libraqm
+    (the Linux wheels with libfribidi installed) joins "fi"/"fl" and kerns: CI measured
+    "STATEMENT" 4.5 px wider untracked than the per-letter tracked path draws it, and fitted
+    an italic "Wow!" at 16.5 % where the fit says 16.9 %. Complex scripts still shape:
+    joining forms and required ligatures (``rlig``) stay on. ``None`` for a basic-layout
+    font, which takes no features.
+
+    :param font: The loaded caption/title font.
+    :returns: The features to pass to every measure and draw of ``font``, or ``None``.
+    """
+    if getattr(font, "layout_engine", None) != ImageFont.Layout.RAQM:
+        return None
+    return ["-liga", "-clig", "-kern"]
+
+
 def _stroke_px(outline_width: float, font_size: int) -> int:
     """The Pillow stroke width, in pixels, for ``outlineWidth`` at ``font_size``.
 
@@ -821,9 +842,11 @@ def _font_ascent_descent(font: _Font) -> tuple[int, int]:
 
 def _token_width(token: str, font: _Font, letter_spacing_px: float) -> float:
     """Token advance width including inter-character letter spacing (negative tightens)."""
+    features = basic_layout_features(font)
     if letter_spacing_px == 0 or len(token) <= 1:
-        return font.getlength(token)
-    return sum(font.getlength(ch) for ch in token) + letter_spacing_px * (len(token) - 1)
+        return font.getlength(token, features=features)
+    advances = sum(font.getlength(ch, features=features) for ch in token)
+    return advances + letter_spacing_px * (len(token) - 1)
 
 
 @dataclass(frozen=True)
@@ -858,6 +881,7 @@ def _draw_token_text(
     see-through coverage mask at the word's opacity.
     """
     x, y = xy
+    features = basic_layout_features(font)
     if letter_spacing_px == 0 or len(token) <= 1:
         canvas.text(
             (x, y),
@@ -867,15 +891,18 @@ def _draw_token_text(
             anchor="ls",
             stroke_width=stroke_width,
             stroke_fill=stroke_color,
+            features=features,
         )
         if glyphs is not None:
-            glyphs.draw.text((x, y), token, font=font, fill=glyphs.level, anchor="ls")
+            glyphs.draw.text(
+                (x, y), token, font=font, fill=glyphs.level, anchor="ls", features=features
+            )
         return
     origins: list[float] = []
     cursor = x
     for ch in token:
         origins.append(cursor)
-        cursor += font.getlength(ch) + letter_spacing_px
+        cursor += font.getlength(ch, features=features) + letter_spacing_px
     # Every letter's outline first, then every letter's fill — what one call on the whole word
     # (the untracked branch above) and the preview's stroke do. Drawn letter by letter, each
     # letter's outline painted over its left neighbour's fill wherever the two met: at a tight
@@ -891,11 +918,14 @@ def _draw_token_text(
                 anchor="ls",
                 stroke_width=stroke_width,
                 stroke_fill=outline,
+                features=features,
             )
     for origin, ch in zip(origins, token, strict=True):
-        canvas.text((origin, y), ch, font=font, fill=fill, anchor="ls")
+        canvas.text((origin, y), ch, font=font, fill=fill, anchor="ls", features=features)
         if glyphs is not None:
-            glyphs.draw.text((origin, y), ch, font=font, fill=glyphs.level, anchor="ls")
+            glyphs.draw.text(
+                (origin, y), ch, font=font, fill=glyphs.level, anchor="ls", features=features
+            )
 
 
 def _bare_token(token: str) -> str:
@@ -1370,7 +1400,7 @@ def _layout_styled_caption(
         resolved.font_weight,
         resolved.font_style == "italic",
     )
-    space_width = base_font.getlength(" ")
+    space_width = base_font.getlength(" ", features=basic_layout_features(base_font))
 
     pad_x = int(font_size * resolved.box_pad_x)
     pad_y = int(font_size * resolved.box_pad_y)

@@ -34,7 +34,7 @@ PLATFORM. Glyphs are measured with Pillow's BASIC layout on every machine, so th
 same wherever it is generated. The rasterizer uses whatever layout Pillow was built with: the
 macOS wheels the desktop ships draw with basic layout (the formula is exact to rounding there);
 Linux wheels carry libraqm; its ligatures and kerning are switched off for titles
-(``text_overlay._basic_features``) so it draws what basic layout draws — a monospaced face that
+(``captions.basic_layout_features``) so it draws what basic layout draws — a monospaced face that
 joins "fl" into one cell drew "fly" a third narrower, and Shrikhand's kerning drew it 4.5 % wider,
 past the 4 % margin the fit keeps on each side of the frame. The reference widths are the
 desktop's own, written by whoever regenerates the file; they are data for the TS test, not

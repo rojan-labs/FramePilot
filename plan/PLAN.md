@@ -237,6 +237,18 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   `test_black_brightest_channel.py`; `test_render_frame_accuracy` is back to pure blue. The
   agent's frame review uses the same rule: `temporal_evidence._frame_sample` computes `black_ratio`
   from the brightest channel ≤ 0.10, so review no longer calls a pure-blue card black.
+- [x] **AL27** Harness run 10: `professional_audio` refused `stale_context` (@43 vs @45) after an
+  `adjust_audio` in the SAME step. The interaction snapshot was rebased once per step
+  (`toolContext`), not after each call's edit. `advanceToolContext` re-stamps it wherever a call
+  advances the working project (streaming, non-streaming and repair loops); a selection whose
+  clips moved is still refused. Pinned in `interaction-rebase.test.ts` (fails without the fix
+  with the run's exact error).
+- [x] **AL28** Typed text drew differently on hosts whose Pillow finds libraqm (Linux CI):
+  `captions.py` measured and drew whole words with kerning and ligatures, while the tracked
+  per-letter path, the desktop (BASIC layout) and the AI fit do not. `basic_layout_features` (moved
+  from `text_overlay._basic_features`) now reaches every caption/title measure and draw. The 184
+  text-rendering tests pass under both layouts (`DYLD_LIBRARY_PATH=/opt/homebrew/lib` enables
+  raqm locally; before the fix it reproduced CI's two failures).
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68
