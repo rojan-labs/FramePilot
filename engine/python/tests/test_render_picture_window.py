@@ -26,6 +26,7 @@ from pydantic import TypeAdapter
 
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render import frame_grab as frame_grab_module
+from framepilot_engine.render import video_reader
 from framepilot_engine.render.compiler import compile_timeline
 from framepilot_engine.render.compiler import compile_timeline as compile_timeline_for_real
 from framepilot_engine.render.composition_cache import (
@@ -445,12 +446,12 @@ class TestWindowedFrameIsTheExportFrame:
 
 
 class _OpenedReaders:
-    """Every ``VideoFileClip``/``AudioFileClip`` the compiler opens, by file name."""
+    """Every video reader and ``AudioFileClip`` the compiler opens, by file name."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.video: list[tuple[str, dict[str, Any]]] = []
         self.audio: list[str] = []
-        real_video, real_audio = moviepy.VideoFileClip, moviepy.AudioFileClip
+        real_video, real_audio = video_reader.ProbedVideoFileClip, moviepy.AudioFileClip
 
         def video(path: str, *args: Any, **kwargs: Any) -> Any:
             self.video.append((Path(path).name, kwargs))
@@ -460,8 +461,8 @@ class _OpenedReaders:
             self.audio.append(Path(path).name)
             return real_audio(path, *args, **kwargs)
 
-        # `compile_timeline` imports both from `moviepy` when it runs, so the spies are seen.
-        monkeypatch.setattr(moviepy, "VideoFileClip", video)
+        # `compile_timeline` reads both when it runs, so the spies are seen.
+        monkeypatch.setattr(video_reader, "ProbedVideoFileClip", video)
         monkeypatch.setattr(moviepy, "AudioFileClip", audio)
 
     @property

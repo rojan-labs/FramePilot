@@ -1967,7 +1967,7 @@ def compile_timeline(
     builds no picture layer.
 
     ``decoder_threads`` caps each source reader's ffmpeg decoder threads
-    (:mod:`framepilot_engine.render.decoder_threads`); the preview and evidence composites pass
+    (:mod:`framepilot_engine.render.video_reader`); the preview and evidence composites pass
     ``PREVIEW_DECODER_THREADS``, the export leaves ffmpeg's default.
     """
     from moviepy import (
@@ -1975,8 +1975,9 @@ def compile_timeline(
         ColorClip,
         CompositeAudioClip,
         ImageClip,
-        VideoFileClip,
     )
+
+    from framepilot_engine.render import video_reader
 
     # MoviePy's composite, blending each transparent layer over only the pixels it covers:
     # the same pixels, without a full-frame blend per sticker (render/bounded_composite.py).
@@ -1984,7 +1985,11 @@ def compile_timeline(
 
     # A window composites a picture: its readers skip the audio probe and decoder that
     # `VideoFileClip` opens by default, which nothing downstream of a picture would read.
-    open_video: Any = VideoFileClip if window is None else partial(VideoFileClip, audio=False)
+    open_video: Any = (
+        video_reader.ProbedVideoFileClip
+        if window is None
+        else partial(video_reader.ProbedVideoFileClip, audio=False)
+    )
     target = (preset.width, preset.height)
     # Keyframed x/y are project pixels; a preset at another size converts them (frame_plan).
     project_size = (project.resolution.width, project.resolution.height)
@@ -2778,7 +2783,7 @@ def _draw_layer_on(frame: Any, picture: Any, mode: str | None, t: float) -> Any:
 
 #: ffmpeg decoder threads for the readers of a preview or evidence composite (frame grabs,
 #: sheet tiles, review windows, scopes, the whole-timeline preview); the export passes none and
-#: keeps ffmpeg's default. See :mod:`framepilot_engine.render.decoder_threads` for why, and for
+#: keeps ffmpeg's default. See :mod:`framepilot_engine.render.video_reader` for why, and for
 #: the measurements behind the value.
 PREVIEW_DECODER_THREADS = 4
 
@@ -2838,45 +2843,44 @@ def _even(value: float) -> int:
     return max(2, round(value / 2) * 2)
 
 
-def _open_moviepy_reader(
-    video_file_clip_cls: Any,
-    path: str,
+def decode_resolution(
+    stored: tuple[int, int],
+    rotation: int,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
     pixel_aspect_ratio: float = 1.0,
-) -> Any:
-    """MoviePy's reader at the decode size the export needs (see :func:`_open_source_reader`)."""
-    reader = video_file_clip_cls(path)
-    width, height = reader.size
+) -> tuple[int, int] | None:
+    """The size ffmpeg should decode a source at for the export, or ``None`` for its own.
+
+    :param stored: The source's upright frame size as MoviePy decodes it natively
+        (:func:`~framepilot_engine.render.video_reader.stored_size`).
+    :param rotation: Its rotation in degrees (``abs`` of the probe's); a quarter turn puts the
+        sample aspect ratio's stretch on the upright height.
+    See :func:`_open_source_reader` for the rest.
+    """
+    width, height = stored
     par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
     # The sample aspect ratio stretches STORAGE width. ffmpeg autorotates a quarter-turned
     # source and MoviePy swaps `size` first, so there the stretched axis is the upright height
     # (PX2.11: stretching the upright width squashed rotated anamorphic footage).
-    rotation = abs(int(getattr(getattr(reader, "reader", None), "rotation", 0) or 0))
     display = (width, height * par) if rotation in (90, 270) else (width * par, height)
     anamorphic = par != 1.0
     if fit_target is not None:
         exact = fitted_decode_size(display, fit_target)
         if exact is None and anamorphic:
             exact = (_even(display[0]), _even(display[1]))
-        if exact is not None:
-            reader.close()
-            return video_file_clip_cls(path, target_resolution=exact)
-        return reader
+        return exact
     longest = max(display)
     if max_decode_dimension is None or longest <= max_decode_dimension:
         if not anamorphic:
-            return reader
-        reader.close()
-        return video_file_clip_cls(path, target_resolution=(_even(display[0]), _even(display[1])))
+            return None
+        return (_even(display[0]), _even(display[1]))
     scale = max_decode_dimension / longest
-    target = (_even(display[0] * scale), _even(display[1] * scale))
-    reader.close()
-    return video_file_clip_cls(path, target_resolution=target)
+    return (_even(display[0] * scale), _even(display[1] * scale))
 
 
 def _open_source_reader(
-    video_file_clip_cls: Any,
+    open_video: Any,
     path: str,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
@@ -2897,26 +2901,40 @@ def _open_source_reader(
     sees square pixels. ffmpeg autorotates and MoviePy swaps the size, so for a quarter-turned
     source the stretch lands on the upright height (PX2.11).
 
+    The size is worked out from the source's probe, so the source is opened once, at that size,
+    and no frame is decoded until one is asked for (:mod:`~framepilot_engine.render.video_reader`;
+    AL38: it used to be opened twice, each open decoding a first frame with every core).
+
     A variable-frame-rate source (BR2.5) then reads frames by pts
     (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps
     MoviePy's reader, so its export is unchanged.
 
-    ``decoder_threads`` caps either reader's ffmpeg decoder threads (``None``: the default).
+    :param open_video: :class:`~framepilot_engine.render.video_reader.ProbedVideoFileClip`, or a
+        partial of it (a picture-only composite opens no sound).
+    :param decoder_threads: The reader's ffmpeg decoder threads (``None``: ffmpeg's default).
     """
-    clip = _open_moviepy_reader(
-        video_file_clip_cls, path, max_decode_dimension, fit_target, pixel_aspect_ratio
-    )
     from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 
-    from framepilot_engine.render.decoder_threads import cap_decoder_threads
+    from framepilot_engine.render.video_reader import probe_video, stored_size
 
+    infos = probe_video(path)
+    resolution = decode_resolution(
+        stored_size(infos),
+        abs(int(infos.get("video_rotation", 0) or 0)),
+        max_decode_dimension,
+        fit_target,
+        pixel_aspect_ratio,
+    )
+    clip = open_video(
+        path, infos=infos, target_resolution=resolution, decoder_threads=decoder_threads
+    )
     if not isinstance(getattr(clip, "reader", None), FFMPEG_VideoReader):
         return clip
     try:
         clip = use_pts_reader(clip, path, decoder_threads=decoder_threads)
     except (VideoTimingError, OSError) as exc:
         _log.warning("could not check %s for a variable frame rate: %s", Path(path).name, exc)
-    return cap_decoder_threads(clip, decoder_threads)
+    return clip
 
 
 def _resolve_clip_asset(clip: Clip, asset_index: AssetIndex) -> str:
