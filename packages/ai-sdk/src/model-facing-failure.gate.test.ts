@@ -64,6 +64,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  TEXT_OVERLAY_ASSET_ID,
   applyProjectPatch,
   buildAddStickerOps,
   type Operation,
@@ -71,6 +72,7 @@ import {
 } from '@framepilot/editor-core';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { makeProject } from './__fixtures__/project.js';
+import { SEPT_2026, UNTIL_NEXT_WEEKEND } from './__fixtures__/text-overlays.js';
 import { assembleEdit } from './assemble.js';
 import { critique } from './critic.js';
 import { createAnalysisBudget } from './kernel/cost/analysis-caps.js';
@@ -507,6 +509,42 @@ describe('every model-facing failure names a next action', () => {
     };
     dead.check('search_elements/no-stickers-here', found.note);
     dead.assertNone();
+  });
+
+  it('for the text-collision advisory the critic hands the model (AL41)', () => {
+    // Harness run 16's closing pair, the date drawn across the last line: the sentence the
+    // advisory fix turn reads, from a project that produces it.
+    const text = (id: string, params: Record<string, unknown>, start: number) => ({
+      id,
+      assetId: TEXT_OVERLAY_ASSET_ID,
+      trackId: 'text',
+      start,
+      end: 60,
+      sourceStart: 0,
+      sourceEnd: 60 - start,
+      effects: [{ id: `${id}_text`, type: 'text', params, keyframes: [] }],
+      keyframes: [],
+    });
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      timeline: {
+        tracks: [
+          {
+            id: 'text',
+            type: 'overlay',
+            clips: [text('until', UNTIL_NEXT_WEEKEND, 56), text('date', SEPT_2026, 57)],
+          },
+        ],
+      },
+    } as never);
+    const check = critique(project).checks.find((candidate) => candidate.id === 'text_collision')!;
+    expect(check.status).toBe('warn');
+    const dead = new DeadEnds();
+    dead.check('critic/text_collision', check.detail);
+    dead.assertNone();
+    // The label is the key a repeated finding is recognised by; the numbers stay in quotes.
+    expect(check.label).not.toMatch(/\d/);
+    expect(check.detail.replace(/"[^"]*"/g, '')).not.toMatch(/\d/);
   });
 
   it('names only tools that are actually registered in the sourcing tables', () => {

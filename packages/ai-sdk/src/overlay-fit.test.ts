@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { getTextOverlayStyle } from '@framepilot/timeline-schema/text-overlay-styles';
 import {
+  drawnTextRects,
   largestFittingSizePercent,
   overflowingWords,
   typedTitleDrawnWidthPx,
@@ -17,6 +18,13 @@ import {
   wordWidthEm,
 } from './overlay-fit.js';
 import { TITLE_REFERENCE_FRAME, TITLE_TYPED_REFERENCE_WIDTHS } from './title-metrics.generated.js';
+import {
+  GLASS_PILL,
+  SEPT_2026,
+  TRIP,
+  UNTIL_NEXT_WEEKEND,
+  WEEKEND,
+} from './__fixtures__/text-overlays.js';
 
 const LANDSCAPE = { width: 1920, height: 1080 };
 const VERTICAL = { width: 1080, height: 1920 };
@@ -263,5 +271,103 @@ describe('typed titles are measured as the caption rasterizer draws them', () =>
     expect(typedTitleOf({ lineHeight: 9 }, null)).toBeUndefined();
     // A typed title with no family is drawn in the editor's Inter.
     expect(typedTitleFont(undefined, typedTitleOf({}, null)!).fontFamily).toBe('Inter');
+  });
+});
+
+describe('drawnTextRects', () => {
+  // The engine's own layout of each overlay (`captions._layout_styled_caption` on the harness
+  // run 16 params, 1080x1920): lines, their widths, and the chip (block + padding each side).
+  const ENGINE = {
+    untilNextWeekend: { lines: [474, 429], chip: { width: 474 + 2 * 36, height: 335 + 2 * 36 } },
+    sept2026: { lines: [223.5], chip: { width: 223 + 2 * 10, height: 45 + 2 * 10 } },
+    glassPill: { lines: [748, 153], chip: { width: 748 + 2 * 35, height: 134 + 2 * 15 } },
+  };
+  const PX = 2;
+  // A weight between two measured ones reads at the heavier (Inter 600 at 700): a little wide.
+  const BUCKET = 0.015;
+  const near = (got: number, want: number): boolean => Math.abs(got - want) <= PX + BUCKET * want;
+
+  it('lays a typed title out as the caption rasterizer does: wrap, stack, chip', () => {
+    for (const [params, engine] of [
+      [UNTIL_NEXT_WEEKEND, ENGINE.untilNextWeekend],
+      [SEPT_2026, ENGINE.sept2026],
+      [GLASS_PILL, ENGINE.glassPill],
+    ] as const) {
+      const drawn = drawnTextRects(params, VERTICAL)!;
+      const lines = 'background' in params ? drawn.rects.slice(1) : drawn.rects;
+      expect(lines.map((line) => line.width)).toHaveLength(engine.lines.length);
+      lines.forEach((line, index) => {
+        expect(near(line.width, engine.lines[index]!), params.text).toBe(true);
+      });
+      expect(near(drawn.box.width, engine.chip.width), params.text).toBe(true);
+      expect(Math.abs(drawn.box.height - engine.chip.height), params.text).toBeLessThanOrEqual(PX);
+      // Centred on xPercent / yPercent, whatever the alignment inside it.
+      expect(drawn.box.x + drawn.box.width / 2).toBeCloseTo((params.xPercent / 100) * 1080, 6);
+      expect(drawn.box.y + drawn.box.height / 2).toBeCloseTo((params.yPercent / 100) * 1920, 6);
+    }
+  });
+
+  it('draws only the x-height band of each line, and the chip only where it is filled', () => {
+    const until = drawnTextRects(UNTIL_NEXT_WEEKEND, VERTICAL)!;
+    // No chip colour: two line bands, each well short of the 158 px line box it sits in.
+    expect(until.rects).toHaveLength(2);
+    for (const band of until.rects) expect(band.height).toBeLessThan(until.box.height / 2);
+    // Centred lines of different widths sit centred in the block.
+    expect(until.rects[1]!.x).toBeGreaterThan(until.rects[0]!.x);
+    // The glass pill's chip is filled, so all of it is drawn; its lines start at its left pad.
+    const pill = drawnTextRects(GLASS_PILL, VERTICAL)!;
+    expect(pill.rects[0]).toEqual(pill.box);
+    expect(pill.rects[1]!.x).toBeCloseTo(pill.rects[2]!.x, 6);
+  });
+
+  it('puts the date across the second line and the subtitle clear of the title', () => {
+    const until = drawnTextRects(UNTIL_NEXT_WEEKEND, VERTICAL)!.rects[1]!;
+    const date = drawnTextRects(SEPT_2026, VERTICAL)!.rects[0]!;
+    expect(date.y).toBeGreaterThan(until.y);
+    expect(date.y).toBeLessThan(until.y + until.height);
+    const weekend = drawnTextRects(WEEKEND, VERTICAL)!.rects[0]!;
+    const trip = drawnTextRects(TRIP, VERTICAL)!.rects[0]!;
+    expect(trip.y).toBeGreaterThan(weekend.y + weekend.height);
+  });
+
+  it('honours an authored line break in a typed title and ignores it in a plain one', () => {
+    const typed = drawnTextRects({ ...SEPT_2026, text: 'SEPT\n2026' }, VERTICAL)!;
+    expect(typed.rects).toHaveLength(2);
+    const plain = drawnTextRects(
+      { text: 'SEPT\n2026', fontSizePercent: 4, boxWidthPercent: 80 },
+      VERTICAL,
+    )!;
+    const plainOneLine = drawnTextRects(
+      { text: 'SEPT 2026', fontSizePercent: 4, boxWidthPercent: 80 },
+      VERTICAL,
+    )!;
+    expect(plain.box).toEqual(plainOneLine.box);
+  });
+
+  it('bounds a plain title by its inked width, padded only when a background fills it', () => {
+    const bare = drawnTextRects({ text: 'Hello there', fontSizePercent: 5 }, VERTICAL)!;
+    // One block, centred on the default 50 / 50, narrower than the default 80 % box.
+    expect(bare.rects).toEqual([bare.box]);
+    expect(bare.box.x + bare.box.width / 2).toBeCloseTo(540, 6);
+    expect(bare.box.width).toBeLessThan(0.8 * 1080);
+    const filled = drawnTextRects(
+      { text: 'Hello there', fontSizePercent: 5, background: '#000000' },
+      VERTICAL,
+    )!;
+    expect(filled.box.width).toBeGreaterThan(bare.box.width);
+    // A narrow box wraps it onto two lines: taller, no wider than the widest word.
+    const wrapped = drawnTextRects(
+      { text: 'Hello there', fontSizePercent: 5, boxWidthPercent: 20 },
+      VERTICAL,
+    )!;
+    expect(wrapped.box.height).toBeGreaterThan(bare.box.height);
+    expect(wrapped.box.width).toBeLessThan(bare.box.width);
+  });
+
+  it('has no opinion without words or a frame', () => {
+    expect(drawnTextRects({ text: '' }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: '   ' }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: 42 }, VERTICAL)).toBeUndefined();
+    expect(drawnTextRects({ text: 'Hi' }, { width: 0, height: 1920 })).toBeUndefined();
   });
 });

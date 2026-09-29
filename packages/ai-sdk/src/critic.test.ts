@@ -22,6 +22,13 @@ import {
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
+import {
+  GLASS_PILL,
+  SEPT_2026,
+  TRIP,
+  UNTIL_NEXT_WEEKEND,
+  WEEKEND,
+} from './__fixtures__/text-overlays.js';
 
 const clip = (over: Record<string, unknown>) => ({
   assetId: 'asset_1',
@@ -399,6 +406,8 @@ describe('critique — shape', () => {
       'hidden_picture',
       'caption_alignment',
       'safe_area',
+      // AL41: two text overlays on screen together drawing over each other.
+      'text_collision',
       'audio_clipping',
       'black_frames',
       'missing_assets',
@@ -2095,5 +2104,168 @@ describe('tracker_motion — a tracker with no keyframes follows nothing', () =>
     expect(idOf(critique(makeProject(), {}), 'tracker_motion')).toMatchObject({
       status: 'skipped',
     });
+  });
+});
+
+describe('text collision (AL41)', () => {
+  /** A text overlay clip on track `track`, on screen `start`–`end`. */
+  const overlay = (
+    id: string,
+    params: Record<string, unknown>,
+    start: number,
+    end: number,
+    over: Record<string, unknown> = {},
+  ) =>
+    clip({
+      id,
+      assetId: TEXT_OVERLAY_ASSET_ID,
+      start,
+      end,
+      sourceEnd: end - start,
+      effects: [{ id: `${id}_text`, type: 'text', params, keyframes: [] }],
+      ...over,
+    });
+  /** A 1080x1920 project over a picture track, the overlays split across two text tracks. */
+  const vertical = (
+    first: readonly ReturnType<typeof overlay>[],
+    second: readonly ReturnType<typeof overlay>[] = [],
+    secondHidden = false,
+  ): Project =>
+    withTracks(
+      [
+        { id: 'v', type: 'video', clips: [clip({ id: 'pic', end: 60, sourceEnd: 60 })] },
+        { id: 'text1', type: 'overlay', clips: first },
+        { id: 'text2', type: 'overlay', clips: second, ...(secondHidden ? { hidden: true } : {}) },
+      ],
+      { resolution: { width: 1080, height: 1920 } },
+    );
+  const collision = (project: Project) => idOf(critique(project), 'text_collision')!;
+
+  it("warns on harness run 16's date drawn across the closing line, naming both and the fix", () => {
+    const report = collision(
+      vertical(
+        [overlay('text__text1_56680', UNTIL_NEXT_WEEKEND, 56.666666666666664, 59.96666666666667)],
+        [overlay('text__layer_overlay_5_57144', SEPT_2026, 57.13333333333333, 59.96666666666667)],
+      ),
+    );
+    expect(report.status).toBe('warn');
+    expect(report.label).toBe('Text overlays clear of each other');
+    expect(report.detail).toContain('"text__text1_56680" ("Until next weekend.")');
+    expect(report.detail).toContain('"text__layer_overlay_5_57144" ("SEPT 2026")');
+    // The moment they share the screen, and every remedy by the tool that makes it.
+    expect(report.detail).toContain('"57.133s–59.967s"');
+    for (const tool of ['set_text_style', 'yPercent', 'trim_clip', 'delete_clip']) {
+      expect(report.detail).toContain(tool);
+    }
+    // Numbers only inside quotes: the sentence around them is the same for every pair.
+    expect(report.detail.replace(/"[^"]*"/g, '')).not.toMatch(/\d/);
+  });
+
+  it('passes a stacked title and subtitle that sit clear of each other', () => {
+    // The same run's opener: "TRIP" tucked under "Weekend", inside its line box but below
+    // every letter of it (there are no descenders in "Weekend").
+    const report = collision(
+      vertical(
+        [overlay('text__text1_467', WEEKEND, 0.4666666666666667, 3.3)],
+        [overlay('text__layer_overlay_5_929', TRIP, 0.9333333333333333, 3.3)],
+      ),
+    );
+    expect(report.status).toBe('pass');
+  });
+
+  it('passes the colliding pair when they never share the screen', () => {
+    const report = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 50, 53)],
+        [overlay('date', SEPT_2026, 53, 56)],
+      ),
+    );
+    // Back to back at a cut is not together: they meet at 53 s and never overlap.
+    expect(report.status).toBe('pass');
+  });
+
+  it('does not count a shared sliver shorter than a frame', () => {
+    const report = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 50, 53.01)],
+        [overlay('date', SEPT_2026, 53, 56)],
+      ),
+    );
+    expect(report.status).toBe('pass');
+  });
+
+  it('judges a filled chip edge to edge, and plain titles by their block', () => {
+    // The date at the pill's height, left of centre: it lands on the chip, not on its words.
+    const onChip = collision(
+      vertical(
+        [overlay('pill', GLASS_PILL, 0, 3)],
+        [overlay('date', { ...SEPT_2026, xPercent: 20, yPercent: 78 }, 0, 3)],
+      ),
+    );
+    expect(onChip.status).toBe('warn');
+    // Two plain titles (no typography) centred on the same point.
+    const plain = { text: 'BIG NEWS', fontSizePercent: 6 };
+    const plainPair = collision(
+      vertical([overlay('a', plain, 0, 3)], [overlay('b', { ...plain, text: 'today' }, 1, 4)]),
+    );
+    expect(plainPair.status).toBe('warn');
+    expect(plainPair.detail).toContain('"1s–3s"');
+    // The same two, one moved well clear.
+    const apart = collision(
+      vertical(
+        [overlay('a', plain, 0, 3)],
+        [overlay('b', { ...plain, text: 'today', yPercent: 80 }, 1, 4)],
+      ),
+    );
+    expect(apart.status).toBe('pass');
+  });
+
+  it('leaves out overlays that are hidden or moved by keyframes', () => {
+    const hidden = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [overlay('date', SEPT_2026, 57, 60)],
+        true,
+      ),
+    );
+    expect(hidden.status).toBe('skipped');
+    // A keyframed position is somewhere else every frame; its params are not where it is.
+    const moving = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [
+          overlay('date', SEPT_2026, 57, 60, {
+            keyframes: [{ id: 'k', time: 0, property: 'y', value: 400, easing: 'linear' }],
+          }),
+        ],
+      ),
+    );
+    expect(moving.status).toBe('skipped');
+    // A fade does not move it: still compared, still colliding.
+    const fading = collision(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [
+          overlay('date', SEPT_2026, 57, 60, {
+            keyframes: [{ id: 'k', time: 0, property: 'opacity', value: 0, easing: 'linear' }],
+          }),
+        ],
+      ),
+    );
+    expect(fading.status).toBe('warn');
+  });
+
+  it('skips with fewer than two overlays, and never fails the review', () => {
+    expect(collision(vertical([overlay('one', SEPT_2026, 0, 3)])).status).toBe('skipped');
+    const report = critique(
+      vertical(
+        [overlay('until', UNTIL_NEXT_WEEKEND, 56, 60)],
+        [overlay('date', SEPT_2026, 57, 60)],
+      ),
+    );
+    expect(report.checks.find((c) => c.id === 'text_collision')!.status).toBe('warn');
+    expect(report.checks.filter((c) => c.status === 'fail').map((c) => c.id)).not.toContain(
+      'text_collision',
+    );
   });
 });

@@ -42,7 +42,7 @@ import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js'
 import type { TemporalReviewReport } from './temporal-review.js';
 import { backedByFullFramePicture, hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
-import { overflowingWords } from './overlay-fit.js';
+import { drawnTextRects, overflowingWords, type PixelRect } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
 
 // The detector lives in its own module so the context builder can share it without
@@ -64,6 +64,8 @@ export type CheckId =
   | 'reframe_coverage'
   | 'caption_alignment'
   | 'safe_area'
+  /** No two text overlays on screen together draw over each other (AL41). */
+  | 'text_collision'
   | 'audio_clipping'
   | 'black_frames'
   | 'temporal_evidence'
@@ -1277,6 +1279,134 @@ function checkSafeArea(
     'Overlays in safe area',
     'pass',
     `${positioned} positioned overlay(s)/caption(s) are inside the safe area.`,
+  );
+}
+
+/**
+ * How far two overlays' drawn text must run into each other, in em of the SMALLER text, before
+ * it is reported. The widths are summed advances (no kerning) and every size, stroke and
+ * baseline is rounded to a whole pixel, so the geometry moves by a pixel or two; a tenth of the
+ * smaller size is past that, and far short of the overlap a viewer would call two lines
+ * running into each other.
+ */
+const TEXT_COLLISION_TOLERANCE_EM = 0.1;
+/** Keyframed properties that leave an overlay where its params put it. */
+const PLACEMENT_NEUTRAL_KEYFRAMES: ReadonlySet<string> = new Set(['opacity']);
+/** How much of an overlay's words its finding quotes: enough to recognise it. */
+const QUOTED_TEXT_CHARS = 40;
+
+/** A text overlay on a visible track, placed by its params, and what it draws. */
+interface PlacedText {
+  readonly clip: Clip;
+  readonly text: string;
+  readonly rects: readonly PixelRect[];
+  readonly fontPx: number;
+}
+
+/**
+ * Every text overlay whose drawn geometry its params decide: on a visible track, with words,
+ * and not moved or scaled by keyframes (an animated overlay is somewhere else at every frame,
+ * and its static params are not where it is).
+ */
+function placedTexts(project: Project): PlacedText[] {
+  const placed: PlacedText[] = [];
+  for (const track of project.timeline.tracks) {
+    if (track.hidden === true) continue;
+    for (const clip of track.clips) {
+      if (syntheticClipKind(clip.assetId) !== 'text') continue;
+      const effect = clip.effects.find((candidate) => candidate.type === 'text');
+      if (effect === undefined || typeof effect.params.text !== 'string') continue;
+      const animated = [...clip.keyframes, ...effect.keyframes].some(
+        (keyframe) => !PLACEMENT_NEUTRAL_KEYFRAMES.has(keyframe.property),
+      );
+      if (animated) continue;
+      const drawn = drawnTextRects(effect.params, project.resolution);
+      if (drawn === undefined) continue;
+      placed.push({ clip, text: effect.params.text, ...drawn });
+    }
+  }
+  return placed;
+}
+
+/** Whether any of `a`'s rectangles runs into any of `b`'s by more than `tolerance` each way. */
+function drawnRectsCollide(
+  a: readonly PixelRect[],
+  b: readonly PixelRect[],
+  tolerance: number,
+): boolean {
+  return a.some((one) =>
+    b.some((other) => {
+      const across = Math.min(one.x + one.width, other.x + other.width) - Math.max(one.x, other.x);
+      const down = Math.min(one.y + one.height, other.y + other.height) - Math.max(one.y, other.y);
+      return across > tolerance && down > tolerance;
+    }),
+  );
+}
+
+/** An overlay's words as a finding quotes them: one line, cut short. */
+function quotedText(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return JSON.stringify(
+    flat.length > QUOTED_TEXT_CHARS ? `${flat.slice(0, QUOTED_TEXT_CHARS - 1)}…` : flat,
+  );
+}
+
+/**
+ * Two text overlays on screen at the same moment must not draw over each other (AL41).
+ *
+ * Harness run 16 closed on "Until next weekend." — two italic lines centred at 42 % — with
+ * "SEPT 2026" at 48 % for the same three seconds, and the date drew straight across the second
+ * line. Nothing checked it: `safe_area` judges each overlay against the frame, and the
+ * elements checks only stickers and shapes. So each overlay's drawn text is laid out as the
+ * export lays it out (`overlay-fit.ts` `drawnTextRects`: wrapped, stacked, centred on its
+ * xPercent/yPercent) and any two that share the screen for a frame or more are compared.
+ *
+ * Each line is judged by the band its letters certainly ink (baseline to x-height), not by
+ * its whole line box, so a subtitle tucked under a title's descender room — the same run's
+ * "Weekend" over "TRIP" — is not reported: nothing is drawn there.
+ *
+ * A warning: two overlays placed together on purpose (a date stamped over a word) are the
+ * editor's to keep. Captions are not compared: a caption's place is its track style's.
+ */
+function checkTextCollision(project: Project, fps: number): CriticCheck {
+  const label = 'Text overlays clear of each other';
+  const texts = placedTexts(project);
+  if (texts.length < 2) {
+    return check('text_collision', label, 'skipped', 'Fewer than two placed text overlays.');
+  }
+  const frame = 1 / fps;
+  const findings: string[] = [];
+  texts.forEach((one, index) => {
+    for (const other of texts.slice(index + 1)) {
+      const from = Math.max(one.clip.start, other.clip.start);
+      const to = Math.min(one.clip.end, other.clip.end);
+      // Less than a frame together is two overlays meeting at a cut, not sharing the screen.
+      if (to - from < frame - 1e-9) continue;
+      const tolerance = TEXT_COLLISION_TOLERANCE_EM * Math.min(one.fontPx, other.fontPx);
+      if (!drawnRectsCollide(one.rects, other.rects, tolerance)) continue;
+      findings.push(
+        `"${one.clip.id}" (${quotedText(one.text)}) and "${other.clip.id}" ` +
+          `(${quotedText(other.text)}) draw over each other while both are on screen ` +
+          `("${round(from)}s–${round(to)}s")`,
+      );
+    }
+  });
+  if (findings.length === 0) {
+    return check(
+      'text_collision',
+      label,
+      'pass',
+      'No two text overlays on screen together draw over each other.',
+    );
+  }
+  return check(
+    'text_collision',
+    label,
+    'warn',
+    `${findings.join('; ')}. Overlapping words cannot be read. Move one clear of the other ` +
+      'with set_text_style (a yPercent above or below the other’s lines), shorten one with ' +
+      'trim_clip so they no longer share the screen, or put both on one overlay: set_text_style ' +
+      'the words of both, a line break between them, and delete_clip the other.',
   );
 }
 
@@ -2646,6 +2776,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkHiddenPicture(project),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline, project.resolution),
+    checkTextCollision(project, fps),
     checkAudioClipping(options),
     checkBlackFrames(options),
     ...(options.temporal === undefined ? [] : [checkTemporalEvidence(options)]),

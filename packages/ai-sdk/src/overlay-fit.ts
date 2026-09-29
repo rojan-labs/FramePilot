@@ -44,12 +44,17 @@
  * rasterizer lays it out (`typedTitleWidthsPx`; `tests/test_title_metrics.py` pins it).
  */
 
-import { parseTextOverlayTypography } from '@framepilot/timeline-schema/text-overlay-styles';
+import {
+  DEFAULT_TEXT_BOX_WIDTH_PERCENT,
+  parseTextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   TITLE_FACES,
+  TITLE_FACE_LINES,
   TITLE_GLYPHS,
   TITLE_GLYPH_TABLES,
   TITLE_ITALIC_FACES,
+  TITLE_ITALIC_FACE_LINES,
   TITLE_WEIGHT_BUCKETS,
 } from './title-metrics.generated.js';
 
@@ -517,4 +522,262 @@ function overflowingTypedWords(
     });
   }
   return over.sort((a, b) => b.requiredBoxWidthPercent - a.requiredBoxWidthPercent);
+}
+
+// --------------------------------------------------------------------------- drawn geometry
+
+/** A rectangle in frame pixels, origin top-left. */
+export interface PixelRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The params {@link drawnTextRects} reads: the fit's, plus where and how the text is set. */
+export interface TextBoxInput extends OverlayFitInput {
+  /** The box CENTRE, percent of the frame width (both renderers default to 50). */
+  readonly xPercent?: unknown;
+  /** The box CENTRE, percent of the frame height (both renderers default to 50). */
+  readonly yPercent?: unknown;
+  readonly align?: unknown;
+  /** Legacy pixel size, honoured by the export when `fontSizePercent` is absent. */
+  readonly fontSize?: unknown;
+}
+
+/** What {@link drawnTextRects} says is certainly drawn, in frame pixels. */
+export interface DrawnText {
+  /**
+   * One rectangle per line of a typed title — the line's width by its x-height band, stroke
+   * included — plus the chip where one is filled; one rectangle for a plain title's block.
+   */
+  readonly rects: readonly PixelRect[];
+  /**
+   * The whole box the text is set in: a typed title's chip (its lines and padding, drawn only
+   * where the chip is filled), a plain title's block as {@link rects} bounds it.
+   */
+  readonly box: PixelRect;
+  /** The pixel size the text is drawn at: what a tolerance in em is relative to. */
+  readonly fontPx: number;
+}
+
+/** A plain title's size when it names none: `text_overlay._font_size_for`. */
+const PLAIN_DEFAULT_SIZE_FRACTION = 1 / 14;
+/** A typed title's size when it names none: the web editor's default, `_with_editor_defaults`. */
+const TYPED_DEFAULT_SIZE_PERCENT = 8;
+/** The caption rasterizer's chip padding when no chip names its own (`_resolve_style`). */
+const DEFAULT_CHIP_PADDING_Y_EM = 0.35;
+/** A plain title's stroke is a twelfth of its size, at least a pixel (`render_text_overlay_image`). */
+const PLAIN_STROKE_DIVISOR = 12;
+/** The gap between lines when no `lineHeight` says otherwise: a sixth of the size, both paths. */
+const DEFAULT_LINE_GAP_DIVISOR = 6;
+
+/** `[ascent, descent, xHeight]` in 1/1000 em of the face `font` is drawn from. */
+function faceLines(font: TitleFont | undefined): readonly [number, number, number] {
+  const family = font?.fontFamily ?? '';
+  const known = font?.fontStyle === 'italic' ? TITLE_ITALIC_FACE_LINES[family] : undefined;
+  return known ?? TITLE_FACE_LINES[family] ?? TITLE_FACE_LINES['']!;
+}
+
+/** The pixel size the export draws `input` at (`text_overlay_style`, or the editor default). */
+function drawnFontPx(input: TextBoxInput, height: number, typed: boolean): number {
+  const percent = positive(input.fontSizePercent);
+  if (percent !== undefined) return titleFontPx(percent, height);
+  const legacy = positive(input.fontSize);
+  if (legacy !== undefined) return Math.floor(legacy);
+  return typed
+    ? titleFontPx(TYPED_DEFAULT_SIZE_PERCENT, height)
+    : Math.max(MIN_TITLE_FONT_PX, Math.floor(height * PLAIN_DEFAULT_SIZE_FRACTION));
+}
+
+/** The sum of the advances of `text` at `fontPx`, tracked by `spacingPx` after every glyph. */
+function advancePx(
+  text: string,
+  fontPx: number,
+  font: TitleFont | undefined,
+  spacingPx = 0,
+): number {
+  const row = rowOrDefault(font);
+  let total = 0;
+  for (const ch of text) {
+    const index = GLYPH_INDEX.get(ch);
+    // A report: an unknown glyph is charged the narrow estimate (see UNKNOWN_ADVANCE_EM).
+    total +=
+      (index === undefined ? UNKNOWN_ADVANCE_EM : row[index]![0] / 1000) * fontPx + spacingPx;
+  }
+  return total;
+}
+
+/**
+ * Greedy wrap, as `wrap_lines` / `_wrap_plans` do: a word joins the line while the line stays
+ * inside `maxPx`, and a word wider than that takes a line of its own. `breaks` are the author's
+ * `\n` lines, each wrapped on its own. Returns each line's width in pixels.
+ */
+function wrapWidthsPx(
+  authoredLines: readonly string[],
+  maxPx: number,
+  wordPx: (word: string) => number,
+  spacePx: number,
+): number[] {
+  const widths: number[] = [];
+  for (const authored of authoredLines) {
+    let current: number | undefined;
+    for (const word of authored.split(/\s+/).filter((w) => w.length > 0)) {
+      const width = wordPx(word);
+      if (current === undefined) current = width;
+      else if (current + spacePx + width > maxPx) {
+        widths.push(current);
+        current = width;
+      } else current += spacePx + width;
+    }
+    if (current !== undefined) widths.push(current);
+  }
+  return widths;
+}
+
+const percentOr = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+/**
+ * What a `text` effect certainly draws on the frame, in pixels — the geometry the critic's
+ * `text_collision` check compares two overlays by.
+ *
+ * Laid out the way the export lays it out, both paths centred on `xPercent`/`yPercent`:
+ *
+ * - A typed title (a `typography` that validates) goes through the caption rasterizer: words
+ *   tracked and wrapped inside the box less the chip padding, lines stacked at the face's
+ *   ascent + descent + stroke with a sixth-of-a-size gap (or `lineHeight`), the chip padded
+ *   `paddingY` above and below. Each line's rectangle spans its tracked width across its x-height
+ *   band (baseline up to the top of an "x", stroke included): every line of letters inks at
+ *   least that, and neither the ascender room nor the descender room of a line is drawn unless
+ *   a letter reaches into it. A filled chip is drawn edge to edge, so it is a rectangle too.
+ * - A plain title is drawn tight to its ink (`render_text_overlay_image`), and its line height is
+ *   the ink's, which the table does not carry: its block is the widest line's inked width by
+ *   `lines × (x-height + stroke)` plus the gaps, centred — inside the raster whatever the letters
+ *   are, and mostly ink. With a background colour, the raster is filled, padding and all.
+ *
+ * Every estimate here errs SMALL, like the rest of this module's reports: a collision it names
+ * is on screen; one it misses is the cost of not crying wolf.
+ *
+ * @param input - The `text` effect's params.
+ * @param resolution - The project's frame size in pixels.
+ * @returns The drawn rectangles, or `undefined` when there is no text or no frame.
+ */
+export function drawnTextRects(
+  input: TextBoxInput,
+  resolution: { readonly width: number; readonly height: number },
+): DrawnText | undefined {
+  const text = typeof input.text === 'string' ? input.text : undefined;
+  const width = positive(resolution.width);
+  const height = positive(resolution.height);
+  if (!text || text.trim() === '' || width === undefined || height === undefined) return undefined;
+  const centre = {
+    x: (width * percentOr(input.xPercent, 50)) / 100,
+    y: (height * percentOr(input.yPercent, 50)) / 100,
+  };
+  const boxPercent = percentOr(input.boxWidthPercent, DEFAULT_TEXT_BOX_WIDTH_PERCENT);
+  const typed = typedTitleOf(input.typography, input.background);
+  return typed === undefined
+    ? plainTextRects(text, input, { width, height }, centre, boxPercent)
+    : typedTextRects(text, input, typed, { width, height }, centre, boxPercent);
+}
+
+const chipFilled = (background: unknown): boolean =>
+  typeof background === 'string' && background.trim() !== '';
+
+function typedTextRects(
+  text: string,
+  input: TextBoxInput,
+  typed: TypedTitle,
+  frame: { readonly width: number; readonly height: number },
+  centre: { readonly x: number; readonly y: number },
+  boxPercent: number,
+): DrawnText {
+  const typography = parseTextOverlayTypography(input.typography);
+  const fontPx = drawnFontPx(input, frame.height, true);
+  const font = typedTitleFont(fontOf(input), typed);
+  const spacingPx = Math.max(MIN_TRACKING_EM, typed.letterSpacing) * fontPx;
+  const filled = chipFilled(input.background);
+  const padX = Math.floor(fontPx * typed.paddingX);
+  const padY = Math.floor(
+    fontPx * ((filled ? typography?.background?.paddingY : undefined) ?? DEFAULT_CHIP_PADDING_Y_EM),
+  );
+  const stroke =
+    typed.outlineWidth <= 0
+      ? 0
+      : Math.max(1, Math.round((typed.outlineWidth * fontPx) / OUTLINE_UNITS_PER_EM));
+  const lineHeight = typography?.lineHeight;
+  const gap =
+    lineHeight === undefined
+      ? Math.max(1, Math.floor(fontPx / DEFAULT_LINE_GAP_DIVISOR))
+      : Math.max(0, Math.floor(fontPx * (lineHeight - 1)));
+  const maxTextPx = Math.max(fontPx, typedBoxPx(boxPercent, frame.width) - 2 * padX);
+  const lineWidths = wrapWidthsPx(
+    inTypedCase(text, input.typography).split('\n'),
+    maxTextPx,
+    (word) => advancePx(word, fontPx, font, spacingPx),
+    advancePx(' ', fontPx, font, spacingPx),
+  );
+  const [ascentEm, descentEm, xHeightEm] = faceLines(font);
+  const ascent = Math.ceil((ascentEm * fontPx) / 1000);
+  const descent = Math.ceil((descentEm * fontPx) / 1000);
+  const xHeight = Math.floor((xHeightEm * fontPx) / 1000);
+  const linePx = ascent + descent + 2 * stroke;
+  const blockW = Math.floor(Math.max(0, ...lineWidths));
+  const blockH = lineWidths.length * linePx + gap * Math.max(0, lineWidths.length - 1);
+  const chip = {
+    x: centre.x - (blockW + 2 * padX) / 2,
+    y: centre.y - (blockH + 2 * padY) / 2,
+    width: blockW + 2 * padX,
+    height: blockH + 2 * padY,
+  };
+  const align = input.align === 'left' || input.align === 'right' ? input.align : 'center';
+  const rects: PixelRect[] = lineWidths.map((lineWidth, index) => {
+    const slack = blockW - lineWidth;
+    const offset = align === 'left' ? 0 : align === 'right' ? slack : slack / 2;
+    const baseline = chip.y + padY + index * (linePx + gap) + ascent + stroke;
+    return {
+      x: chip.x + padX + offset,
+      y: baseline - xHeight - stroke,
+      width: lineWidth,
+      height: xHeight + 2 * stroke,
+    };
+  });
+  return { rects: filled ? [chip, ...rects] : rects, box: chip, fontPx };
+}
+
+function plainTextRects(
+  text: string,
+  input: TextBoxInput,
+  frame: { readonly width: number; readonly height: number },
+  centre: { readonly x: number; readonly y: number },
+  boxPercent: number,
+): DrawnText {
+  const fontPx = drawnFontPx(input, frame.height, false);
+  const font = fontOf(input);
+  const boxPx = Math.max(
+    1,
+    Math.floor((frame.width * Math.min(Math.max(boxPercent, 1), 100)) / 100),
+  );
+  const stroke = Math.max(1, Math.floor(fontPx / PLAIN_STROKE_DIVISOR));
+  // `render_text_overlay_image` wraps `text.split()`: an authored newline is only whitespace here.
+  const lineWidths = wrapWidthsPx(
+    [text],
+    boxPx,
+    (word) => advancePx(word, fontPx, font),
+    advancePx(' ', fontPx, font),
+  );
+  const xHeight = Math.floor((faceLines(font)[2] * fontPx) / 1000);
+  const gap = Math.max(1, Math.floor(fontPx / DEFAULT_LINE_GAP_DIVISOR));
+  const blockW = Math.max(...lineWidths) + 2 * stroke;
+  const blockH = lineWidths.length * (xHeight + 2 * stroke) + gap * (lineWidths.length - 1);
+  // The raster's padding is two strokes each side; filled by a background colour.
+  const pad = chipFilled(input.background) ? 2 * stroke : 0;
+  const box = {
+    x: centre.x - blockW / 2 - pad,
+    y: centre.y - blockH / 2 - pad,
+    width: blockW + 2 * pad,
+    height: blockH + 2 * pad,
+  };
+  return { rects: [box], box, fontPx };
 }
