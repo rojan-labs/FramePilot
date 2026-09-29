@@ -77,6 +77,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An old answer no longer overrides a new brief.** An answer you gave the assistant once ("imitate
+  it in the default face") was stored with the assistant's question, which described what the
+  tools could do that day, and a note to follow it on every later turn. A later brief naming
+  Playfair and Inter still came out in the default face. A remembered answer now settles only
+  the question it answered; a new request that asks for something else wins.
+- **The assistant looks for each sound you name.** It said the library had no door, keys or
+  footsteps sounds without ever searching for them. It now searches each named sound before
+  saying there is no match.
 - **The assistant no longer blocks layered looks on a preview limit that is gone.** A run
   refused a brief's split screen, its title behind a ridge and its mask reveal, and reported
   that its shots broke the 115% scale limit "because the preview can't composite" a blurred

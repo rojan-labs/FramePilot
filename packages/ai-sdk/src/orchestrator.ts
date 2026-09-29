@@ -5168,9 +5168,17 @@ export class Orchestrator {
       // next run asks again — or worse, proceeds on its own guess: in the captured session
       // the editor chose the vertical framing in answer to this very question, and the
       // following run rebuilt the montage with no crop at all.
+      //
+      // The question is the ASSISTANT's words, and describes the tools as they were then —
+      // desktop run 88c8b27d read a stored "text overlays can't take a font family" (true on
+      // 2026-09-28, false a day later) as the editor's decision, and set a brief that named
+      // Playfair and Inter in the default face. Only the answer is the editor's, and it
+      // settles that question, not the next request.
       host.rememberDecision?.({
-        title: `The editor answered: ${parsed.question}`,
-        body: `They said: ${answerText}. Follow this on later turns unless they change it.`,
+        title: `The assistant asked: ${parsed.question}`,
+        body:
+          `The editor answered: ${answerText}. That settles this question until they say ` +
+          'otherwise; a later request that asks for something else is them changing it.',
       });
       return {
         ops: [],

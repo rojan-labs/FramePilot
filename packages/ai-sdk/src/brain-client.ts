@@ -285,7 +285,15 @@ const DIGEST_SECTIONS: readonly {
 }[] = [
   // Corrections lead: the costliest mistake is repeating one the user already rejected.
   { key: 'corrections', heading: 'Edits this user rejected before (do not repeat these)' },
-  { key: 'decisions', heading: 'Edits this user accepted before' },
+  // Scoped where the model reads it: a stored decision carries the assistant's question in
+  // the words (and the tools) of its day, and without this an old answer about title fonts
+  // outranked a brief that named the fonts (desktop run 88c8b27d).
+  {
+    key: 'decisions',
+    heading:
+      'Edits and choices this user accepted before (each answers only the question asked ' +
+      'then, with the tools of that day; the current request outranks them)',
+  },
   { key: 'soul', heading: "This user's working style, across projects" },
   { key: 'sessionNote', heading: 'Last session' },
   { key: 'binSummary', heading: 'Media bin' },

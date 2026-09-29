@@ -58,7 +58,8 @@ Dialogue is the reference. Music and ambience earn level only after every word r
 - Sound effects come from the same library as music: `search_music` with the effect's name
   ("whoosh", "camera shutter", "waves") returns effects too, and `add_music` with `atSeconds`
   places one at its moment for its own short length on its own track. Keep effects under the
-  music (`adjust_audio`), and say which requested sounds the library had no match for.
+  music (`adjust_audio`). Search each sound the request names (a door, keys, footsteps): a
+  sound has no match only once its own search came back with nothing usable — say which.
 
 ## Sourcing a bed the project does not have
 

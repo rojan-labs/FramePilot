@@ -328,6 +328,12 @@ describe('summarizeSessionContext', () => {
     expect(digest).toContain('media/a.mp4');
   });
 
+  it('says a remembered decision answers only its own question', () => {
+    // A stored decision carries the assistant's question in the words and tools of its day.
+    const digest = summarizeSessionContext(sessionContext());
+    expect(digest).toContain('the current request outranks them');
+  });
+
   it('leads with what the user rejected — the costliest thing to repeat', () => {
     const digest = summarizeSessionContext(sessionContext());
     expect(digest.indexOf('rejected')).toBeLessThan(digest.indexOf('accepted'));

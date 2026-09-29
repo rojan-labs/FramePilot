@@ -357,6 +357,15 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   unblurred, band rows 219–420 = the 0.5625 fit; each third its own shot). Skills
   (`vertical-reframe` blurred-fill recipe, `broll-and-layering` PiP/split) and goldens regenerated.
   Not measured: a live agent run on the brief.
+- [x] **AL35** Desktop run 88c8b27d set a brief that named Playfair/Inter/Caveat in the default
+  face "as you chose before": the stored ask_user decision's TITLE was the assistant's question
+  ("text overlays can't take a font family", false since ADR 0194) and its body said "Follow this
+  on later turns unless they change it". The writer now stores "The assistant asked: …" / "The
+  editor answered: …; that settles this question … a later request that asks for something else
+  is them changing it", and the digest heading and `session_context` scope every remembered
+  decision (covers entries already on disk). The same run said the library had no door/keys/
+  footsteps sounds without searching them: `audio-polish` now says a sound has no match only once
+  its own search came back empty.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer

@@ -570,8 +570,13 @@ describe('streamChat tool use (E5.5) — the question route can look up and ask'
       { kind: 'answered', answer: 'Full-bleed vertical crop' },
     );
     expect(remembered).toHaveLength(1);
-    expect(remembered[0]!.title).toContain(question.question);
-    expect(remembered[0]!.body).toContain('Full-bleed vertical crop');
+    // The question is the assistant's words; only the answer is the editor's, and it settles
+    // that question — not the next request (desktop run 88c8b27d kept an old font answer over
+    // a brief that named the fonts, because the stored note said "follow this on later turns").
+    expect(remembered[0]!.title).toBe(`The assistant asked: ${question.question}`);
+    expect(remembered[0]!.body).toContain('The editor answered: Full-bleed vertical crop');
+    expect(remembered[0]!.body).toContain('a later request that asks for something else');
+    expect(remembered[0]!.body).not.toContain('Follow this on later turns');
   });
 
   it('records nothing when the editor dismisses the question', async () => {

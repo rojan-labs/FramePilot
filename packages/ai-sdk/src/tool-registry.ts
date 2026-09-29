@@ -611,8 +611,9 @@ const analysisTools: ToolSpec[] = [
         "Read what's already known about this project before doing anything else: the " +
         'media bin digest, what happened in the last session, the edits this user ' +
         'rejected (do not repeat them) and accepted, plus their cross-project working ' +
-        'style. Use at the start of a session, or when you need to know what the user ' +
-        'has already told us. Does not edit the timeline.',
+        'style. A remembered decision answers only the question asked then, with the tools ' +
+        'of that day; the current request outranks it. Use at the start of a session, or ' +
+        'when you need to know what the user has already told us. Does not edit the timeline.',
     },
     sessionContextSchema,
   ),
