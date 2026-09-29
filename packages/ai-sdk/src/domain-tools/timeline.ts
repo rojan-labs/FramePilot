@@ -647,17 +647,6 @@ function existingPlacement(
 }
 
 /**
- * A clip on the lane `clip` names that reads the same frames at the same moment, whatever its
- * framing. Only asked after {@link existingPlacement} let the call through, so any hit here is
- * framed differently: the blurred-fill background the new copy goes in front of.
- */
-function sameFramesOnLane(project: Project, clip: Placement & { readonly trackId: string }) {
-  const frame = frameSlack(project);
-  const lane = project.timeline.tracks.find((track) => track.id === clip.trackId);
-  return lane?.clips.find((existing) => sameFrames(frame, existing, clip) !== undefined);
-}
-
-/**
  * The same frames of this call's own batch, or `undefined` when the entry is new.
  *
  * `existingPlacement` reads the pre-call timeline and therefore cannot see an entry the
@@ -863,8 +852,8 @@ function addClipOperation(
     );
   }
   // Past both checks, a copy of the same frames on the lane it names is a LAYERED copy (its
-  // framing differs), and a lane cannot hold two clips at once: it goes in front.
-  const overOwnLane = sameFramesOnLane(ctx.project, clip) !== undefined;
+  // framing differs). The placer counts picture on the named lane like picture on any other
+  // (AL45), so it goes in front of the copy it covers without being told which one it is.
   const placed: { trackId: string; setupOps: readonly Operation[]; crop?: CropRect } = isPicture
     ? picture.place({
         trackId: clip.trackId,
@@ -873,7 +862,6 @@ function addClipOperation(
         end: clip.end,
         compositing: planned ? { crop: planned } : {},
         ...(chosen !== undefined ? { keepGeometry: true } : {}),
-        ...(overOwnLane ? { overOwnLane: true } : {}),
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
   // The placer's own cover crop wins when it applied one: it is the crop the lane was

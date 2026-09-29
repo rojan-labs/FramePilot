@@ -141,14 +141,15 @@ describe('pictureOverlapAcross', () => {
     expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
   });
 
-  it('ignores overlap on the SAME track — that is the validator’s message to give', () => {
+  it('counts picture on the lane the candidate names — the lane cannot hold both (AL45)', () => {
+    // A different shot over the named lane's clip: run 18's split-screen panels on V1.
     const hits = pictureOverlapAcross(baseProject(), {
       trackId: 'video_1',
       assetId: 'asset_v2',
       start: 2,
       end: 6,
     });
-    expect(hits).toEqual([]);
+    expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
   });
 
   it('counts its own lane for a layered copy of the clip that lane holds (run 16)', () => {
@@ -158,9 +159,29 @@ describe('pictureOverlapAcross', () => {
       assetId: 'asset_v',
       start: 2,
       end: 6,
-      overOwnLane: true,
     });
     expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
+  });
+
+  it('on the named lane, judges overlap on the frame grid the patch is snapped to', () => {
+    // 9.99s snaps to 10s at 30 fps: it butts against clip_a once snapped, a sequence edit.
+    expect(
+      pictureOverlapAcross(baseProject(), {
+        trackId: 'video_1',
+        assetId: 'asset_v2',
+        start: 9.99,
+        end: 12,
+      }),
+    ).toEqual([]);
+    // A whole frame inside the neighbour is an overlap.
+    expect(
+      pictureOverlapAcross(baseProject(), {
+        trackId: 'video_1',
+        assetId: 'asset_v2',
+        start: 9.9,
+        end: 12,
+      }).map((hit) => hit.clipId),
+    ).toEqual(['clip_a']);
   });
 
   it('does not fire for a text overlay, a caption, or an audio bed over picture', () => {
@@ -406,10 +427,11 @@ describe('a full-frame placement over existing picture goes in front', () => {
       { trackId: 'video_main', assetId: 'asset_v2', start: 2, end: 6, sourceStart: 0 },
       project,
     );
-    expect(stacked.map((op) => op.type)).toEqual(['add_clip']);
-    // `video_main` holds the picture, so the candidate conflicts with nothing across
-    // tracks and the validator owns the same-track overlap, as it always did.
-    expect((stacked[0] as { trackId: string }).trackId).toBe('video_main');
+    // `video_main` holds the picture it covers (AL45), and the only lane in front of it is
+    // hidden, so a front layer is opened rather than landing where nothing renders.
+    expect(stacked.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+    expect(stacked[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1' });
+    expect((stacked[1] as { trackId: string }).trackId).toBe('video_cutaway_1');
   });
 
   it('lays a whole batch onto ONE opened layer', () => {
@@ -1268,5 +1290,190 @@ describe('only picture that hides counts as covering', () => {
     /* v8 ignore next -- the fixture has it */
     if (!window) throw new Error('fixture');
     expect(backedByFullFramePicture(project, window)).toBe(false);
+  });
+});
+
+// AL45 — harness run 18 laid a three-panel split screen over the story cut. It named V1, the
+// only picture on screen at 18.4–20.3s, for each panel: `add_clip { trackId: "V1", … crop:
+// <a 0.1055-wide strip> }`. The placer skipped the named lane when it collected what a
+// placement covers, found nothing, kept V1, and the validator refused all three ("Clips
+// 'clip__V1_asset_mountain_road_18413' and 'clip__V1_asset_mountain_road_18878' overlap on
+// track 'V1'"), though add_clip promises "the shot is put on a layer in FRONT of what it
+// covers". Rebuilt from run 18's V1 and video_cutaway_1 at that point of the run, and driven
+// through the real dispatch, validator and patch path, one call at a time as the run made them.
+describe('add_clip named onto an occupied picture lane goes in front (run 18)', () => {
+  /** Run 18's portrait sequence and 16:9 camera sources. */
+  const PORTRAIT = { width: 1080, height: 1920 };
+  const SOURCE_4K = { width: 3840, height: 2160 };
+  const RUN_18_ASSETS = [
+    'asset_rock_aerial',
+    'asset_mountain_road',
+    'asset_forest_road',
+    'asset_passenger',
+    'asset_road_driving',
+    'asset_ridge_aerial',
+    'asset_bay_aerial',
+  ];
+  /** A V1 story clip, cover-cropped for the portrait frame as the run placed it. */
+  const storyClip = (assetId: string, start: number, end: number, sourceStart: number) => ({
+    id: `clip__V1_${assetId}_${String(Math.round(start * 1000))}`,
+    assetId,
+    trackId: 'V1',
+    start,
+    end,
+    sourceStart,
+    sourceEnd: sourceStart + (end - start),
+    crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+    effects: [],
+    keyframes: [],
+  });
+  const run18Project = (): Project =>
+    parseProject({
+      id: 'project_new_test_project_mukqmiq2zmke',
+      name: 'weekend_trip',
+      version: 1,
+      fps: 23.976,
+      resolution: PORTRAIT,
+      assets: RUN_18_ASSETS.map((id) => ({
+        id,
+        path: `media/${id.replace('asset_', '')}.mp4`,
+        kind: 'video',
+        durationSeconds: 30,
+        media: SOURCE_4K,
+      })),
+      timeline: {
+        tracks: [
+          { id: 'layer_overlay_5', type: 'overlay', clips: [] },
+          { id: 'A_music', type: 'audio', clips: [] },
+          // The blurred-fill foreground the run layered earlier (the AL39 route).
+          {
+            id: 'video_cutaway_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip__video_cutaway_1_asset_bay_aerial_51966',
+                assetId: 'asset_bay_aerial',
+                trackId: 'video_cutaway_1',
+                start: 51.96,
+                end: 55.723,
+                sourceStart: 3,
+                sourceEnd: 6.763,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          {
+            id: 'V1',
+            type: 'video',
+            clips: [
+              storyClip('asset_rock_aerial', 17.467, 18.4, 4),
+              storyClip('asset_mountain_road', 18.4, 19.333, 8),
+              storyClip('asset_forest_road', 19.333, 20.3, 2),
+              storyClip('asset_passenger', 20.3, 21, 6),
+            ],
+          },
+        ],
+        markers: [],
+      },
+    });
+  /** The three calls exactly as run 18 made them. */
+  const PANEL_CROP = { x: 0.447, y: 0, width: 0.1055, height: 1 };
+  const RUN_18_CALLS = [
+    { assetId: 'asset_mountain_road', start: 18.878, end: 20.3, sourceStart: 12, crop: PANEL_CROP },
+    { assetId: 'asset_road_driving', start: 19.342, end: 20.3, sourceStart: 5, crop: PANEL_CROP },
+    {
+      assetId: 'asset_ridge_aerial',
+      start: 19.83,
+      end: 20.3,
+      sourceStart: 10,
+      crop: { ...PANEL_CROP, x: 0.4 },
+    },
+  ];
+
+  /** One call through dispatch, the validator and the patch — as the run applies it. */
+  function applyCall(project: Project, args: Record<string, unknown>) {
+    const ops = operationsForCall(
+      { id: 'run18', name: 'add_clip', arguments: { trackId: 'V1', ...args } },
+      { project },
+    );
+    const edit = assembleEdit(project, ops, 'add_clip');
+    return { ops, edit };
+  }
+
+  function panelTrack(project: Project, assetId: string) {
+    return project.timeline.tracks.find((track) =>
+      track.clips.some((clip) => clip.assetId === assetId && clip.start > 18.5),
+    );
+  }
+
+  for (const [index, call] of RUN_18_CALLS.entries()) {
+    it(`call ${String(index + 1)} (${call.assetId} at ${String(call.start)}s) lands in front of V1`, () => {
+      // Each call sees the timeline the calls before it left, as the turn's working copy does.
+      let project = run18Project();
+      for (const earlier of RUN_18_CALLS.slice(0, index)) {
+        const { edit } = applyCall(project, earlier);
+        project = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+      }
+      const { ops, edit } = applyCall(project, call);
+      expect(edit.validation.valid, JSON.stringify(edit.validation.issues)).toBe(true);
+      const add = ops.find((op) => op.type === 'add_clip') as { trackId: string } | undefined;
+      expect(add?.trackId).not.toBe('V1');
+      const after = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+      const lane = panelTrack(after, call.assetId);
+      expect(lane?.id).toBe(add?.trackId);
+      const ids = after.timeline.tracks.map((track) => track.id);
+      // In front of V1 and of every panel placed before it.
+      expect(ids.indexOf(lane!.id)).toBeLessThan(ids.indexOf('V1'));
+      for (const earlier of RUN_18_CALLS.slice(0, index)) {
+        expect(ids.indexOf(lane!.id)).toBeLessThan(
+          ids.indexOf(panelTrack(after, earlier.assetId)!.id),
+        );
+      }
+      // The story cut under it is untouched, and the panel keeps the geometry it asked for.
+      expect(after.timeline.tracks.find((track) => track.id === 'V1')?.clips).toHaveLength(4);
+      const placed = lane!.clips.find((clip) => clip.assetId === call.assetId);
+      expect(placed?.crop).toEqual(call.crop);
+    });
+  }
+
+  it('the first panel reuses the free front lane the run already had', () => {
+    const { ops } = applyCall(run18Project(), RUN_18_CALLS[0]!);
+    expect(ops.map((op) => op.type)).toEqual(['add_clip', 'set_clip_crop']);
+    expect((ops[0] as { trackId: string }).trackId).toBe('video_cutaway_1');
+  });
+
+  it('the whole split screen undoes back to the story cut', () => {
+    const start = run18Project();
+    let project = start;
+    const applied: {
+      before: Project['timeline'];
+      patch: ReturnType<typeof applyCall>['edit']['patch'];
+    }[] = [];
+    for (const call of RUN_18_CALLS) {
+      const { edit } = applyCall(project, call);
+      expect(edit.validation.valid).toBe(true);
+      applied.push({ before: project.timeline, patch: edit.patch });
+      project = { ...project, timeline: applyPatch(project.timeline, edit.patch) };
+    }
+    const undone = [...applied]
+      .reverse()
+      .reduce(
+        (timeline, { before, patch }) => applyPatch(timeline, invertPatch(before, patch)),
+        project.timeline,
+      );
+    expect(undone.tracks).toEqual(start.timeline.tracks);
+  });
+
+  it('a placement that only butts against the named lane’s clip once snapped stays on it', () => {
+    // 21.0004s snaps onto passenger's out-point (21s): an ordinary next shot in the sequence.
+    const { ops, edit } = applyCall(run18Project(), {
+      assetId: 'asset_road_driving',
+      start: 21.0004,
+      end: 22,
+      sourceStart: 1,
+    });
+    expect(edit.validation.valid).toBe(true);
+    expect(ops.find((op) => op.type === 'add_clip')).toMatchObject({ trackId: 'V1' });
   });
 });

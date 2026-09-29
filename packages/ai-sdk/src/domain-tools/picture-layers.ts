@@ -39,13 +39,15 @@
  * That predicate measures occupancy over the whole timeline, including the
  * target track, because the Stock panel and `add_stock` pick the track
  * themselves and cannot be handed a new one. Here the track is named by the
- * caller and CAN be replaced, and same-track overlap is already the validator's
- * job — it rejects it with a better message than this could.
+ * caller and CAN be replaced — including when the named lane is itself where the
+ * picture already is (AL45, below).
  */
 import type { Asset, Clip, CropRect, Project, Track } from '@framepilot/timeline-schema';
 import type { Operation } from '@framepilot/editor-core';
 import {
   coverageVerdict,
+  LANE_OVERLAP_EPSILON,
+  snapSecondsToFrame,
   trackHasRoomFor,
   type CoverageVerdict,
   type FullFrameOpaqueFields,
@@ -76,13 +78,6 @@ export interface PictureCandidate {
    * placer that "fixed" its bars would put back the very crop the recipe exists to avoid.
    */
   readonly keepGeometry?: boolean;
-  /**
-   * The named lane already holds this same shot at this moment, framed differently, and the
-   * candidate is a layered copy of it: a blurred-fill foreground named on its background's own
-   * lane, as harness run 16 named it. Two clips cannot share a lane at one time, so that lane
-   * counts as picture the copy covers, and the copy goes in front of it like any other.
-   */
-  readonly overOwnLane?: boolean;
   /**
    * The compositing the placed clip will carry, when it is not a plain placement.
    *
@@ -135,11 +130,21 @@ function carriesPicture(track: Track): boolean {
 }
 
 /**
- * Every picture clip on a track OTHER than the candidate's that overlaps it in
- * time, in timeline order.
+ * Every picture clip the candidate would sit over, in timeline order — on every picture
+ * lane, the one it names included.
  *
  * Touching edges do not count: butting a cutaway against the clip before it is
  * exactly what an editor does.
+ *
+ * The NAMED lane counts too (AL45). Two clips cannot share a lane at one time, so picture
+ * already on the lane the caller named is picture the candidate covers, and it goes in front
+ * like any other — which is what `add_clip` promises. This used to skip the named lane and
+ * leave the overlap to the validator, and only a same-shot copy (a blurred-fill foreground,
+ * AL39) was let through. Harness run 18 named `V1` for three split-screen panels over the
+ * two V1 clips at 18.4–20.3s, nothing else was on screen there, so the placer found no
+ * conflict, kept `V1`, and the validator refused all three. On the named lane the overlap is
+ * judged on the frame grid the patch is snapped to ({@link overlapsOnOwnLane}), so a
+ * placement that will butt against its neighbour once snapped stays on the lane it named.
  *
  * A non-picture candidate — a text overlay, a caption, an audio bed —
  * conflicts with nothing here by construction,
@@ -164,13 +169,14 @@ export function pictureOverlapAcross(
   if (!PICTURE_KINDS.has(candidateKind)) return [];
 
   const conflicts: PictureConflict[] = [];
+  const ownLane = overlapsOnOwnLane(project, candidate);
   project.timeline.tracks.forEach((track, depth) => {
-    if (track.id === candidate.trackId && candidate.overOwnLane !== true) return;
     if (!carriesPicture(track)) return;
+    const overlaps = track.id === candidate.trackId ? ownLane : overlapsInTime(candidate);
     for (const clip of track.clips) {
       if (clip.id === candidate.ignoreClipId) continue;
       if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
-      if (clip.end <= candidate.start || clip.start >= candidate.end) continue;
+      if (!overlaps(clip)) continue;
       conflicts.push({
         clipId: clip.id,
         trackId: track.id,
@@ -183,6 +189,27 @@ export function pictureOverlapAcross(
     }
   });
   return conflicts.sort((a, b) => a.start - b.start);
+}
+
+/** Does a clip share time with the candidate? Touching edges do not. */
+function overlapsInTime(candidate: PictureCandidate): (clip: Clip) => boolean {
+  return (clip) => clip.end > candidate.start && clip.start < candidate.end;
+}
+
+/**
+ * Does a clip on the candidate's own lane share time with it once the patch is snapped?
+ *
+ * The lane's clips already sit on the frame grid; the candidate's times are the model's and
+ * are snapped when the patch is assembled (`quantizePatch`). Comparing the raw times would
+ * lift a placement that ends 3 ms inside its neighbour and butts against it once snapped —
+ * a sequence edit, not a layered one. The slack is the lane pickers' own
+ * ({@link LANE_OVERLAP_EPSILON}), so the two agree about what "room" means.
+ */
+function overlapsOnOwnLane(project: Project, candidate: PictureCandidate): (clip: Clip) => boolean {
+  const start = snapSecondsToFrame(candidate.start, project.fps);
+  const end = snapSecondsToFrame(candidate.end, project.fps);
+  return (clip) =>
+    clip.start < end - LANE_OVERLAP_EPSILON && clip.end > start + LANE_OVERLAP_EPSILON;
 }
 
 /** A time in the refusal sentence: whole seconds stay whole, the rest keep 2dp. */
@@ -481,11 +508,9 @@ export function createPicturePlacer(
 
       // The lane the caller named wins whenever it can be seen — the agent chose
       // it, and relocating a placement it did not ask to relocate is its own kind
-      // of wrong.
-      const named =
-        candidate.overOwnLane === true
-          ? undefined
-          : project.timeline.tracks.find((track) => track.id === candidate.trackId);
+      // of wrong. When the picture it covers is ON that lane, the lane has no room there
+      // and cannot be in front of itself, so `usableLane` passes it over.
+      const named = project.timeline.tracks.find((track) => track.id === candidate.trackId);
       if (named && usableLane(named, candidate.start, candidate.end, frontOf)) {
         take(named.id, true);
         return withCrop({ trackId: named.id, setupOps: [] });

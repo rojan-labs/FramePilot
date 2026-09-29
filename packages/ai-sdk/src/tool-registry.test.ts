@@ -1375,22 +1375,19 @@ describe('mutating tools — build valid operations', () => {
     expect('time' in op.targets[0]!).toBe(false);
   });
 
-  it('never relocates PICTURE off the lane it was aimed at, even when it collides', () => {
-    // `picture-occupancy.ts`: the preview flattens picture clips from every track
-    // into one chain while the export composites stacked layers, so two picture
-    // clips overlapping IN TIME render one way and preview another (blocker #1,
-    // SUC-P1) — "overlap is measured in time, not by layer". Moving a colliding
-    // video to another lane therefore does not avoid the problem, it creates it and
-    // hides it until export. The refusal has to stand for picture, so the op keeps
-    // the named lane and the validator rejects it exactly as before.
+  it('puts PICTURE aimed at an occupied lane on a layer in front of it (AL45)', () => {
+    // The lane cannot hold both, and the preview composites every stack as the export
+    // does (ADR 0180), so picture over the named lane's own clip goes in front of it —
+    // what add_clip's description promises. Harness run 18 lost a split screen when this
+    // op kept the named lane and the validator refused it.
     const ops = build('add_clip', {
       trackId: 'video_1',
       assetId: 'asset_1',
       start: 1,
       end: 3,
     });
-    expect(ops.some((op) => op.type === 'add_layer')).toBe(false);
-    expect(ops[0]).toMatchObject({ type: 'add_clip', trackId: 'video_1' });
+    expect(ops[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1' });
+    expect(ops[1]).toMatchObject({ type: 'add_clip', trackId: 'video_cutaway_1' });
   });
 
   it('add_clips places a whole sequence in one patch, by add_clip’s rules', () => {
