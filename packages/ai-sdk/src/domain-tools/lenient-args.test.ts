@@ -200,8 +200,7 @@ describe('a title that does not fit is FITTED, not refused', () => {
     expect(ops.some((op) => op.type === 'add_text_overlay')).toBe(true);
     const params = (
       ops.find((op) => op.type === 'set_effect_params') as
-        | { params: Record<string, number> }
-        | undefined
+        { params: Record<string, number> } | undefined
     )?.params;
     expect(
       overflowingWords(
@@ -216,5 +215,30 @@ describe('a title that does not fit is FITTED, not refused', () => {
     // The cause stays registered for text no size can rescue, and stays
     // arrangement-independent: it is a property of the words, not of the timeline.
     expect(ARRANGEMENT_INDEPENDENT_CAUSES.has('text_does_not_fit')).toBe(true);
+  });
+});
+
+describe('a structured argument sent as its JSON text', () => {
+  // Harness run 18: `reframe_pan { from: "{\"x\":0.56,\"y\":0.5}", to: "…" }` was refused
+  // "from: expected object, received string", and a turn went on re-sending it as an object.
+  const reframe = getTool('reframe_pan')!;
+
+  it('is read as the object it spells', () => {
+    expect(
+      reframe.parse({ clipId: 'clip_a', from: '{"x":0.56,"y":0.5}', to: '{"x":0.4}' }),
+    ).toEqual({ clipId: 'clip_a', from: { x: 0.56, y: 0.5 }, to: { x: 0.4 } });
+  });
+
+  it('is still refused when the text is not JSON, or is JSON of another shape', () => {
+    expect(() => reframe.parse({ clipId: 'clip_a', from: 'left', to: { x: 0.4 } })).toThrow(/from/);
+    expect(() => reframe.parse({ clipId: 'clip_a', from: '[0.5]', to: { x: 0.4 } })).toThrow(
+      /from/,
+    );
+  });
+
+  it('is still refused, with the original reason, when something else is wrong too', () => {
+    // The decoded object must pass the schema on its own: x out of range stays a refusal.
+    expect(() => reframe.parse({ clipId: 'clip_a', from: '{"x":3}', to: { x: 0.4 } })).toThrow();
+    expect(() => reframe.parse({ from: '{"x":0.5}', to: { x: 0.4 } })).toThrow(/clipId/);
   });
 });

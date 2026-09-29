@@ -89,6 +89,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant no longer loses a turn to an argument written as text.** When it sent a structured
+  setting (a reframe's start and end point) as its JSON text rather than as the object, the tool refused
+  it and the assistant had to send it again. The text is now read as the object it spells; anything
+  else still gets the same refusal as before.
 - **Short sound effects no longer break loudness checks, and clips no longer run past the end of
   their media.** A sound under about 1.4 seconds (a whoosh, a hit) made the assistant's loudness
   measurement fail with an engine error. On very short sounds the export could fail the same

@@ -68,6 +68,85 @@ export interface ToolBase {
   readonly derivedFanOut?: boolean;
 }
 
+/** Deep copy of plain JSON-shaped arguments, so a repair never touches what the model sent. */
+function cloneArgs(value: unknown): unknown {
+  return value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as unknown);
+}
+
+/** The value at `path` in `root`, or `undefined`. */
+function valueAt(root: unknown, path: readonly PropertyKey[]): unknown {
+  let node: unknown = root;
+  for (const key of path) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = (node as Record<PropertyKey, unknown>)[key];
+  }
+  return node;
+}
+
+/** Replace the value at a non-empty `path` inside `root` (mutates `root`, a clone). */
+function setAt(root: unknown, path: readonly PropertyKey[], value: unknown): void {
+  const parent = valueAt(root, path.slice(0, -1));
+  if (parent !== null && typeof parent === 'object') {
+    (parent as Record<PropertyKey, unknown>)[path[path.length - 1]!] = value;
+  }
+}
+
+/**
+ * Arguments with every JSON-encoded string decoded where the schema wanted the object or array
+ * that string spells, or `undefined` when the failure is anything else.
+ *
+ * WHY: a model sometimes sends a structured argument as its JSON text — harness run 18's
+ * `reframe_pan { from: "{\"x\":0.56,\"y\":0.5}" }` was refused "from: expected object,
+ * received string" and a turn was spent re-sending it. A string whose JSON is exactly the shape
+ * the schema asks for means one thing. Decided from the schema's own type errors and the value's
+ * type alone; the repaired arguments are validated again from scratch, so nothing the schema
+ * would refuse gets through.
+ */
+function decodeJsonStringArgs(rawArgs: unknown, error: z.ZodError): unknown {
+  if (error.issues.length === 0) return undefined;
+  const repaired = cloneArgs(rawArgs);
+  for (const issue of error.issues) {
+    if (issue.code !== 'invalid_type' || issue.path.length === 0) return undefined;
+    const expected = (issue as { expected?: unknown }).expected;
+    if (expected !== 'object' && expected !== 'array') return undefined;
+    const raw = valueAt(repaired, issue.path);
+    if (typeof raw !== 'string') return undefined;
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(raw) as unknown;
+    } catch {
+      return undefined;
+    }
+    const isArray = Array.isArray(decoded);
+    const isObject = decoded !== null && typeof decoded === 'object' && !isArray;
+    if ((expected === 'array' && !isArray) || (expected === 'object' && !isObject)) {
+      return undefined;
+    }
+    setAt(repaired, issue.path, decoded);
+  }
+  return repaired;
+}
+
+/**
+ * Validate a tool's arguments against its schema, accepting a structured argument sent as its
+ * JSON text (see {@link decodeJsonStringArgs}). Any other failure throws the schema's own error,
+ * unchanged, so the model reads exactly what it did before.
+ *
+ * @param schema - The tool's argument schema.
+ * @param rawArgs - The arguments as the model sent them.
+ * @returns The parsed arguments.
+ */
+export function parseToolArgs<S extends z.ZodType>(schema: S, rawArgs: unknown): z.infer<S> {
+  const first = schema.safeParse(rawArgs);
+  if (first.success) return first.data;
+  const repaired = decodeJsonStringArgs(rawArgs, first.error);
+  if (repaired !== undefined) {
+    const second = schema.safeParse(repaired);
+    if (second.success) return second.data;
+  }
+  throw first.error;
+}
+
 export function readTool<S extends z.ZodType>(
   base: ToolBase,
   schema: S,
@@ -79,8 +158,8 @@ export function readTool<S extends z.ZodType>(
     available: true,
     kind: 'read',
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
-    read: (rawArgs, ctx) => read(schema.parse(rawArgs), ctx),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
+    read: (rawArgs, ctx) => read(parseToolArgs(schema, rawArgs), ctx),
   };
 }
 
@@ -95,8 +174,8 @@ export function mutateTool<S extends z.ZodType>(
     available: true,
     kind: 'mutate',
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
-    buildOps: (rawArgs, ctx) => buildOps(schema.parse(rawArgs), ctx),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
+    buildOps: (rawArgs, ctx) => buildOps(parseToolArgs(schema, rawArgs), ctx),
   };
 }
 
@@ -117,8 +196,8 @@ export function projectMutateTool<S extends z.ZodType>(
     available: true,
     kind: 'mutate',
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
-    buildOps: (rawArgs, ctx) => buildOps(schema.parse(rawArgs), ctx),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
+    buildOps: (rawArgs, ctx) => buildOps(parseToolArgs(schema, rawArgs), ctx),
   };
 }
 
@@ -130,7 +209,7 @@ export function actionTool<S extends z.ZodType>(base: ToolBase, schema: S): Tool
     available: true,
     kind: 'action',
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
   };
 }
 
@@ -147,7 +226,7 @@ export function askTool<S extends z.ZodType>(base: ToolBase, schema: S): ToolSpe
     kind: 'ask',
     hostUiOnly: true,
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
   };
 }
 
@@ -165,7 +244,7 @@ export function analysisTool<S extends z.ZodType>(base: ToolBase, schema: S): To
     available: true,
     kind: 'analysis',
     parameters: jsonSchema(schema),
-    parse: (rawArgs) => schema.parse(rawArgs),
+    parse: (rawArgs) => parseToolArgs(schema, rawArgs),
   };
 }
 
