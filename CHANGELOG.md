@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant builds picture-in-picture, split screens and blurred-fill backgrounds.** Ask
+  for a 16:9 shot in a vertical video "without cropping the subject" and it can fit the whole
+  shot over a blurred copy of itself, with no upscaling, instead of zooming past what the source
+  can take. It can also lay a smaller shot over your footage or put three shots in a split
+  screen. Each look is ordinary layers you can select, move and undo, and the monitor shows it
+  exactly as it exports. Before, the assistant refused these with "the preview can only show one
+  picture layer", a limit the monitor no longer has.
 - **The assistant can keep a moving subject in a vertical frame.** On desktop, once a subject
   has a tracked mask ("track the runner"), the assistant can reframe a 16:9 shot for 9:16 so
   the window follows them smoothly. It writes ordinary position and zoom keyframes, so you can
@@ -70,6 +77,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant no longer blocks layered looks on a preview limit that is gone.** A run
+  refused a brief's split screen, its title behind a ridge and its mask reveal, and reported
+  that its shots broke the 115% scale limit "because the preview can't composite" a blurred
+  fill. The monitor composites every layer in every build, so the refusal and the reason are
+  both gone. The assistant still refuses to place a full-frame shot that would hide another
+  cutaway completely, and stock it downloads straight onto the timeline is still placed as a
+  full-frame cutaway.
 - **The assistant can open a shot through a growing shape.** Asked for a "shape-mask opener"
   (the hook revealed through an expanding rounded rectangle), it told you no tool could animate a
   mask. It now builds it: a rounded rectangle that grows, used as the clip's mask.

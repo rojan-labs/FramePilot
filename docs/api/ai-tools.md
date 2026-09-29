@@ -486,30 +486,70 @@ validator.
 
 ---
 
+## Layered picture: where a placement goes
+
+Any picture `add_clip` / `add_clips` / `move_clip` places over existing picture lands on a
+layer in FRONT of what it covers, opening one in the same patch when there is none. That
+holds for a full-frame cutaway and for a scaled, positioned, cropped, faded, blended or
+masked layer alike: the program monitor composites every stack exactly as the export does
+(ADR 0180), so picture-in-picture, split-screen panels and a blurred-fill foreground are
+ordinary layered edits (ADR 0180 amendment, 2026-09-29).
+
+`add_clip` takes an optional `crop`, the geometry of a layered look: a rect of the source
+(0..1 fractions), or `null` for the whole picture fitted inside the frame with transparent
+bars. Without it, a fresh placement fills the frame: a portrait project cover-crops a measured
+landscape source, and a placement over picture whose shape leaves bars gets the cover crop
+that closes them. Scale and position come from `add_keyframes` (`scale`, `x`/`y` in project
+pixels from the frame centre). `apply_color_grade` with `type: "blur"` and `params.amount`
+(0..0.25, a fraction of the picture's smaller side) blurs a whole clip, under the same effect
+id the Inspector's Blur control edits.
+
+Recipes, pinned end to end by `domain-tools/layered-picture-recipes.test.ts` and rendered by
+`engine/python/tests/test_layered_picture_render.py`:
+
+- **Blurred fill (9:16 from 16:9):** the shot's cover-cropped copy, blurred
+  (`apply_color_grade` `blur`), and the same asset, span and `sourceStart` again with
+  `crop: null`, which lands in front fitted whole (scale 0.5625 for a 1920×1080 source in a
+  1080×1920 frame, never upscaled).
+- **3-up split (9:16):** three shots, each `crop` `{ x: 0.025391, y: 0, width: 0.949219,
+  height: 1 }` (a 1080×640 panel), moved with a `y` keyframe of −640, 0 and +640.
+
 ## When a placement is refused
 
 Two refusals guard `add_clip` / `add_clips` / `move_clip` beyond schema validation, both
 from run `137d8fd0` (a 60s highlight that finished with 37 of its 48 picture clips never
 visible):
 
-- **`hides_a_cutaway`.** ADR 0169 lifts a legal full-frame placement onto a layer in FRONT
-  of the picture it covers. That is right when what it covers is the base A-roll — a
-  cutaway covers the A-roll by definition. It is wrong when the thing underneath is itself
-  a cutaway whose whole span the new placement would swallow: nothing of it would ever be
-  seen. The refusal names the buried clip, its lane and its span, and the three moves
-  (`remove_clip`, place it elsewhere, `trim_clip`). A clip that was ALREADY fully hidden
-  before the call does not trigger it — an inherited defect is an advisory, not a reason to
-  refuse the next edit. The cause is arrangement-DEPENDENT, so a landed patch clears the
-  run's memory of it.
+- **`hides_a_cutaway`.** A placement that fills the frame and hides what it covers is lifted
+  in front of it. That is right when what it covers is the base A-roll — a cutaway covers the
+  A-roll by definition. It is wrong when the thing underneath is itself a cutaway whose whole
+  span the new placement would swallow: nothing of it would ever be seen. The refusal names
+  the buried clip, its lane and its span, and the three moves (`delete_clip`, place it
+  elsewhere, `trim_clip`). A window (see-through, scaled, or cropped smaller than the frame)
+  never triggers it: what it covers still shows round or through it, and a split-screen panel
+  lands centred before it is moved. A clip that was ALREADY fully hidden before the call does
+  not trigger it either — an inherited defect is an advisory, not a reason to refuse the next
+  edit. The cause is arrangement-DEPENDENT, so a landed patch clears the run's memory of it.
 - **The same frames at the same moment.** Two placements of one asset are the same
   placement when their PIN (`sourceStart - start`) matches within a frame and their spans
   overlap by more than a frame — the span itself need not match. A different pin is a
-  different moment of the file and is allowed. Audio goes through the same path, where the
-  defect is audible rather than invisible: the same bed on two lanes plays over itself.
+  different moment of the file and is allowed. So is the same moment through a different
+  crop that is known before placement (`add_clip`'s own `crop`, or the portrait
+  auto-reframe): that is a blurred-fill foreground, not an invisible duplicate. Audio goes
+  through the same path, where the defect is audible rather than invisible: the same bed on
+  two lanes plays over itself.
+
+`add_stock` keeps a third, `picture_over_picture`: it places a full-frame cutaway at a moment
+and takes no geometry, so a stock clip that cannot be shown to hide the footage under it (an
+unmeasured shape) is refused, naming the hole it could cut instead and the route that layers
+it on purpose (download to the bin, then `add_clip`).
 
 The Critic's `hidden_picture` check reports the same condition on a finished project. It
 `warn`s and never `fail`s, because buried picture can be inherited from the project the run
-was handed.
+was handed. Only picture that HIDES a clip counts as covering it (coverage is a relation,
+ADR 0170): the A-roll under a picture-in-picture is not buried. Likewise `reframe_coverage`
+does not call a fitted clip letterboxed when frame-filling picture sits behind it for its
+whole span.
 
 ---
 

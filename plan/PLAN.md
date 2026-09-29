@@ -341,6 +341,22 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   `shape-opener.test.ts`. Also: a set_text_style whose named fields already hold those values
   answers "already has the … you gave, so nothing changed" (run 14 heard "name at least one of
   … color, background" for a call naming both).
+- [x] **AL34** Desktop run `88c8b27d` blocked three brief items ("THE ROAD" behind the ridge, the
+  pillar mask-reveal, the 3-up split) and answered the 115% scale limit with "the preview can't
+  composite" a blurred fill. The limit went with ADR 0180 (every build composites); the refusal
+  and its text outlived it (ADR 0180 amendment 2026-09-29). The placer now layers any picture in
+  front (see-through, scaled, cropped, blended, masked); `add_clip` takes `crop` (null = whole
+  picture), and the same shot at the same moment through a different crop is not an invisible
+  duplicate; `apply_color_grade` takes `type: "blur"`. Kept: the full-frame burial refusal
+  (windows exempt), the same-frames/same-crop refusal, and `add_stock`'s cutaway rule
+  (`cutawaysOnly`, names the bin → `add_clip` route). Coverage now means "hides" in
+  `hidden_picture`, the lane digest and the burial check; `reframe_coverage` exempts clips backed
+  by frame-filling picture; rubric check → `stacked-picture-is-visible`. Evidence:
+  `layered-picture-recipes.test.ts` (blurred fill + 3-up via real tool calls, validate, apply,
+  undo, Critic) and `test_layered_picture_render.py` (grab_frame: blurred bars step 0.16 vs 8.3
+  unblurred, band rows 219–420 = the 0.5625 fit; each third its own shot). Skills
+  (`vertical-reframe` blurred-fill recipe, `broll-and-layering` PiP/split) and goldens regenerated.
+  Not measured: a live agent run on the brief.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer
