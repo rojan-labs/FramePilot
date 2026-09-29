@@ -77,6 +77,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The assistant's checks no longer grind your computer once a clip uses a track matte.** When
+  one clip was cut by another layer (a shape or a title used as its matte), every look the
+  assistant took at a frame, and every colour measurement, opened every clip in the timeline. On
+  a 65-clip travel reel one look took about 40 seconds, five of six colour measurements ran out
+  of time, and the laptop ran hot. Each look now opens only the clips on screen at that moment:
+  about 2 seconds for a look and 5 to 8 seconds for a measurement. Measurements asked for
+  together no longer run out of time waiting for each other. The same checks use about a seventh
+  of the processor time, and the pictures and numbers they return are exactly the same.
 - **An old answer no longer overrides a new brief.** An answer you gave the assistant once ("imitate
   it in the default face") was stored with the assistant's question, which described what the
   tools could do that day, and a note to follow it on every later turn. A later brief naming

@@ -341,6 +341,24 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   `shape-opener.test.ts`. Also: a set_text_style whose named fields already hold those values
   answers "already has the … you gave, so nothing changed" (run 14 heard "name at least one of
   … color, background" for a call naming both).
+- [x] **AL33** Desktop run `88c8b27d` (run 15) ran the laptop hot: five of six parallel
+  `measure_color` calls "timed out after 120s", three `get_frame` took 51–58 s, the final review
+  never finished. Cause: from the opener's track matte on (08:12), `picture_window` refused the
+  whole project, so every grab and scope compiled all 40 source readers (each opened twice, each
+  open an uncapped ffmpeg decode), and the evidence route answered the six scopes in turn while
+  every call's clock ran. Fixes: track mattes are windowed (AL31 made an idle source's matte the
+  empty frame, so leaving it out is exact); a frame read takes a slot of the process-wide heavy
+  gate like a build (`composition_cache.read_frame`); the executor sends its own evidence calls
+  one at a time and starts each timeout when sent (`ENGINE_SERIAL_ROUTES`). Measured on a clone
+  of the run's final project (rev 219, 65 clips): six scopes 48–262 s → 5–35 s (each call's own
+  clock ≤ 7.6 s), cold grab 38.9 s → 1.7 s; a burst of six scopes + eight grabs 269.9 s at 54%
+  of 10 cores → 36.6–40.1 s at 46% (≈1,320 → ≈180 core-seconds), peak ffmpeg processes 98 → 10,
+  sidecar threads 3,736 → 414. JPEGs byte-identical, scope samples equal. Guards: matted-shot
+  parity + reader-count tests (`test_render_picture_window.py`), per-thread slot count at every
+  decode, executor queue tests. Open: blend modes still composite the whole timeline (~43 s a
+  scope here); every reader is opened twice and each open decodes a first frame with ffmpeg's
+  default threads before the cap applies (~0.5 s and a core burst per reader); the desktop must
+  rebuild `@framepilot/ai-sdk` dist to pick up the executor change.
 - [x] **AL34** Desktop run `88c8b27d` blocked three brief items ("THE ROAD" behind the ridge, the
   pillar mask-reveal, the 3-up split) and answered the 115% scale limit with "the preview can't
   composite" a blurred fill. The limit went with ADR 0180 (every build composites); the refusal
