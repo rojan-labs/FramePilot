@@ -207,32 +207,39 @@ one of three: work started per turn with nothing limiting how much runs at once,
 ceiling expressed as a _count_ where the cost is _bytes_, or a value rebuilt at
 display rate because its cache key changes at display rate.
 
-| Invariant                                       | Budget / evidence                                                                                                                                                                                |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Perceptual reviews in flight                    | **≤ 1** (`FRAMEPILOT_MAX_REVIEW_CONCURRENCY`); a review whose region a later turn rewrote is never started, and one running is aborted                                                           |
-| Frame size review measures at                   | **≤ `REVIEW_MAX_DIMENSION`** (960 long edge), never the project's resolution: 273ms → 38ms per frame and 781 MB → 176 MB peak on an 8-clip 2160x3840 sequence                                    |
-| Source decode resolution, review and frame grab | **≤ the frame it is composited into** (`compile_timeline(max_decode_dimension=)` → ffmpeg `-s`); export alone still decodes camera masters                                                       |
-| Compositions compiling or decoding at once      | **2** process-wide (`HEAVY_BUILD_GATE`); a build and a frame read (`composition_cache.read_frame`) each take a slot, so N concurrent agent calls never run N decoders (AL33)                     |
-| Readers a grab or scope opens                   | **the clips that can be on screen** in its window (`picture_window`), track mattes included (AL33: one matte made every look open all 40 readers); only blend modes composite the whole timeline |
-| Timeout of a call to an engine-serialised route | **its own work** plus at most one foreign batch: the executor sends its `/review/temporal-evidence` calls one at a time and starts each clock when sent (`ENGINE_SERIAL_ROUTES`)                 |
-| Frames a review batch holds resident            | **comparison frames only**, capped by `MAX_RESIDENT_FRAME_BYTES` (512 MiB) — a byte budget, because 400 frames is 2.5 GB at 540p and ~80 GB at UHD                                               |
-| Decoder output width in review                  | **`uint8`**, never promoted; consumers divide by 255.0 into float64 transiently                                                                                                                  |
-| Concurrent `/review/temporal-evidence` batches  | **1** process-wide, for every caller including the MCP server                                                                                                                                    |
-| ffmpeg readers after a compile that raises      | **0**; `compile_timeline` closes what it opened before re-raising (measured: 12 live children → 0)                                                                                               |
-| Undo-stack folds per committed edit             | **0**; the history panel folds to the one cursor position it is asked about, never to all of them                                                                                                |
-| Review-card builds per edit                     | **1**; a card is a pure function of an immutable `EditResult` identity, so it is `WeakMap`-cached rather than rebuilt per frame batch                                                            |
-| Decoded `VideoFrame`s leaked per run            | **0** on every path — range rejection, superseded seek, and client dispose all close what they collected                                                                                         |
+| Invariant                                       | Budget / evidence                                                                                                                                                                                                                 |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Perceptual reviews in flight                    | **≤ 1** (`FRAMEPILOT_MAX_REVIEW_CONCURRENCY`); a review whose region a later turn rewrote is never started, and one running is aborted                                                                                            |
+| Frame size review measures at                   | **≤ `REVIEW_MAX_DIMENSION`** (960 long edge), never the project's resolution: 273ms → 38ms per frame and 781 MB → 176 MB peak on an 8-clip 2160x3840 sequence                                                                     |
+| Source decode resolution, review and frame grab | **≤ the frame it is composited into** (`compile_timeline(max_decode_dimension=)` → ffmpeg `-s`); export alone still decodes camera masters                                                                                        |
+| Compositions compiling or decoding at once      | **2** process-wide (`HEAVY_BUILD_GATE`); a build and a frame read (`composition_cache.read_frame`) each take a slot, so N concurrent agent calls never run N decoders (AL33)                                                      |
+| Readers a grab or scope opens                   | **the clips that can be on screen** in its window (`picture_window`), track mattes (AL33) and blend modes (AL38) included; a blend falls back only at an instant where the export holds a frame (`compiler.window_answers`)       |
+| Opens, probes and decoder starts per source     | **1 open, 1 probe per file version per process, 0 decoder starts until a frame is read**, capped from its first frame (`render/video_reader.py`, AL38: two opens and two uncapped first-frame decodes per reader before)          |
+| Frames rendered while compiling a composite     | **0** source decodes, transition, grade or effect-layer passes, export and windows alike; a size is learned when read (`render/lazy_frames.py`, AL38: a scope's compile 5.9 → 1.1 s, the 60 s reel's export compile 33.3 → 5.4 s) |
+| Timeout of a call to an engine-serialised route | **its own work** plus at most one foreign batch: the executor sends its `/review/temporal-evidence` calls one at a time and starts each clock when sent (`ENGINE_SERIAL_ROUTES`)                                                  |
+| Frames a review batch holds resident            | **comparison frames only**, capped by `MAX_RESIDENT_FRAME_BYTES` (512 MiB) — a byte budget, because 400 frames is 2.5 GB at 540p and ~80 GB at UHD                                                                                |
+| Decoder output width in review                  | **`uint8`**, never promoted; consumers divide by 255.0 into float64 transiently                                                                                                                                                   |
+| Concurrent `/review/temporal-evidence` batches  | **1** process-wide, for every caller including the MCP server                                                                                                                                                                     |
+| ffmpeg readers after a compile that raises      | **0**; `compile_timeline` closes what it opened before re-raising (measured: 12 live children → 0)                                                                                                                                |
+| Undo-stack folds per committed edit             | **0**; the history panel folds to the one cursor position it is asked about, never to all of them                                                                                                                                 |
+| Review-card builds per edit                     | **1**; a card is a pure function of an immutable `EditResult` identity, so it is `WeakMap`-cached rather than rebuilt per frame batch                                                                                             |
+| Decoded `VideoFrame`s leaked per run            | **0** on every path — range rejection, superseded seek, and client dispose all close what they collected                                                                                                                          |
 
 Structural guards: `review-findings.test.ts` (concurrency ceiling, supersession skip,
 queued-review drain, cancellation is not a reviewer failure), `test_temporal_evidence.py`
 (`_FramePlan` retention, `uint8` cache, comparison byte budget, review frame size, the
 largest legal batch fitting the resident budget), `test_render_compiler.py`
-(`TestDecodeBudget`: the budget reaches the decoder, never upscales, and closes the reader
-it replaces), `test_render_frame_grab.py` (composite sized to the request, named presets
+(`TestDecodeBudget`: the budget reaches the decoder, never upscales, and opens the source once
+without decoding), `test_render_video_reader.py` (MoviePy's pixels for every first-read order;
+one probe, one reader and one capped decoder start per grab; the export uncapped),
+`test_render_lazy_frames.py` (MoviePy's sizes; the export and window compiles decode nothing and
+run no transition, grade or effect-layer pass), `test_render_frame_grab.py` (composite sized to the request, named presets
 composited as authored), `test_composition_cache.py` (one build at a time across distinct
 keys; a queued caller reuses what it waited for), `test_render_picture_window.py` (a matted
-shot's frame equals the whole timeline's; a grab or scope of it opens only its shot; every
-decode holds a slot its own thread took, never more than two at once), `sidecar-executor.test.ts`
+shot's frame equals the whole timeline's; a grab or scope of it opens only its shot; a blended
+frame equals the whole timeline's at every instant the window answers, and the grab falls back
+where the export holds a frame; every decode holds a slot its own thread took, never more than
+two at once), `sidecar-executor.test.ts`
 (serialised-route calls complete inside a budget their siblings' queue would have blown), `test_render_resources.py` (live-child
 count after failed compiles), `HistoryPanel.perf.test.tsx` (commit cost against a no-panel
 baseline, flat as the stack grows), `ai.review-card.test.ts` (card identity reuse), and

@@ -431,6 +431,52 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   masking request it never answered. Contract: a recorded decision answers only its own
   question with the tools of its day; a current request that asks otherwise is the editor
   changing it. Goldens re-recorded.
+- [x] **AL38** The three heat causes AL33 left open, all on the grab/scope/export compile path.
+  Double opens: every source was opened twice and each open decoded a first frame at ffmpeg's default
+  threads (`compiler._open_moviepy_reader`, pre-AL38 compiler.py:2841-2875, then
+  `decoder_threads.cap_decoder_threads` :106-123 stopped that decoder to restart a capped one;
+  MoviePy's `FFMPEG_VideoReader.__init__` → `initialize()`, ffmpeg_reader.py:81). Now
+  `render/video_reader.py`: one cached MoviePy probe per file version, `decode_resolution` from it,
+  one `ProbedVideoFileClip` whose reader starts ffmpeg at the first `get_frame`, capped from its
+  first frame; the export's reader starts at frame 0 wherever the eager reader would have skipped
+  forward and keeps its short-read fallback, so its frames are unchanged. Frames rendered while compiling:
+  building a composite rendered frames it never used: MoviePy measures a transformed clip by rendering its frame 0
+  (`VideoClip.with_updated_frame_function`, VideoClip.py:924, and `VideoClip(frame_function=)`,
+  :116, behind every transform/subclip/resize), so each of a layer's dozen stages rendered the
+  chain beneath it at t=0 (a scope: 3.5 of 5.7 s, 1.2 s in one directional-blur pass). Now
+  `render/lazy_frames.py`: source clips and the compiler's frame-function clips take a time map's
+  or a same-size stage's size from their input, a crop's from MoviePy's own slice, and any other
+  size by MoviePy's frame-0 formula when first read. Blend modes: they composited the whole
+  timeline (`picture_window.whole_timeline_reason` :100-111) because `_composite_with_blend_modes`
+  ignores the first layer's mode (:2289) and `_blend_layer_over` holds the base past its end
+  (:2310). A non-playing layer is an exact identity there (lossless 8-bit float round trip, blend
+  at alpha 0 = base; checked for all 11 modes), so the windowed compile records the export's layer
+  order with the blended layers it skips, and `compiler.window_answers(composition, t)` accepts an
+  instant only where each blended layer still to play has a layer built in the window beneath it
+  lasting past t (exact ends); the grab and evidence paths ask it where they checked the window's
+  end. Windows use the export's own compositor. Still refused: a blend beside a frosted overlay the
+  window leaves out (the frost compositor rounds a blend differently), a blended burned caption.
+  Measured on the scratch clone of the rev-219 travel reel, exact CPU from the sidecar's
+  `/usr/bin/time` (ffmpeg children included), HEAD → +video_reader → +lazy_frames → +blend window:
+  six scopes + eight grabs 122.3 → 80.7 → 40.7 → 40.4 CPU-s, 37.3 → 29.3 → 17.6 → 17.4 s, peak
+  ffmpeg 11 → 12 → 6 → 6, threads 420 → 484 → 255 → 255; cold grab 1.87 s / 2.8 CPU-s → 1.70 / 1.4
+  → 0.84 / 1.1; a scope 7.6 s / 17.9 → 7.0 / 14.4 → 3.2 / 6.1. With one screen-blended title: cold
+  grab 43.1 s / 97.1 CPU-s / 44 ffmpeg → 22.9 / 51.9 → 5.7 / 5.9 → 0.83 / 1.2 / 1; scope 53.8 s /
+  144.2 → 43.6 / 103.2 → 12.3 / 14.3 → 3.2 / 6.1; the burst 45.6 s / 72.2 CPU-s / 3.5 GB sidecar →
+  18.0 / 40.4 / 0.8 GB (+lazy_frames → +blend window). Export of an 8.5 s fixture at 720p: 74.8 s /
+  90.1 CPU-s → 65.0 / 77.4 (compile 5.7 → 1.0 s); the whole reel's export compile 33.3 → 5.4 s.
+  Identical: all 14 burst outputs after each commit (JPEG bytes, scope JSON), all 14 blend outputs
+  against the whole-timeline compile, every raw composite frame of the whole reel (1,814) and of
+  six 10 s segments, both 255-frame export fixtures, and both exports' decoded frames (framemd5).
+  Guards: `test_render_video_reader.py` (pixels equal MoviePy's reader for three first-read orders
+  and short reads, one probe/reader/decoder start per grab, capped), `test_render_lazy_frames.py`
+  (export and window compiles decode nothing; 14/16 fail with eager measuring restored), blended
+  parity + fallback in `test_render_picture_window.py` (5 fail without the guard). Open: a crop is
+  declared, but a resize or rotate is still measured if read (the blend canvas and track-matte
+  `with_mask()` read it: one frame of that layer); captions still render their t=0 raster; the
+  export's held base under a blended layer and its ignored bottom-layer mode are kept (a window
+  falls back there) — whether the monitor draws them the same was not checked; the blend burst was
+  not run on pre-AL38 code (every request compiles 40 eager readers; single requests measured).
 - [x] **PB1** Engine samples a styled cue's frames in windows from one cached layer build
   (`POST /preview/caption-frames`, binary, deduplicated); byte-identical to the single-frame route.
 - [x] **PB2** Desktop client carries a window on the existing text-raster channel; failures say

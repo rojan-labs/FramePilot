@@ -83,6 +83,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Exports and the assistant's checks do much less wasted work, so the laptop stays cooler.**
+  The engine opened every video twice, and each opening decoded a frame on every processor core
+  and threw it away. Assembling a picture also computed frames nobody looked at, such as a
+  transition's blur. On a 65-clip travel reel, the checks the assistant runs after an edit (six
+  colour measurements and eight looks) now take 17 seconds instead of 37 and a third of the
+  processor time. One look takes under a second. Preparing an export takes about 5 seconds
+  instead of 33, and a short export finishes about an eighth faster. A project with a blend
+  mode (screen, multiply and so on) no longer makes every look assemble the whole timeline: a
+  look took about 43 seconds and now takes under one. Pictures, measurements and exports are
+  exactly the same as before.
 - **The assistant acts on its self-check's advice before it finishes.** When the final check
   finds something worth a second look, such as the same shot cut to itself, the assistant now
   hears it while it can still act. It gets one more turn to fix it, or to leave it and say why if
