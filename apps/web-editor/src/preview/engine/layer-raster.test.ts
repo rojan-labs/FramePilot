@@ -119,6 +119,56 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     expect(unit).toEqual(plain);
   });
 
+  it('draws a transition under-layer with its shot’s own reframe, not fitted (AL40)', () => {
+    // Harness run 16: 16:9 shots reframed to fill a portrait frame. The shot under a luma
+    // fade was drawn fitted, and its letterbox bars showed through the whole ramp.
+    const portrait = { width: 1080, height: 1920 };
+    const land = video('land', 1920, 1080);
+    const fill = 1920 / 607.5;
+    const kf = (id: string, property: string, time: number, value: number) =>
+      ({ id, property, time, value, easing: 'linear' }) as const;
+    const outgoing = clip('a', 'land', {
+      end: 2,
+      sourceEnd: 2,
+      keyframes: [
+        kf('s0', 'scale', 0, fill),
+        kf('s1', 'scale', 2, fill),
+        kf('x0', 'x', 0, 150),
+        kf('x1', 'x', 1, -200),
+      ],
+    });
+    const incoming = clip('b', 'land', {
+      start: 2,
+      end: 4,
+      sourceStart: 4,
+      sourceEnd: 6,
+      effects: [
+        {
+          id: 'b__transition',
+          type: 'transition',
+          params: { kind: 'luma-fade', durationSeconds: 0.6, fromClipId: 'a' },
+          keyframes: [],
+        },
+      ],
+    });
+    const timeline: Timeline = {
+      tracks: [{ id: 't', type: 'video', clips: [outgoing, incoming] }],
+    };
+    const stepAt = (t: number, role: 'clip' | 'underlay') => {
+      const plan = framePlanAt(timeline, [land], t, portrait, { sourceFps: { land: 30 } });
+      const layer = plan.layers.find((l) => l.role === role && l.clipId === 'a');
+      if (!layer) throw new Error(`no ${role} layer for a at ${t}`);
+      return pictureRasterStep(layer, outgoing, land, portrait);
+    };
+
+    const under = stepAt(2.25, 'underlay');
+    // Filled, panned to its held last keyframe: 3413 x 1920, x = int(540 − 1706.67 − 200).
+    expect(under).toMatchObject({ resize: { width: 3413, height: 1920 }, x: -1366, y: 0 });
+    // Exactly where the shot itself sat just before the cut.
+    const own = stepAt(1.9, 'clip');
+    expect([under?.x, under?.y, under?.resize]).toEqual([own?.x, own?.y, own?.resize]);
+  });
+
   it('caps a cropped clip decode and slices the crop with int() bounds', () => {
     const c = clip('c', 'land', { crop: { x: 0.25, y: 0.1, width: 0.5, height: 0.8 } });
     // cap = ceil(1280 / 0.5 * 1.25) = 3200 ≥ 1920: no scaling in the decoder.

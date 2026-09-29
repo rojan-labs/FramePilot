@@ -251,6 +251,74 @@ describe('framePlanAt', () => {
     ]);
   });
 
+  it('keeps the neighbour’s reframe on an under-layer, held across the cut (AL40)', () => {
+    // `test_an_under_layer_keeps_the_neighbours_reframe_held_across_the_cut`, same numbers.
+    const portrait = { width: 1080, height: 1920 } as const;
+    const fill = 1920 / 607.5;
+    const reframed = (
+      id: string,
+      start: number,
+      pan: readonly [number, number],
+      xs: readonly [number, number],
+    ): Clip =>
+      clip(id, 'v', start, start + 2, {
+        sourceStart: 4,
+        keyframes: [
+          { id: `${id}s0`, time: 0, property: 'scale', value: fill },
+          { id: `${id}s1`, time: 2, property: 'scale', value: fill },
+          { id: `${id}x0`, time: pan[0], property: 'x', value: xs[0] },
+          { id: `${id}x1`, time: pan[1], property: 'x', value: xs[1] },
+        ],
+      });
+    const incoming: Clip = {
+      ...reframed('b', 2, [0, 2], [0, 0]),
+      effects: [
+        {
+          id: 'b__transition',
+          type: 'transition',
+          params: { kind: 'luma-fade', durationSeconds: 0.6, fromClipId: 'a' },
+          keyframes: [],
+        },
+        {
+          id: 'b__transition_out',
+          type: 'transition_out',
+          params: {
+            kind: 'cross-dissolve',
+            durationSeconds: 0.5,
+            toClipId: 'c',
+            alignment: 'end',
+          },
+          keyframes: [],
+        },
+      ],
+    };
+    const timeline: Timeline = {
+      tracks: [
+        track('v', 'video', [
+          reframed('a', 0, [0, 1], [150, -200]),
+          incoming,
+          reframed('c', 4, [0.5, 2], [250, -250]),
+        ]),
+      ],
+    };
+    const geometry = (t: number, role: 'clip' | 'underlay', clipId: string) =>
+      framePlanAt(timeline, ASSETS, t, portrait).layers.find(
+        (layer) => layer.role === role && layer.clipId === clipId,
+      )?.geometry;
+
+    const afterCut = geometry(2.25, 'underlay', 'a');
+    expect(afterCut).toEqual(geometry(1.9, 'clip', 'a'));
+    expect(afterCut?.left).toBeCloseTo(540 - 3413.333 / 2 - 200, 2);
+    expect(afterCut?.top).toBeCloseTo(0, 9);
+    expect(afterCut?.width).toBeCloseTo(3413.333, 2);
+    expect(afterCut?.height).toBeCloseTo(1920, 9);
+
+    const beforeCut = geometry(3.75, 'underlay', 'c');
+    expect(beforeCut).toEqual(geometry(4.1, 'clip', 'c'));
+    expect(beforeCut?.left).toBeCloseTo(540 - 3413.333 / 2 + 250, 2);
+    expect(beforeCut?.height).toBeCloseTo(1920, 9);
+  });
+
   it('marks a layer exit that plays its entrance backwards, and nothing else (EL7)', () => {
     const exit = (id: string, kind: string, extra: Record<string, unknown> = {}) => ({
       id: `${id}__transition_out`,

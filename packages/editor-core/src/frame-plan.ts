@@ -744,6 +744,18 @@ function transitionUnderlays(
   return found;
 }
 
+/**
+ * The neighbour's own clip-local time at an under-layer's local time (`underlay_clip_time`).
+ *
+ * An under-layer is the neighbour carried past its out-point (`in`) or before its in-point
+ * (`out`), so its keyframes read the neighbour's clock extended across the cut: past its last
+ * keyframe they hold the last value, before its first they hold the first.
+ */
+function underlayClipTime(underlay: Underlay, local: number): number {
+  // Offset first, then added, exactly as the engine adds `underlay_clock_offset`.
+  return local + (underlay.window[0] - underlay.neighbour.start);
+}
+
 /** Which source second an under-layer shows at its local time (`underlay_material`). */
 function underlaySourceTime(underlay: Underlay, local: number, sourceDuration: number): number {
   const { neighbour, role, window } = underlay;
@@ -1162,8 +1174,17 @@ function underlayLayer(ctx: Context, track: Track, clip: Clip, underlay: Underla
       frame: sourceFrameIndex(time, fps, ctx.sourceFrameTimes.get(neighbour.assetId)),
     },
     crop: cropJson(neighbour),
-    // Plain picture: the neighbour's framing without its keyframes or its own transition.
-    geometry: pictureGeometry(ctx, neighbour, [], local, true, null),
+    // The neighbour as it draws itself, without its own transition: its keyframed reframe on
+    // its own clip clock (`underlayClipTime`). Dropping the keyframes letterboxed a reframed
+    // 16:9 shot under a portrait dissolve (AL40).
+    geometry: pictureGeometry(
+      ctx,
+      neighbour,
+      neighbour.keyframes,
+      underlayClipTime(underlay, local),
+      true,
+      null,
+    ),
     blendMode: neighbour.blendMode ?? 'normal',
     effects: effectsJson(neighbour),
   };
