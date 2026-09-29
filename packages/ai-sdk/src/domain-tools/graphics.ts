@@ -28,6 +28,7 @@ import {
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
 import { CAPTION_FONT_CATALOG, getCaptionFont } from '@framepilot/timeline-schema/caption-fonts';
 import {
+  DEFAULT_TEXT_BOX_WIDTH_PERCENT,
   PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
   TEXT_OVERLAY_STYLE_CATALOG,
   TEXT_OVERLAY_STYLE_CATEGORIES,
@@ -160,7 +161,14 @@ function fitTextOverlayParams(
 ): Record<string, unknown> {
   const askedSize = params.fontSizePercent;
   const askedBox = params.boxWidthPercent;
-  if (typeof askedSize !== 'number' || typeof askedBox !== 'number') return { ...params };
+  if (typeof askedSize !== 'number' || typeof askedBox !== 'number') {
+    // Nothing is resized against a renderer default — but the renderer still DRAWS that
+    // default box centred on `xPercent`, so it must sit in frame all the same. Harness run 13
+    // put a left-aligned stamp at x 30 with no box width: the 80% default box spanned
+    // -10%…70%, and "CAMP · 7:40 A.M." lost its first letter off the frame.
+    const drawnBox = typeof askedBox === 'number' ? askedBox : DEFAULT_TEXT_BOX_WIDTH_PERCENT;
+    return withBoxInFrame({ ...params }, drawnBox);
+  }
   let sizePercent = askedSize;
   let boxWidthPercent = askedBox;
   const typed = typedTitleOf(params.typography, params.background);

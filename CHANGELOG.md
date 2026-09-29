@@ -70,6 +70,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Text placed near the edge stays on screen.** A left-aligned label the assistant placed
+  near the left edge without a set width could lose its first letters off the frame ("AMP"
+  for "CAMP"). The assistant now keeps the text's box inside the frame even when it uses the
+  default width.
 - **Spaced-out titles keep the space between their words in the export.** A title or caption
   with wide letter spacing ("THE CLIMB" at 0.25 em) exported with its words run together
   ("THECLIMB"), because the export spread out the letters inside each word but not the gap

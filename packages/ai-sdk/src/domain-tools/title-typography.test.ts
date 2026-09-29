@@ -19,6 +19,7 @@ import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
 import {
+  DEFAULT_TEXT_BOX_WIDTH_PERCENT,
   PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
   TEXT_OVERLAY_STYLE_CATALOG,
   getTextOverlayStyle,
@@ -110,6 +111,23 @@ describe('a text overlay box stays inside the frame', () => {
     const half = (params['boxWidthPercent'] as number) / 2;
     expect(params['xPercent'] as number).toBeGreaterThanOrEqual(half);
     expect((params['xPercent'] as number) + half).toBeLessThanOrEqual(100);
+  });
+
+  it('keeps the default box in frame when no box width was given', () => {
+    // Harness run 13: a left-aligned stamp at x 30 with no box width drew in the renderers'
+    // default 80% box, -10%…70%, and "CAMP · 7:40 A.M." lost its first letter off the frame.
+    const after = run('add_text_layer', vertical(), {
+      trackId: 'titles',
+      text: 'CAMP · 7:40 A.M.',
+      start: 0,
+      end: 3,
+      sizePercent: 1.8,
+      align: 'left',
+      xPercent: 30,
+    });
+    const params = textParams(after);
+    expect(params['boxWidthPercent']).toBeUndefined();
+    expect(params['xPercent']).toBe(DEFAULT_TEXT_BOX_WIDTH_PERCENT / 2);
   });
 });
 

@@ -215,8 +215,21 @@ const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as
 /** A coloured glow: zero offset, a wide blur in the letter colour. */
 const glow = (color: string) => ({ color, blur: 0.55, offsetX: 0, offsetY: 0 }) as const;
 
+/**
+ * The box width, % of the frame, both renderers draw a text overlay with when its params name
+ * none (web editor `DEFAULT_TEXT_PARAMS`, `text-raster.ts`; engine `text_overlay.py`
+ * `_DEFAULT_BOX_WIDTH_PERCENT`). The box is centred on `xPercent`, so anything placing text
+ * must keep THIS box in frame, not only a width someone chose.
+ */
+export const DEFAULT_TEXT_BOX_WIDTH_PERCENT = 80;
+
 /** Centre-frame placement, the default for a text overlay. */
-const CENTRE = { align: 'center', boxWidthPercent: 80, xPercent: 50, yPercent: 50 } as const;
+const CENTRE = {
+  align: 'center',
+  boxWidthPercent: DEFAULT_TEXT_BOX_WIDTH_PERCENT,
+  xPercent: 50,
+  yPercent: 50,
+} as const;
 /** Upper third: a hook sits above the subject's face. */
 const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22 } as const;
 /**

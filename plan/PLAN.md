@@ -328,6 +328,12 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   on the cut-out alone: the opener, buildable since AL31/AL31a, was never attempted or reported.
   Contract: a section that names several treatments is one item per treatment, so blocking one
   never hides the rest. Goldens re-recorded.
+- [x] **AL32b** Harness run 13: "CAMP · 7:40 A.M." (align left, x 30, no box width) drew as
+  "AMP…": `fitTextOverlayParams` returned early without a `boxWidthPercent`, skipping the
+  in-frame correction for the renderers' default 80% box. `DEFAULT_TEXT_BOX_WIDTH_PERCENT` is
+  exported from timeline-schema and the fit keeps THAT box in frame. Also: the TwelveLabs
+  single-flight tests released the owner before the waiter joined (CI calls == 2); they now wait
+  for the join.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer
