@@ -100,13 +100,18 @@ import type { HostPatchRefusal } from './commit-ledger.js';
 import { assessEditCompletion } from '../completion-gate.js';
 import {
   type ModelPlanItem,
+  type ModelPlanRecord,
   describeOpenItems,
   modelPlanDigest,
+  modelPlanObjectiveKey,
   modelPlanSteps,
   nextOpenItem,
   openPlanItems,
+  parseModelPlan,
   planItemLabel,
 } from './model-plan.js';
+import type { AgentOptions } from '../agent.js';
+import type { ContextInput } from '../context-builder.js';
 
 // Hard resource rails — blast-radius and cost bounds, NOT behavioral tuning. They exist
 // so a runaway or malfunctioning run hits a ceiling; they are deliberately generous
@@ -566,6 +571,12 @@ export interface ConductorState {
    * proves the continuation bought nothing, and the run settles and reports what is open.
    */
   readonly modelPlanDoneMark?: string;
+  /**
+   * {@link modelPlanObjectiveKey} of the request this run works toward, stamped on every plan
+   * event the model's list produces so the next run continuing that request can find it
+   * (AL5). Set at the start of an agent run; absent only on the idle state.
+   */
+  readonly modelPlanObjectiveKey?: string;
   /**
    * The run's durable task memory (ADR 0075). Distinct from every other field here:
    * those describe the HARNESS's view of the run (how many turns, how stalled, which
@@ -1286,6 +1297,40 @@ function toVerify(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
 }
 
 /**
+ * The request a run works toward, as the conductor resolves it: the reader's objective when
+ * `streamAuto` ran, else the message (a bare nudge resolving to the request under it). One
+ * function, so the run's objective and the key its plan is filed under never disagree.
+ */
+export function runObjectiveText(
+  agentOptions: AgentOptions | undefined,
+  input: Pick<ContextInput, 'userPrompt' | 'history'>,
+): string {
+  return (
+    agentOptions?.requestReading?.objectiveText ??
+    deriveObjectiveText(input.userPrompt, input.history)
+  );
+}
+
+/** The model's plan as a keyed record for a plan event, or `undefined` when it has none. */
+export function modelPlanRecordOf(state: ConductorState): ModelPlanRecord | undefined {
+  if (!state.modelPlan || state.modelPlanObjectiveKey === undefined) return undefined;
+  return { objectiveKey: state.modelPlanObjectiveKey, items: [...state.modelPlan] };
+}
+
+/**
+ * The plan a run starts with (AL5): a resumed run's own list from its checkpoint, else the
+ * list the last run on the request this message continues ended with. A new request gets
+ * none — `RequestReading.continuedPlan` is only ever set for a continuation.
+ */
+function inheritedModelPlan(
+  agentOptions: AgentOptions,
+  resuming: boolean,
+): readonly ModelPlanItem[] | undefined {
+  if (resuming) return parseModelPlan(agentOptions.resume?.modelPlan);
+  return parseModelPlan(agentOptions.requestReading?.continuedPlan);
+}
+
+/**
  * Finalize the run: emit the resume checkpoint (cancelled runs with applied work),
  * the empty-run notice (a non-cancelled run that landed nothing after trying), then
  * hand off to the {@link FinalizeEffect} which emits the diff + report + terminal
@@ -1308,6 +1353,9 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
             state.modelPlan,
             state.cancelled ? 'Stopped before this was done' : 'Not done — the run ended first',
           ),
+          // The steps settle open items as failed; the record keeps them open, because it is
+          // what a follow-up continuing this request picks up (AL5).
+          modelPlanRecordOf(state),
         ),
       );
     }
@@ -1337,6 +1385,8 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
         // restores the project; this restores the run — so a resumed run picks up at
         // the stage it reached instead of re-orienting from scratch.
         working: state.working,
+        // And its own to-do list (AL5): a resumed run without it re-planned from the brief.
+        ...(state.modelPlan ? { modelPlan: [...state.modelPlan] } : {}),
       }),
     );
   }
@@ -1569,7 +1619,11 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   const events: AiEvent[] = [em.status('thinking')];
 
   const resuming = !!(ao.resume && ao.resume.ops.length > 0);
-  const planning = !resuming && !!ao.planFirst && !command.stream.signal?.aborted;
+  const inheritedPlan = inheritedModelPlan(ao, resuming);
+  // A run that carries a plan forward already has one; drafting another would be a model
+  // call spent on a list the model's own then draws over.
+  const planning =
+    !resuming && inheritedPlan === undefined && !!ao.planFirst && !command.stream.signal?.aborted;
   const restored = resuming ? parseWorkingState(ao.resume?.working) : null;
   // What the run is actually being asked to do. A message that only says "continue"
   // names no work of its own, so it resolves to the request underneath it: seeding the
@@ -1581,9 +1635,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // "load the tools and complete the task" as carrying on with the brief above it, which
   // the word-list fallback cannot — that message has content words, so run `6cb12e30`'s
   // follow-up turns recorded it verbatim as their objective and lost the brief.
-  const objectiveText =
-    ao.requestReading?.objectiveText ??
-    deriveObjectiveText(command.input.userPrompt, command.input.history);
+  const objectiveText = runObjectiveText(ao, command.input);
   const created = initialWorkingState({
     runId: command.stream.runId ?? command.stream.turnId,
     // The request the run works toward, not the nudge that started it: every echo check
@@ -1697,14 +1749,22 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     working: restored ?? freshWorking,
     recentIntents: [],
     noProgressStreak: 0,
+    modelPlanObjectiveKey: modelPlanObjectiveKey(objectiveText),
     seq: em.seq(),
   };
+  // The carried plan is the run's own from the first turn: the briefing shows it, the
+  // no-tool continuation rule holds the run to its open items, and the editor sees the
+  // checklist it left off with before the first model call returns.
+  const seeded = inheritedPlan ? withModelPlan(started, inheritedPlan) : started;
+  if (inheritedPlan) {
+    events.push(em.plan(modelPlanSteps(inheritedPlan), modelPlanRecordOf(seeded)));
+  }
   const firstEffect: ConductorEffect = resuming
     ? { kind: 'resume' }
     : planning
       ? { kind: 'draft_plan' }
-      : runTurnEffect(started, 1);
-  return { state: started, effects: [firstEffect], events };
+      : runTurnEffect(seeded, 1);
+  return { state: { ...seeded, seq: em.seq() }, effects: [firstEffect], events };
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import { makeProject } from './__fixtures__/project.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { createAskUserGate } from './run-controls.js';
 import type { HostToolExecutor } from './tool-executor.js';
+import { modelPlanObjectiveKey, modelPlanRecordsFromEvents } from './kernel/model-plan.js';
 
 const input: ContextInput = { project: makeProject(), userPrompt: 'do the thing' };
 const opts: StreamOptions = { conversationId: 'c1', turnId: 't1', now: () => 1000 };
@@ -516,8 +517,7 @@ describe('Orchestrator.streamAuto — tiered model routing (goal.md Workstream E
     );
 
     const usage = events.find((e) => e.type === 'context_usage') as
-      | { manifest?: { model?: string } }
-      | undefined;
+      { manifest?: { model?: string } } | undefined;
     expect(usage?.manifest?.model).toBe('small-model');
   });
 
@@ -580,5 +580,101 @@ describe('Orchestrator.streamAuto — tiered model routing (goal.md Workstream E
       );
       expect(usage?.priced).toBe(false);
     });
+  });
+});
+
+/**
+ * AL5 (#149): a follow-up that CONTINUES an earlier request picks up the plan the last run
+ * on it ended with. The reader's grounded `continues` decides it — never the message's
+ * words — and a new request starts with no plan.
+ */
+describe('Orchestrator.streamAuto — a continuation carries the plan forward (AL5)', () => {
+  const brief = 'Edit a vertical travel reel: build the montage, warm grade, burn in captions.';
+  const planCall = (items: readonly { task: string; status: string; note?: string }[]) => ({
+    id: 'p1',
+    name: 'update_plan',
+    arguments: { items },
+  });
+  const openPlan = [
+    { task: 'Build the montage', status: 'done', note: 'delete_range ×1' },
+    { task: 'Warm grade', status: 'pending' },
+    { task: 'Burn in captions', status: 'pending' },
+  ];
+  const planEvents = (events: AiEvent[]) =>
+    events.filter((event): event is Extract<AiEvent, { type: 'plan' }> => event.type === 'plan');
+
+  /** The first run on the brief: it writes its plan, then stops with two items open. */
+  const firstRun = async () => {
+    const provider = new ScriptedProvider([
+      { text: '{"route":"edit"}' },
+      { text: 'Planning.', toolCalls: [planCall(openPlan)] },
+      { text: 'Stopping here.' },
+    ]);
+    const events = await collect(
+      new Orchestrator(provider).streamAuto({ ...input, userPrompt: brief }, opts),
+    );
+    return modelPlanRecordsFromEvents(events);
+  };
+  const followUp: ContextInput = {
+    ...input,
+    userPrompt: 'keep going',
+    history: [
+      { role: 'user', content: brief },
+      { role: 'assistant', content: 'Built the montage.' },
+    ],
+  };
+
+  it("files the run's plan under the request it works toward", async () => {
+    const records = await firstRun();
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ objectiveKey: modelPlanObjectiveKey(brief) });
+    expect(records[0]?.items.map((item) => item.status)).toEqual(['done', 'pending', 'pending']);
+  });
+
+  it('starts the continuing run with the open items and keeps it going while they are open', async () => {
+    const priorPlans = await firstRun();
+    const provider = new ScriptedProvider([
+      { text: '{"route":"edit","continues":1}' },
+      { text: 'Nothing more from me.' },
+    ]);
+    const events = await collect(
+      new Orchestrator(provider).streamAuto(
+        followUp,
+        { ...opts, turnId: 't2' },
+        {
+          agentOptions: { priorPlans },
+        },
+      ),
+    );
+    // The checklist it left off with is drawn before the first turn, filed under the brief.
+    expect(planEvents(events)[0]?.modelPlan).toEqual(priorPlans[0]);
+    // The first turn is briefed with the carried plan, not asked to plan from scratch.
+    const briefing = provider.requests[1]?.messages.at(-1)?.content ?? '';
+    expect(briefing).toContain('YOUR PLAN');
+    expect(briefing).toContain('[x] Build the montage');
+    expect(briefing).toContain('[ ] Warm grade');
+    // A reply with no tool call did not end it — two items were open.
+    expect(provider.requests.length).toBeGreaterThan(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'notification',
+        text: expect.stringContaining('plan items still open — continuing with “Warm grade”'),
+      }),
+    );
+  });
+
+  it('starts a new request with no plan, whatever earlier runs planned', async () => {
+    const priorPlans = await firstRun();
+    const provider = new ScriptedProvider([{ text: '{"route":"edit"}' }, { text: 'Done.' }]);
+    const events = await collect(
+      new Orchestrator(provider).streamAuto(
+        { ...followUp, userPrompt: 'add a title card that says Lisbon' },
+        { ...opts, turnId: 't2' },
+        { agentOptions: { priorPlans } },
+      ),
+    );
+    expect(planEvents(events)).toEqual([]);
+    expect(provider.requests[1]?.messages.at(-1)?.content).not.toContain('YOUR PLAN');
+    expect(provider.requests).toHaveLength(2);
   });
 });

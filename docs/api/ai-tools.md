@@ -298,6 +298,23 @@ update_plan({
   draws over it. When the run ends, open items settle as failed ("Not done — the run ended
   first"), a warning names them, and the completion report lists each unfinished item under
   **Not done** (`— not done` or `— blocked: <note>`).
+- **Across a run boundary (AL5, #149):** the plan used to live in conductor state only, so a
+  resumed run and a follow-up on the same request re-planned from the brief and could redo
+  finished work. Now:
+  - **Resume.** A cancelled run's `checkpoint` event carries `modelPlan` (the items). The host
+    hands it back as `AgentOptions.resume.modelPlan`, and the resumed run starts with it.
+  - **Continuation.** Every plan event the model's list produces carries
+    `modelPlan: { objectiveKey, items }`. `objectiveKey` is a fingerprint of the request the run
+    works toward (`modelPlanObjectiveKey`), so a "continue" run files its plan under the brief it
+    continues. Hosts pass `AgentOptions.priorPlans = modelPlanRecordsFromEvents(conversation.events)`.
+    `streamAuto` reads them only when the router's grounded `continues` names an earlier
+    request. It seeds `RequestReading.continuedPlan` with that request's newest plan, items as
+    they were: open stays open, done and blocked stay as they are.
+  - **New request.** A new request never inherits a plan.
+  - **Validation.** A carried plan is drawn as the run's first `plan` event, briefed as YOUR
+    PLAN, and held by the same continuation rule. `parseModelPlan` / `parseModelPlanRecords`
+    validate whatever comes back off disk or over IPC (desktop `parseAgentOptions`). Anything
+    malformed is dropped, and the run plans again.
 - **What the model sees:** a `YOUR PLAN` section in the run briefing, with every item, and
   `DO THIS NOW` pointing at the next open item.
 

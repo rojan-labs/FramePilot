@@ -20,7 +20,8 @@
  * Pure: no I/O, no clock. Shared by the tool's result, the reducer's continuation rule,
  * the briefing, and the plan checklist the editor sees.
  */
-import type { PlanStep } from '../events.js';
+import { z } from 'zod/v4';
+import type { AiEvent, PlanStep } from '../events.js';
 import { plainPlanLabel } from '../plan-label.js';
 
 /** Most items one plan may hold — a whole brief, not a transcript of it. */
@@ -186,4 +187,139 @@ export function describeOpenItems(items: readonly ModelPlanItem[]): string {
   const named = open.slice(0, OPEN_ITEMS_NAMED).map((item) => `“${planItemLabel(item)}”`);
   const rest = open.length - named.length;
   return rest > 0 ? `${named.join(', ')} and ${String(rest)} more` : named.join(', ');
+}
+
+// ---------------------------------------------------------------------------
+// Across a boundary: a resumed run, and the run that continues this one's request (AL5, #149)
+// ---------------------------------------------------------------------------
+
+/**
+ * A plan as it crosses a run boundary: the items, and WHICH request they are the plan for.
+ *
+ * The plan used to live in conductor state only, so a resumed run and the follow-up that
+ * carries on with the same request both started with none, and the model re-planned from
+ * the brief — redoing work its own list already said was done. `objectiveKey` is what lets
+ * the next run find the right list: a follow-up "continue" run works toward the brief, so
+ * ITS plan is keyed by the brief too, and a third message continuing the brief picks up the
+ * second run's list rather than the first's. Nothing here reads any text for meaning: the key
+ * is a fingerprint of the objective the conductor already resolved, compared for equality.
+ */
+export interface ModelPlanRecord {
+  /** {@link modelPlanObjectiveKey} of the request the run worked toward. */
+  readonly objectiveKey: string;
+  readonly items: readonly ModelPlanItem[];
+}
+
+/** Most earlier plans a host hands a run — one per request still in the reader's window. */
+export const MAX_PRIOR_MODEL_PLANS = 8;
+
+/**
+ * The fingerprint a plan's request is matched by: FNV-1a (32-bit) over the trimmed text,
+ * with its length. A key, not the text, because the plan event carrying it is re-emitted on
+ * every `update_plan` call and a brief can be 27k characters.
+ */
+export function modelPlanObjectiveKey(objectiveText: string): string {
+  const text = objectiveText.trim();
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${String(text.length)}:${hash.toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * One item as it comes back off disk or over IPC. Bounded like the tool's own schema, but
+ * without its authoring rules (a `done` note, a `blocked` reason): those govern what the
+ * model may WRITE, and a list it already wrote is carried as it was.
+ */
+const PersistedPlanItemSchema = z
+  .object({
+    task: z.string().trim().min(1).max(MODEL_PLAN_TASK_CHARS),
+    status: z.enum(MODEL_PLAN_STATUSES),
+    note: z.string().max(MODEL_PLAN_NOTE_CHARS).optional(),
+  })
+  .strict();
+
+const PersistedPlanSchema = z.array(PersistedPlanItemSchema).min(1).max(MODEL_PLAN_MAX_ITEMS);
+
+const PersistedPlanRecordSchema = z
+  .object({
+    objectiveKey: z.string().min(1).max(64),
+    items: PersistedPlanSchema,
+  })
+  .strict();
+
+/**
+ * A plan read back from a checkpoint, a conversation log or an IPC request, or `undefined`
+ * for anything that is not one. Never throws: a plan that cannot be read costs the run its
+ * carried list — it re-plans, as before — never its correctness.
+ */
+export function parseModelPlan(value: unknown): readonly ModelPlanItem[] | undefined {
+  const parsed = PersistedPlanSchema.safeParse(value);
+  return parsed.success ? parsed.data.map(toPlanItem) : undefined;
+}
+
+/** {@link parseModelPlan} for a keyed record. */
+export function parseModelPlanRecord(value: unknown): ModelPlanRecord | undefined {
+  const parsed = PersistedPlanRecordSchema.safeParse(value);
+  return parsed.success
+    ? { objectiveKey: parsed.data.objectiveKey, items: parsed.data.items.map(toPlanItem) }
+    : undefined;
+}
+
+/**
+ * Earlier plans from an untrusted source (the desktop renderer): each record that parses,
+ * the newest {@link MAX_PRIOR_MODEL_PLANS}. Anything that is not a list is no plans.
+ */
+export function parseModelPlanRecords(value: unknown): readonly ModelPlanRecord[] {
+  if (!Array.isArray(value)) return [];
+  const records: ModelPlanRecord[] = [];
+  for (const entry of value) {
+    const record = parseModelPlanRecord(entry);
+    if (record !== undefined) records.push(record);
+  }
+  return records.slice(-MAX_PRIOR_MODEL_PLANS);
+}
+
+function toPlanItem(item: z.infer<typeof PersistedPlanItemSchema>): ModelPlanItem {
+  return {
+    task: item.task,
+    status: item.status,
+    ...(item.note === undefined ? {} : { note: item.note }),
+  };
+}
+
+/**
+ * The plans a conversation's runs ended with, for the next run to continue: per request, the
+ * list its LAST plan event carried, oldest first, the newest {@link MAX_PRIOR_MODEL_PLANS}.
+ *
+ * Every plan event the model's list produces carries its record (`PlanEvent.modelPlan`), and
+ * the last one a run emits holds the list as the run left it — the settle-at-end event keeps
+ * the true statuses in the record even though its checklist marks open items failed.
+ */
+export function modelPlanRecordsFromEvents(events: readonly AiEvent[]): ModelPlanRecord[] {
+  const latest = new Map<string, ModelPlanRecord>();
+  for (const event of events) {
+    if (event.type !== 'plan' || event.modelPlan === undefined) continue;
+    const record = parseModelPlanRecord(event.modelPlan);
+    if (record === undefined) continue;
+    // Re-inserted so the map's order is "last written", and the bound keeps the newest.
+    latest.delete(record.objectiveKey);
+    latest.set(record.objectiveKey, record);
+  }
+  return [...latest.values()].slice(-MAX_PRIOR_MODEL_PLANS);
+}
+
+/**
+ * The plan a run continuing `objectiveText` starts with: the newest earlier record for that
+ * same request, items exactly as they were — open items stay open, done and blocked stay
+ * done and blocked. `undefined` when no earlier run planned that request.
+ */
+export function planForContinuation(
+  records: readonly ModelPlanRecord[] | undefined,
+  objectiveText: string,
+): readonly ModelPlanItem[] | undefined {
+  const key = modelPlanObjectiveKey(objectiveText);
+  return [...(records ?? [])].reverse().find((record) => record.objectiveKey === key)?.items;
 }

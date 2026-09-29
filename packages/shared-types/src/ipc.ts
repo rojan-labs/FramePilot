@@ -721,6 +721,23 @@ export interface AiStreamAgentOptions {
   readonly planFirst?: boolean;
   readonly durationTargetSeconds?: number;
   readonly targetPlatform?: 'reels' | 'tiktok' | 'shorts' | 'linkedin' | 'x';
+  /**
+   * The plans this conversation's earlier runs ended with, one per request (the SDK's
+   * `modelPlanRecordsFromEvents`). The SDK reads them only when the router says the message
+   * continues an earlier request (AL5). Re-validated and bounded in main
+   * (`parseModelPlanRecords`); anything malformed is dropped.
+   */
+  readonly priorPlans?: readonly AiStreamModelPlanRecord[];
+}
+
+/** One earlier run's plan on the wire — mirrors the SDK's `ModelPlanRecord`. */
+export interface AiStreamModelPlanRecord {
+  readonly objectiveKey: string;
+  readonly items: readonly {
+    readonly task: string;
+    readonly status: 'pending' | 'in_progress' | 'done' | 'blocked';
+    readonly note?: string;
+  }[];
 }
 
 /**

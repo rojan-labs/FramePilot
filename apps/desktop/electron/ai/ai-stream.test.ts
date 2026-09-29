@@ -420,6 +420,24 @@ describe('parseAgentOptions', () => {
     expect(() => parseAgentOptions({ autoRepair: 'yes' })).toThrow('autoRepair');
     expect(() => parseAgentOptions({ targetPlatform: 'myspace' })).toThrow('targetPlatform');
   });
+
+  it('keeps only well-formed earlier plans from the renderer (AL5)', () => {
+    const record = {
+      objectiveKey: '42:deadbeef',
+      items: [
+        { task: 'Warm grade', status: 'pending' },
+        { task: 'Montage', status: 'done', note: 'add_clip ×24' },
+      ],
+    };
+    expect(
+      parseAgentOptions({
+        priorPlans: [record, { objectiveKey: 'k', items: [{ task: 'x', status: 'finished' }] }, 3],
+      }),
+    ).toEqual({ priorPlans: [record] });
+    // Nothing usable is no field at all, never a refused run.
+    expect(parseAgentOptions({ priorPlans: 'plans' })).toEqual({});
+    expect(parseAgentOptions({ priorPlans: [{ objectiveKey: 'k', items: [] }] })).toEqual({});
+  });
 });
 
 describe('runAiStream', () => {

@@ -144,6 +144,7 @@ import {
   STALL_CONFIRM_TURNS,
   maxWallMsFor,
   type RepairOutcome,
+  runObjectiveText,
   type TurnCallFact,
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
@@ -164,8 +165,10 @@ import { buildStateBriefing, distil } from './kernel/briefing.js';
 import {
   type ModelPlanItem,
   modelPlanEcho,
+  modelPlanObjectiveKey,
   modelPlanSteps,
   nextOpenItem,
+  planForContinuation,
   planItemLabel,
 } from './kernel/model-plan.js';
 import { createNarrationFilter } from './kernel/narration.js';
@@ -7465,6 +7468,12 @@ export class Orchestrator {
     stageWithheld?: boolean,
     /** The run's vision reviewer, for an AI mask's spot check. Absent ⇒ the check is `not_run`. */
     maskSpotCheck?: MaskSpotCheckControls,
+    /**
+     * The key the run's plan is filed under (`ConductorState.modelPlanObjectiveKey`), stamped
+     * on the plan event an `update_plan` call produces so a later run continuing the same
+     * request can pick the list up (AL5). Absent ⇒ the event carries the steps only.
+     */
+    modelPlanObjectiveKey?: string,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -7770,7 +7779,12 @@ export class Orchestrator {
         // place, so no host needs to know which of the two wrote it.
         if (outcome.modelPlan !== undefined) {
           modelPlan = outcome.modelPlan;
-          yield emit.plan(modelPlanSteps(outcome.modelPlan));
+          yield emit.plan(
+            modelPlanSteps(outcome.modelPlan),
+            modelPlanObjectiveKey === undefined
+              ? undefined
+              : { objectiveKey: modelPlanObjectiveKey, items: outcome.modelPlan },
+          );
         }
         // NOTE: `timeline_action` cards are emitted only AFTER the turn's ops pass
         // the validator and are applied (by the caller) — not here. Emitting them
@@ -8095,11 +8109,18 @@ export class Orchestrator {
           classification.continues === undefined
             ? undefined
             : earlierRequests[classification.continues - 1];
+        // A continuation picks up the plan the last run on that request ended with (AL5);
+        // a new request never does — `priorPlans` is read on this branch only.
+        const continuedPlan =
+          continued === undefined
+            ? undefined
+            : planForContinuation(autoOptions.agentOptions?.priorPlans, continued.full);
         const requestReading: RequestReading = {
           objectiveText: continued === undefined ? input.userPrompt : continued.full,
           ...(classification.deliverableLength === undefined
             ? {}
             : { deliverableLength: classification.deliverableLength }),
+          ...(continuedPlan === undefined ? {} : { continuedPlan }),
         };
         yield* this.streamEditorRun(
           input,
@@ -9255,6 +9276,8 @@ export class Orchestrator {
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
+    // The same key the conductor files the run's plan under (`runObjectiveText` is shared).
+    const planObjectiveKey = modelPlanObjectiveKey(runObjectiveText(agentOptions, input));
     const appliedPatchIds = new Set<string>();
     const log: string[] = [];
     let plan: readonly string[] | undefined;
@@ -10129,6 +10152,7 @@ export class Orchestrator {
           // The same reviewer picture verification uses; a mask's spot check is one more
           // bounded question to it, never a second reviewer.
           review.visionReview,
+          planObjectiveKey,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it

@@ -19,6 +19,7 @@ import type { CritiqueReport, RenderValidationInput } from './critic.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { AnalysisCaps } from './kernel/cost/analysis-caps.js';
 import type { DeliverableLength } from './kernel/command-classifier.js';
+import type { ModelPlanItem, ModelPlanRecord } from './kernel/model-plan.js';
 
 /** One turn of the agent loop. */
 export interface AgentStep {
@@ -72,6 +73,13 @@ export interface RequestReading {
   readonly objectiveText: string;
   /** The finished length that request states, with the words that state it. */
   readonly deliverableLength?: DeliverableLength;
+  /**
+   * When the message CONTINUES an earlier request (the reader's grounded `continues`), the
+   * plan the last run on that request ended with, items as they were (AL5, #149). The run
+   * starts with it as its own plan: the briefing shows it, and the run keeps going while an
+   * item is open. Absent for a new request — a new request never inherits a plan.
+   */
+  readonly continuedPlan?: readonly ModelPlanItem[];
 }
 
 /** Options controlling an agent run. */
@@ -153,7 +161,20 @@ export interface AgentOptions {
     readonly stepsCompleted: number;
     /** Canonical causal ledger captured with the checkpoint; required for safe mutation. */
     readonly working?: unknown;
+    /**
+     * The model's plan captured with the checkpoint (`CheckpointEvent.modelPlan`), so the
+     * resumed run carries on with its own list. Validated with `parseModelPlan`; anything
+     * it cannot read is dropped and the run plans again.
+     */
+    readonly modelPlan?: unknown;
   };
+  /**
+   * The plans earlier runs in this conversation ended with, one per request
+   * (`modelPlanRecordsFromEvents` over the conversation log). Read ONLY by `streamAuto`, and
+   * only when the reader says the message continues an earlier request: the record for that
+   * request becomes {@link RequestReading.continuedPlan}. Any other message ignores them.
+   */
+  readonly priorPlans?: readonly ModelPlanRecord[];
   /**
    * The PREVIOUS run's persisted causal ledger, for the same conversation and project
    * (context-management P5.1).

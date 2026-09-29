@@ -116,9 +116,15 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
 - [x] **AL15** Live verification: harness runs 6–9 (Opus 5.5, the 27k brief, a copy of the real
   project) all COMPLETED end to end (577–801 s, 200–255 ops, plan kept current); run 9 finished
   every plan item except the export, which is honestly blocked (Export dialog).
-- [ ] **AL5** Follow-up: the model plan lives in conductor state only — a resume checkpoint and
-  the next run in the conversation start without it (the model re-plans). Measure on a real
-  long brief (desktop) before deciding whether to persist it in the working state (schema).
+- [x] **AL5** #149: the model plan crosses run boundaries. Checkpoint carries `modelPlan` →
+  `resume.modelPlan`; plan events carry `{ objectiveKey, items }`, hosts pass `priorPlans`, and a
+  router `continues` run starts on that request's last plan; a new request starts empty. Tests:
+  `model-plan`, `conductor`, `orchestrator-auto`, `orchestrator-stream`, desktop `ai-stream`.
+  Not measured on a live desktop run yet.
+- [ ] **AL16** Found in AL5: desktop Resume replays nothing. `parseAgentOptions` (desktop
+  `ai-stream.ts`) drops `agentOptions.resume`, so the renderer's Resume runs as a fresh run on
+  `cp.goal`. The fix needs a bounded `resume` on the IPC contract (ops re-validated on replay),
+  which widens the IPC surface, so it needs a maintainer decision.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

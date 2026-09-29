@@ -41,7 +41,7 @@ import {
   PLAN_STEP_HEADROOM,
   failedAfterApplyMessage,
 } from './conductor.js';
-import { type ModelPlanItem, modelPlanSteps } from './model-plan.js';
+import { type ModelPlanItem, modelPlanObjectiveKey, modelPlanSteps } from './model-plan.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 import { isRequestEcho, recordOperation } from './working-state.js';
 
@@ -3379,6 +3379,115 @@ describe('the model-owned plan (update_plan)', () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
       steps: [{ status: 'completed' }, { status: 'failed' }, { status: 'failed' }],
+    });
+  });
+});
+
+/**
+ * AL5 (#149): the model's plan used to live in conductor state only, so a resumed run and
+ * the follow-up that continues the same request both started without it and re-planned
+ * from the brief — redoing what their own list said was done.
+ */
+describe('the model plan across a run boundary (AL5)', () => {
+  const brief = 'Edit a vertical travel reel: 24-shot montage, warm grade, captions.';
+  const carried: ModelPlanItem[] = [
+    { task: 'Build the 24-shot montage', status: 'done', note: 'add_clip ×24' },
+    { task: 'Warm grade', status: 'in_progress', note: 'measuring the shots' },
+    { task: 'Captions', status: 'pending' },
+    { task: 'Export', status: 'blocked', note: 'Export is a dialog' },
+  ];
+  const continuing = (continuedPlan?: ModelPlanItem[]) =>
+    command({
+      requestReading: { objectiveText: brief, ...(continuedPlan ? { continuedPlan } : {}) },
+    });
+
+  it('puts the plan in the checkpoint of a cancelled run, and a resume starts with it', () => {
+    const cancelled = onEffectResult(
+      started({ modelPlan: carried, cumulativeOps: ops(2), appliedTurns: 1 }),
+      turn({ aborted: true }),
+    );
+    const checkpoint = cancelled.events.find((event) => event.type === 'checkpoint');
+    expect(checkpoint).toMatchObject({ modelPlan: carried });
+
+    // What the host persisted comes back as plain JSON.
+    const saved = JSON.parse(JSON.stringify(checkpoint)) as { modelPlan: unknown };
+    const resumed = onCommand(
+      idle,
+      command({
+        resume: { ops: ops(2), log: [], stepsCompleted: 1, modelPlan: saved.modelPlan },
+      }),
+    );
+    expect(resumed.state.modelPlan).toEqual(carried);
+    expect(resumed.effects).toEqual([{ kind: 'resume' }]);
+    // The editor sees the list it stopped on before the first model call returns.
+    expect(resumed.events).toContainEqual(
+      expect.objectContaining({ type: 'plan', steps: modelPlanSteps(carried) }),
+    );
+    const next = onEffectResult(
+      resumed.state,
+      resume({ ok: true, ops: ops(2), log: [], stepsCompleted: 1 }),
+    );
+    expect(next.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2, modelPlan: carried });
+  });
+
+  it('resumes without a plan when the checkpoint has none or it cannot be read', () => {
+    for (const modelPlan of [undefined, 'not a plan', [{ task: 'x', status: 'finished' }]]) {
+      const resumed = onCommand(
+        idle,
+        command({ resume: { ops: ops(1), log: [], stepsCompleted: 1, modelPlan } }),
+      );
+      expect(resumed.state.modelPlan).toBeUndefined();
+      expect(types(resumed.events)).toEqual(['status']);
+    }
+  });
+
+  it('starts a continuation with the earlier plan and holds the run to its open items', () => {
+    const start = onCommand(idle, continuing(carried));
+    expect(start.state.modelPlan).toEqual(carried);
+    expect(start.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 1, modelPlan: carried });
+    // Filed under the request it continues, so the NEXT continuation finds this run's list.
+    const drawn = start.events.find((event) => event.type === 'plan');
+    expect(drawn).toMatchObject({
+      modelPlan: { objectiveKey: modelPlanObjectiveKey(brief), items: carried },
+    });
+    // A first reply with no tool call does not end it: two items are still open.
+    const replied = onEffectResult(start.state, turn({ done: true }));
+    expect(replied.state.phase).toBe('executing');
+    expect(replied.state.working.nextAction?.action).toBe('Warm grade');
+  });
+
+  it('never drafts a second plan over a carried one', () => {
+    const start = onCommand(
+      idle,
+      command({
+        planFirst: true,
+        requestReading: { objectiveText: brief, continuedPlan: carried },
+      }),
+    );
+    expect(start.effects[0]).toMatchObject({ kind: 'run_turn' });
+  });
+
+  it('starts a new request with no plan', () => {
+    const start = onCommand(idle, continuing());
+    expect(start.state.modelPlan).toBeUndefined();
+    expect(start.events.some((event) => event.type === 'plan')).toBe(false);
+    expect(start.effects[0]).not.toHaveProperty('modelPlan');
+  });
+
+  it("keeps the open items open in the record of a run's closing plan event", () => {
+    const s = started({
+      modelPlan: carried,
+      modelPlanObjectiveKey: modelPlanObjectiveKey(brief),
+      cumulativeOps: ops(1),
+      appliedTurns: 1,
+      phase: 'verifying',
+    });
+    const { events } = onEffectResult(s, verify());
+    const settled = events.find((event) => event.type === 'plan');
+    // The checklist marks them failed (the run ended); the record is what a follow-up reads.
+    expect(settled).toMatchObject({
+      steps: expect.arrayContaining([expect.objectContaining({ status: 'failed' })]),
+      modelPlan: { objectiveKey: modelPlanObjectiveKey(brief), items: carried },
     });
   });
 });

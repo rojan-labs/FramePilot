@@ -20,6 +20,7 @@ import type { EditResult } from './assemble.js';
 import type { ReferenceProfile } from './references/profile.js';
 import type { ContextManifest } from './kernel/context/manifest.js';
 import type { RunStatus } from './run-contracts.js';
+import type { ModelPlanItem, ModelPlanRecord } from './kernel/model-plan.js';
 export type { RunStatus } from './run-contracts.js';
 
 // ---------------------------------------------------------------------------
@@ -176,6 +177,15 @@ export interface ReasoningDeltaEvent extends AiEventBase {
 export interface PlanEvent extends AiEventBase {
   readonly type: 'plan';
   readonly steps: readonly PlanStep[];
+  /**
+   * The model's own list behind these steps, keyed by the request it is the plan for
+   * (`kernel/model-plan.ts#ModelPlanRecord`). Present only on a plan the MODEL wrote. The
+   * steps are the editor's view of it and are lossy (labels flattened, and a run's closing
+   * event marks open items failed); this is what a later run continuing the same request is
+   * seeded from (AL5). Untyped on the wire so the event surface stays additive: readers
+   * validate it with `parseModelPlanRecord`.
+   */
+  readonly modelPlan?: unknown;
 }
 
 /** A tool invocation; mutated in place across its lifecycle by re-emitting the id. */
@@ -431,6 +441,12 @@ export interface CheckpointEvent extends AiEventBase {
    * validate it with `parseWorkingState`, which drops anything it cannot understand.
    */
   readonly working?: unknown;
+  /**
+   * The model's plan at the interruption point (`kernel/model-plan.ts`), as plain JSON.
+   * Without it a resumed run had the edits and the task memory but not its own to-do list,
+   * and re-planned from the brief. Readers validate it with `parseModelPlan`.
+   */
+  readonly modelPlan?: unknown;
 }
 
 /** Machine-authored causal ledger snapshot emitted at reducer boundaries. */
@@ -1323,7 +1339,8 @@ export interface TurnEmitter {
    * lands on the right (possibly per-step) node.
    */
   reasoningDelta(chunk: string, key?: string | number): ReasoningDeltaEvent;
-  plan(steps: readonly PlanStep[]): PlanEvent;
+  /** `modelPlan` rides along when the model wrote the plan (see {@link PlanEvent.modelPlan}). */
+  plan(steps: readonly PlanStep[], modelPlan?: ModelPlanRecord): PlanEvent;
   toolCall(
     id: string,
     toolName: string,
@@ -1362,6 +1379,7 @@ export interface TurnEmitter {
     log: readonly string[];
     stepsCompleted: number;
     working?: unknown;
+    modelPlan?: readonly ModelPlanItem[];
   }): CheckpointEvent;
   /** Snapshot the canonical causal ledger without consuming the one-off event sequence. */
   runState(working: unknown): RunStateEvent;
@@ -1452,7 +1470,12 @@ export function createTurnEmitter(ref: TurnRef, startSeq = 0): TurnEmitter {
       parentId: reasoningId(key),
       chunk,
     }),
-    plan: (steps) => ({ ...base(`${ref.turnId}:plan`), type: 'plan', steps }),
+    plan: (steps, modelPlan) => ({
+      ...base(`${ref.turnId}:plan`),
+      type: 'plan',
+      steps,
+      ...(modelPlan === undefined ? {} : { modelPlan }),
+    }),
     toolCall: (id, toolName, status, extra) => ({
       ...base(id),
       type: 'tool_call',

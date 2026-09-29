@@ -2028,8 +2028,18 @@ describe('streamAgent', () => {
     const ops = [
       { type: 'delete_range', trackId: 'caption_1', start: 0, end: 5 },
       ...Array.from({ length: 12 }, (_, i) => [
-        { type: 'add_caption_layer', trackId: 'caption_1', start: i, end: i + 1, clipId: `cue_${String(i)}` },
-        { type: 'set_caption_cue', clipId: `cue_${String(i)}`, captionCue: { text: 'x', words: [] } },
+        {
+          type: 'add_caption_layer',
+          trackId: 'caption_1',
+          start: i,
+          end: i + 1,
+          clipId: `cue_${String(i)}`,
+        },
+        {
+          type: 'set_caption_cue',
+          clipId: `cue_${String(i)}`,
+          captionCue: { text: 'x', words: [] },
+        },
       ]).flat(),
       { type: 'set_caption_cue', clipId: 'cue_existing', captionCue: { text: 'y', words: [] } },
     ] as unknown as AnyOperation[];
@@ -3574,6 +3584,64 @@ describe('streamAgent checkpoint + resume (R3 C2)', () => {
     expect(diffs[0]).toMatchObject({ scope: 'turn' });
     expect(diffs[0]?.type === 'diff' && diffs[0].edit.patch.operations).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ status: 'completed' });
+  });
+
+  it('carries the model plan through the checkpoint into the resumed run (AL5)', async () => {
+    // #149: the plan lived in conductor state only, so Resume replayed the edits and then
+    // re-planned from the brief. The checkpoint now carries it; the resumed run starts on it.
+    const controller = new AbortController();
+    const items = [
+      { task: 'Tighten the intro', status: 'in_progress' },
+      { task: 'Warm grade', status: 'pending' },
+    ];
+    let calls = 0;
+    const interrupted: AiProvider = {
+      name: 'mock',
+      complete: async (): Promise<AiResponse> => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            text: 'edit',
+            toolCalls: [
+              { id: 'p1', name: 'update_plan', arguments: { items } },
+              deleteRange('a', 0, 3),
+            ],
+          };
+        }
+        controller.abort();
+        return { text: '' };
+      },
+    };
+    const first = await drain(
+      new Orchestrator(interrupted).streamAgent(input, { ...opts(), signal: controller.signal }),
+    );
+    const checkpoint = first.find(
+      (e): e is Extract<AiEvent, { type: 'checkpoint' }> => e.type === 'checkpoint',
+    );
+    expect(checkpoint?.modelPlan).toEqual(items);
+
+    // The host persists the checkpoint as JSON and hands its fields back on Resume.
+    const saved = JSON.parse(JSON.stringify(checkpoint)) as NonNullable<typeof checkpoint>;
+    const provider = new ScriptedProvider([{ text: 'Nothing more.' }]);
+    const resumed = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), {
+        resume: {
+          ops: saved.ops as never,
+          log: saved.log,
+          stepsCompleted: saved.stepsCompleted,
+          working: saved.working,
+          modelPlan: saved.modelPlan,
+        },
+      }),
+    );
+    const briefing = provider.requests[0]?.messages.at(-1)?.content ?? '';
+    expect(briefing).toContain('YOUR PLAN');
+    expect(briefing).toContain('[>] Tighten the intro');
+    // Both items are open, so a reply with no tool call did not end the resumed run.
+    expect(provider.requests.length).toBeGreaterThan(1);
+    expect(resumed.find((e) => e.type === 'plan')).toMatchObject({
+      modelPlan: { items },
+    });
   });
 
   it('resumes multiple kept edits with a default reason and pluralized summary', async () => {

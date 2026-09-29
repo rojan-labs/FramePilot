@@ -1,13 +1,21 @@
 /** Tests for the model's own plan (`update_plan`) — the pure half the loop decides from. */
 import { describe, expect, it } from 'vitest';
+import { createTurnEmitter } from '../events.js';
 import {
   type ModelPlanItem,
+  MAX_PRIOR_MODEL_PLANS,
+  MODEL_PLAN_MAX_ITEMS,
   describeOpenItems,
   modelPlanDigest,
   modelPlanEcho,
   modelPlanSteps,
+  modelPlanObjectiveKey,
+  modelPlanRecordsFromEvents,
   nextOpenItem,
   openPlanItems,
+  parseModelPlan,
+  parseModelPlanRecords,
+  planForContinuation,
 } from './model-plan.js';
 
 const item = (task: string, status: ModelPlanItem['status'], note?: string): ModelPlanItem => ({
@@ -102,5 +110,81 @@ describe('modelPlanSteps', () => {
       ['failed', 'Not done — the run ended first'],
       ['failed', 'Not done — the run ended first'],
     ]);
+  });
+});
+
+/**
+ * AL5 (#149): the plan crosses a run boundary — a resume, or the next run on the same request.
+ * These pin the pure half: reading a plan back, and finding the right one for a continuation.
+ */
+describe('a plan across a run boundary', () => {
+  const brief = 'Edit a vertical travel reel from the 24-shot list, grade it warm, add captions.';
+  const briefPlan = [
+    item('Build the montage', 'done', 'add_clip ×24'),
+    item('Warm grade', 'in_progress', 'waiting on measure_color'),
+    item('Captions', 'pending'),
+    item('Export', 'blocked', 'Export is a dialog'),
+  ];
+
+  it('keys a plan by its request, ignoring the whitespace around it', () => {
+    expect(modelPlanObjectiveKey(`  ${brief}\n`)).toBe(modelPlanObjectiveKey(brief));
+    expect(modelPlanObjectiveKey(brief)).not.toBe(modelPlanObjectiveKey(`${brief} Also a hook.`));
+    expect(modelPlanObjectiveKey('continue')).not.toBe(modelPlanObjectiveKey(brief));
+  });
+
+  it('reads a written plan back with every status and note as it was', () => {
+    expect(parseModelPlan(JSON.parse(JSON.stringify(briefPlan)))).toEqual(briefPlan);
+  });
+
+  it('refuses anything that is not a plan — never throws, never half-reads', () => {
+    expect(parseModelPlan(undefined)).toBeUndefined();
+    expect(parseModelPlan('a plan')).toBeUndefined();
+    expect(parseModelPlan([])).toBeUndefined();
+    expect(parseModelPlan([{ task: 'a', status: 'finished' }])).toBeUndefined();
+    expect(parseModelPlan([{ task: '   ', status: 'pending' }])).toBeUndefined();
+    expect(parseModelPlan([{ task: 'a', status: 'pending', extra: 1 }])).toBeUndefined();
+    // One bad item drops the list: a plan missing an item would be re-sent without it.
+    expect(parseModelPlan([briefPlan[0], { task: 'b' }])).toBeUndefined();
+    const tooMany = Array.from({ length: MODEL_PLAN_MAX_ITEMS + 1 }, (_, i) =>
+      item(`t${String(i)}`, 'pending'),
+    );
+    expect(parseModelPlan(tooMany)).toBeUndefined();
+  });
+
+  it("finds each request's LAST plan in a conversation, and skips a checklist the model did not write", () => {
+    const first = createTurnEmitter({ conversationId: 'c', turnId: 't1' });
+    const second = createTurnEmitter({ conversationId: 'c', turnId: 't2' });
+    const other = createTurnEmitter({ conversationId: 'c', turnId: 't3' });
+    const key = modelPlanObjectiveKey(brief);
+    const opened = [item('Build the montage', 'in_progress'), item('Captions', 'pending')];
+    const events = [
+      first.plan([{ id: 'step-1', label: 'Drafted', status: 'pending' }]),
+      first.plan([], { objectiveKey: key, items: opened }),
+      other.plan([], { objectiveKey: modelPlanObjectiveKey('add a title'), items: opened }),
+      // The follow-up "continue" run works toward the brief, so its plan is the brief's too.
+      second.plan([], { objectiveKey: key, items: briefPlan }),
+      second.plan([], { objectiveKey: 'junk', items: [{ task: '' }] } as never),
+    ];
+    const records = modelPlanRecordsFromEvents(events);
+    expect(records.map((record) => record.items)).toEqual([opened, briefPlan]);
+    expect(planForContinuation(records, brief)).toEqual(briefPlan);
+    expect(planForContinuation(records, 'add a title')).toEqual(opened);
+  });
+
+  it('gives a request no earlier run planned no plan', () => {
+    const records = [{ objectiveKey: modelPlanObjectiveKey(brief), items: briefPlan }];
+    expect(planForContinuation(records, 'Make a 15s teaser')).toBeUndefined();
+    expect(planForContinuation(undefined, brief)).toBeUndefined();
+  });
+
+  it('keeps only well-formed records from an untrusted list, newest last and bounded', () => {
+    const records = Array.from({ length: MAX_PRIOR_MODEL_PLANS + 2 }, (_, i) => ({
+      objectiveKey: `k${String(i)}`,
+      items: [item(`t${String(i)}`, 'pending')],
+    }));
+    const parsed = parseModelPlanRecords([...records, { objectiveKey: 'x', items: 'no' }, 7]);
+    expect(parsed).toHaveLength(MAX_PRIOR_MODEL_PLANS);
+    expect(parsed.at(-1)?.objectiveKey).toBe(`k${String(MAX_PRIOR_MODEL_PLANS + 1)}`);
+    expect(parseModelPlanRecords({ objectiveKey: 'k0' })).toEqual([]);
   });
 });
