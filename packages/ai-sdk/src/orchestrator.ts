@@ -3688,6 +3688,7 @@ export function summarizeReadResult(
       );
     }
     case 'check_caption_legibility':
+    case 'measure_loudness':
     case 'measure_subject': {
       // Geometry the model places text by: the host already wrote it as lines (head, face
       // band, width per band, the title answer). A JSON slice would cut the band list and

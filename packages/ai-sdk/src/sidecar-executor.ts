@@ -25,6 +25,13 @@ import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './
 import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
 import { TemporalEvidenceBatchSchema, TEMPORAL_EVIDENCE_VERSION } from './temporal-review.js';
 import {
+  MeasureLoudnessArgsSchema,
+  interpretLoudness,
+  loudnessRefusal,
+  loudnessRequest,
+  loudnessWindow,
+} from './loudness-measurement.js';
+import {
   VisualIndexClient,
   runVisualIndexLoop,
   type VisualIndexLoopResult,
@@ -165,6 +172,9 @@ const TOOL_TIMEOUT_MS: Record<string, number> = {
   // Two compositions (with and without captions) compiled cold on a long edit, then two
   // frames per sampled cue. ~20 s warm and ~60 s cold on the captured 50 s short.
   check_caption_legibility: 240_000,
+  // The whole programme's sound composed and metered: a whole-timeline compile, then the
+  // mix streamed through ebur128. Seconds on a short; minutes on a long edit, cold.
+  measure_loudness: 300_000,
 };
 
 /**
@@ -1599,6 +1609,24 @@ interface SidecarPlan {
 }
 
 /**
+ * `measure_loudness` through the temporal-evidence route (`loudness-measurement.ts` owns the
+ * window and the reading). `null` for a call with nothing to measure — `run` answers those
+ * with {@link loudnessRefusal} before it plans anything.
+ */
+function loudnessPlan(rawArgs: Record<string, unknown>, project: Project): SidecarPlan | null {
+  const parsed = MeasureLoudnessArgsSchema.safeParse(rawArgs);
+  if (!parsed.success) return null;
+  const window = loudnessWindow(project, parsed.data);
+  if ('refusal' in window) return null;
+  const requestId = `measure_loudness__${window.role}`;
+  return {
+    route: TEMPORAL_EVIDENCE_ROUTE,
+    body: { project, requests: [loudnessRequest(window, requestId)] },
+    interpret: (data) => interpretLoudness(data, requestId, window, parsed.data),
+  };
+}
+
+/**
  * Resolve a tool call to its sidecar route + body + response interpreter, or
  * `null` when this executor has no route for it (render/export actions). Keeping
  * the branching here — one arm per capability family — keeps the executor's
@@ -1707,6 +1735,7 @@ export function planSidecarCall(
       },
     };
   }
+  if (name === 'measure_loudness') return loudnessPlan(args, project);
   const searchRoute = SEARCH_ROUTES[name];
   if (searchRoute !== undefined) {
     return {
@@ -2087,6 +2116,10 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
               'the clips on the video tracks and their ids, then measure one of those.',
           };
         }
+      }
+      if (call.name === 'measure_loudness') {
+        const refusal = loudnessRefusal(ctx.project, call.arguments);
+        if (refusal !== undefined) return { status: 'failed', summary: refusal };
       }
       // Forward the host-held embedding keys (the same ones index_media uses) to the
       // visual query routes; without them a TwelveLabs-indexed project answers from the

@@ -1,14 +1,14 @@
 ---
 name: audio-polish
-description: Mixing reference — balancing dialogue, music, ambience and effects; fades, gain rides, EQ, compression and ducking with the real audio controls; sourcing a music bed or sound effects; and the honest limits (no loudness meter).
-tools: [get_timeline, get_clips, list_assets, adjust_audio, professional_audio, set_track_flags, analyze_silence, search_music, add_music, detect_beats]
+description: Mixing reference — balancing dialogue, music, ambience and effects; fades, gain rides, EQ, compression and ducking with the real audio controls; measuring LUFS and true peak against a delivery target; sourcing a music bed or sound effects.
+tools: [get_timeline, get_clips, list_assets, adjust_audio, professional_audio, set_track_flags, measure_loudness, analyze_silence, search_music, add_music, detect_beats]
 ---
 
 # Audio polish
 
 **Levels, ducks and fades the editor specifies are the targets** ("bed at -18 dB", "duck the
 music 6 dB under the SFX", "2 s fade to black"). Build them with the controls below, and say
-plainly where a spec cannot be met exactly (a LUFS reading, an attack time). The defaults here
+plainly where a spec cannot be met exactly (an attack time). The defaults here
 are for mixes nobody specified.
 
 ## Purpose
@@ -54,7 +54,7 @@ Dialogue is the reference. Music and ambience earn level only after every word r
 - Absent a spec, start music under speech around -18 dB and adjust from evidence; speech-free passages may rise.
 - Fades are fades, not stepped splits: a frame-based fade on the clip is smoother and undoes in one step.
 - Preserve ambience across cuts when it hides discontinuity. Mute alternates; do not delete them.
-- There is no loudness meter. A LUFS or true-peak target is approximated with gain and peak `normalize`, and reported as approximated, never as measured.
+- A LUFS or true-peak target is measured, never estimated: `measure_loudness` with the request's `targetLufs` / `maxTruePeakDbtp` reads the mix and names the move. A flat `adjust_audio` gain on every track moves integrated loudness by the same dB and keeps the balance; compress (`professional_audio`) before raising when the true peak would cross the ceiling; peak `normalize` sets a peak, not loudness. Re-measure after each change and report the measured figures.
 - Sound effects come from the same library as music: `search_music` with the effect's name
   ("whoosh", "camera shutter", "waves") returns effects too, and `add_music` with `atSeconds`
   places one at its moment for its own short length on its own track. Keep effects under the
@@ -76,7 +76,7 @@ When the edit wants music and the bin has none, `search_music` finds one and `ad
 ## Decision framework
 
 Identify the dominant voice → match dialogue clips → set the bed → label roles and duck where
-needed → shape fades and rides → preview at normal and low volume. Any step the request
+needed → shape fades and rides → measure against any stated loudness target → preview at normal and low volume. Any step the request
 specifies takes its values from the request.
 
 ## Common mistakes

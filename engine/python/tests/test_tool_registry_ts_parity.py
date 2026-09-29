@@ -115,6 +115,9 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # Caption legibility renders the captioned working copy through the sidecar
         # compositor, routed like `get_frame`; there is no MCP route for it.
         "check_caption_legibility",
+        # The working project's mix metered through the temporal-evidence route, routed like
+        # `measure_color`; the standalone MCP surface has no route for it.
+        "measure_loudness",
         # Where a caption cue breaks is a linguistic decision and `segmentCaptions`
         # is deliberately its single authority (ADR 0071). Mirroring it here would
         # mean a second segmenter disagreeing with the first word by word — so this

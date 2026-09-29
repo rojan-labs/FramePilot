@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The assistant can measure loudness.** Ask for "-14 LUFS, true peak at most -1 dBTP" and it
+  measures the mix, or only the dialogue, music or effects tracks you labelled. It reports
+  integrated loudness, loudness range, true peak and sample peak, how far each is from your
+  target, and the change that closes the gap. Before, it said it could not measure loudness and
+  left the target unconfirmed. It measures the timeline; a Loudness preset chosen in the Export
+  dialog still applies on top.
 - **The assistant builds picture-in-picture, split screens and blurred-fill backgrounds.** Ask
   for a 16:9 shot in a vertical video "without cropping the subject" and it can fit the whole
   shot over a blurred copy of itself, with no upscaling, instead of zooming past what the source

@@ -67,7 +67,7 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   // `transcribe` and `detect_beats` are core and music lives in `sourcing`; naming them here
   // sent a run looking for music to a domain that has none (run `6cb12e30` audit).
   audio:
-    'set levels, fades and ducking on a clip or track; EQ, compression and mix moves; find and cut silence and filler words',
+    'set levels, fades and ducking on a clip or track; EQ, compression and mix moves; measure loudness (LUFS, true peak) against a target; find and cut silence and filler words',
   // Named for the words a REQUEST uses, not only the moves. A run asked to "build a
   // professional edit" never pinned this domain across 37 minutes and six `load_tools`
   // calls, so three shipped tools were unreachable in practice — the summary is the whole
@@ -195,6 +195,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
   ],
   audio: [
     'adjust_audio',
+    'measure_loudness',
     'analyze_silence',
     'remove_silences',
     'remove_filler_words',

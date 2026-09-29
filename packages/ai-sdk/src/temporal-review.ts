@@ -264,6 +264,8 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
         integratedLufs: finite,
         loudnessRangeLu: fromEngine(finite),
         truePeakDbfs: fromEngine(finite),
+        /** The mix's highest sample before the full-scale clip (the true peak is after it). */
+        samplePeakDbfs: fromEngine(finite),
       })
       .strict(),
   }).strict(),

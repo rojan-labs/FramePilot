@@ -16,6 +16,7 @@ import type { Operation } from '@framepilot/editor-core';
 import { analysisTool, mutateTool } from './tool-factories.js';
 import { filterString, numeric, seconds } from './tool-args.js';
 import { DEFAULT_FILLER_WORDS, fillerCutOps } from '../silence-cut.js';
+import { MeasureLoudnessArgsSchema } from '../loudness-measurement.js';
 
 const transcribeSchema = z
   .object({
@@ -184,6 +185,23 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'settings. Returns start/end/duration for each gap; does not edit the timeline.',
     },
     analyzeSilenceSchema,
+  ),
+  analysisTool(
+    {
+      name: 'measure_loudness',
+      description:
+        'Measure loudness as a delivery spec states it: integrated LUFS, loudness range, true ' +
+        'peak (dBTP) and sample peak of the timeline mix, or of one role (dialogue/music/sfx ' +
+        'as labelled with set_track_flags), over the whole timeline or startSeconds–endSeconds. ' +
+        'Pass the targetLufs / maxTruePeakDbtp the request names and it reports how far off ' +
+        'each is and the move that closes the gap. Run it after mixing and again after each ' +
+        'change; seconds to minutes. Measures; never edits.',
+      capabilities: ['audio'],
+      // Composes the working project's sound through the engine, like `measure_color`; the
+      // standalone MCP surface has no route for it.
+      hostUiOnly: true,
+    },
+    MeasureLoudnessArgsSchema,
   ),
   analysisTool(
     {

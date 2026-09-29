@@ -158,6 +158,7 @@ describe('analysis-kind tools are exhaustively classified by project-state effec
     'map_footage',
     'measure_color',
     'measure_subject',
+    'measure_loudness',
     'check_caption_legibility',
     'search_media',
     'search_music',

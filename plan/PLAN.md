@@ -384,6 +384,24 @@ IPC channel. ADR 0180 amendment 2026-09-27. Branch `fix/preview-playback-2026-09
   decision (covers entries already on disk). The same run said the library had no door/keys/
   footsteps sounds without searching them: `audio-polish` now says a sound has no match only once
   its own search came back empty.
+- [x] **AL36** Desktop run 88c8b27d: "I can't measure loudness here, so −14 LUFS and ≤ −1 dBTP
+  are not confirmed", while the engine had an unused EBU R128 `loudness` request behind
+  `/review/temporal-evidence`. New read-only `measure_loudness` (audio domain, `inspection` role
+  so it stays offered after the first patch, `hostUiOnly`, `ffmpegSeconds`-charged): mix or one
+  labelled role, whole timeline or a range; returns integrated LUFS, LRA, true peak (ebur128 4×
+  oversampled, of the mix clipped at full scale as the export writes it) and the sample peak
+  before the clip (new `samplePeakDbfs` on the loudness result), the gap to a stated target, and
+  the lever by name (flat `adjust_audio` gain per track; `professional_audio` compress before a
+  raise that would cross the ceiling; peak normalize does not land LUFS). Engine: a loudness
+  window may span 30 min at 60 fps (integrated loudness is programme-gated, so 300-frame pieces
+  cannot add up), streamed to the WAV a chunk at a time. `audio-polish` no longer says "there is
+  no loudness meter". Evidence: `loudness-measurement.test.ts` (window, refusals, reading,
+  executor route), `test_temporal_evidence.py` (a −20 dBFS 997 Hz stereo sine over 600 frames
+  reads −20 LUFS/−20 dBTP through real ffmpeg; a +6 dBFS mix reports sample peak +6.0 with the
+  true peak under 1); end to end on a scratch sidecar with the `beat-100bpm.wav` fixture: −28.9
+  LUFS / −15.1 dBTP, equal to ffmpeg ebur128 on the file, and −34.9 / −21.1 after a −6 dB
+  `adjust_audio`. Goldens +21 tokens/request (domain index + skill index). Not measured: a live
+  agent run on the brief.
 - [x] **AL30a** Harness run 12 blocked the brief's text-behind-subject and shape-mask opener on
   "Editor chose default-face imitation over cut-out route". That was a REAL recorded decision
   (2026-09-28 ask_user: "Imitate it in the default face"), asked under a premise that no longer

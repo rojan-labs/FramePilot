@@ -54,7 +54,7 @@ Beyond the schema, every tool resolves a typed **execution contract**
   (`kernel/cost/analysis-caps.ts`): `maxTranscriptionMinutes` (default 60) over minutes of
   audio actually transcribed, and `maxFfmpegSeconds` (default 900) over wall-clock seconds
   of ffmpeg-backed analysis — the silence/scene/beat analyzers, `get_frame`,
-  `measure_color`. The host seam checks the budget before dispatch and records the real
+  `measure_color`, `measure_loudness`. The host seam checks the budget before dispatch and records the real
   consumption after, so a call over the ceiling **fails honestly and never runs**; its
   summary names the resource and the totals. Callers that thread no budget (a one-off MCP
   call) are uncapped, as before.
@@ -130,6 +130,7 @@ nothing in a non-empty bin.
 | `render_preview`                    | Produce a low-res preview render                               | action           | yes        |
 | `export_video`                      | Final export (after approval)                                  | action           | yes        |
 | `analyze_silence`                   | Detect silent gaps (ffmpeg silencedetect)                      | analysis         | yes        |
+| `measure_loudness`                  | Meter the timeline mix or a role stem (LUFS, LRA, peaks)       | analysis         | yes        |
 | `detect_scenes`                     | Detect scene cuts (ffmpeg scene score)                         | analysis         | yes        |
 | `detect_subjects`                   | Detect people/objects in frames (Subject Intelligence pack)    | analysis         | yes        |
 | `find_mask_targets` … `delete_mask` | The masking domain — see [ai-masking.md](./ai-masking.md)      | analysis / write | yes        |
@@ -224,6 +225,43 @@ malformed provider output is a failed tool outcome and preserves the current tra
 This is intentionally a host-backed mutation: audio and credentials never enter model arguments,
 while the resulting edit still passes through validate → review/apply → undo. Desktop manual
 transcription, the in-app agent, and MCP all converge on that operation boundary.
+
+### Measuring loudness: `measure_loudness`
+
+`measure_loudness` meters the working timeline's sound through the engine's EBU R128 meter
+(ffmpeg `ebur128`, behind `/review/temporal-evidence` as a `loudness` request). It is a
+host-run read (`hostUiOnly`, audio domain, `inspection` role so it stays offered after the
+first patch), charged to the run's `ffmpegSeconds` budget.
+
+| Argument          | Meaning                                                                   |
+| ----------------- | ------------------------------------------------------------------------- |
+| `role`            | `mix` (default), or `dialogue`/`music`/`sfx`: only the tracks labelled so |
+| `startSeconds`    | Timeline seconds; default the start                                       |
+| `endSeconds`      | Timeline seconds; default the end                                         |
+| `targetLufs`      | The integrated loudness the request asks for (e.g. `-14`)                 |
+| `maxTruePeakDbtp` | The true-peak ceiling the request asks for (e.g. `-1`)                    |
+
+It returns `integratedLufs`, `loudnessRangeLu`, `truePeakDbtp`, `samplePeakDbfs`, the
+`gapLu` to a stated target, and a `reading` naming the move that closes each gap. The two
+peaks are different measurements:
+
+- **True peak (dBTP)** is ebur128's 4× oversampled peak of the mix as an export writes it:
+  16-bit PCM, clipped at full scale. An overloaded mix therefore reads about 0 dBTP however
+  hot it is.
+- **Sample peak (dBFS)** is the highest sample of the composed mix _before_ that clip. Above
+  0 dBFS means the export will clip.
+
+The levers the reading names: a flat `adjust_audio` gain on every track moves integrated
+loudness by the same number of dB (the gain is absolute, so the reading says "current gain
++N dB"); `professional_audio` `compress` lowers the peaks relative to the average before a
+raise would cross the ceiling; peak `normalize` sets a peak, not loudness. It measures the
+timeline, not the Export dialog's optional Loudness preset, which normalises the delivered
+file instead.
+
+A loudness window may span thirty minutes at 60 fps (picture evidence windows stay at 300
+frames): integrated loudness is gated against the programme's own level, so it cannot be
+assembled from short windows. An empty timeline or a range past its end is refused before
+anything is sent; a role no track is labelled with is refused by the engine.
 
 ### Caption design tools
 

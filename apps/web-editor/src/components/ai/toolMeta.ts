@@ -140,6 +140,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   track_subject_automatically: { label: 'Track subject automatically', Icon: Scan },
   detect_subjects: { label: 'Detect subjects', Icon: Scan },
   professional_audio: { label: 'Mix audio', Icon: AudioLines },
+  measure_loudness: { label: 'Measure loudness', Icon: AudioLines },
 
   // Masking (plan 11). Labels are the editor's words for the request, not the mechanism.
   find_mask_targets: { label: 'Find what to mask', Icon: Scan },

@@ -129,6 +129,9 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // A look at the run's OWN captions, like `verify_captions`: an inspection, reachable in
   // every stage, because it is only ever useful after the captions exist.
   check_caption_legibility: { role: 'inspection', scope: 'timeline_dependent' },
+  // The run's own mix, metered: like `check_caption_legibility`, a look at the edit that is
+  // only useful after the mix exists, so it must stay reachable in the execution stages.
+  measure_loudness: { role: 'inspection', scope: 'timeline_dependent' },
   // --- analysisTool: sidecar/ffmpeg-backed reads of the SOURCE MEDIA -------------------
   // These analyze assets, not the arrangement, so a cut cannot invalidate them. This is
   // the group whose absence caused the re-analysis loop.
