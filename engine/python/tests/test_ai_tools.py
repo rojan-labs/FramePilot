@@ -29,7 +29,10 @@ from framepilot_engine.ai_tools import (
 from framepilot_engine.ai_tools.contract_overrides import MAX_CLIPS_PER_BATCH
 from framepilot_engine.ai_tools.handlers import _derive_id
 from framepilot_engine.ai_tools.registry import TOOL_REGISTRY, NoArgs, ToolSpec
-from framepilot_engine.ai_tools.text_overlay_styles import text_overlay_style_params
+from framepilot_engine.ai_tools.text_overlay_styles import (
+    PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+    text_overlay_style_params,
+)
 from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.timeline.models import (
     Asset,
@@ -1002,6 +1005,95 @@ def test_add_text_layer_holds_a_named_family_to_the_weights_it_ships(ctx: ToolCo
     ids=["unknown style", "unbundled family", "weight out of range"],
 )
 def test_add_text_layer_refuses_what_the_catalogs_do_not_ship(
+    ctx: ToolContext, extra: dict[str, Any]
+) -> None:
+    with pytest.raises(ToolInputError):
+        run_tool(
+            "add_text_layer",
+            {"trackId": "ov", "text": "Hi", "start": 0.0, "end": 2.0, **extra},
+            ctx,
+        )
+
+
+def test_add_text_layer_typography_args_override_one_field_of_the_style(
+    ctx: ToolContext, project: Project
+) -> None:
+    """#135: a brief's tracking/leading lands in ``typography``; the rest of the style is kept."""
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Weekend",
+            "start": 0.0,
+            "end": 3.0,
+            "style": "tracked-caps",
+            "letterSpacing": 0.1,
+            "lineHeight": 0.9,
+            "shadow": "none",
+        },
+        ctx,
+    )
+    style = text_overlay_style_params("tracked-caps")["typography"]
+    expected = {key: value for key, value in style.items() if key != "shadow"}
+    assert _text_params(result)["typography"] == {
+        **expected,
+        "letterSpacing": 0.1,
+        "lineHeight": 0.9,
+    }
+    _assert_patch_ok(result, project)
+
+
+def test_add_text_layer_typography_on_a_plain_overlay_keeps_its_stroke(ctx: ToolContext) -> None:
+    result = run_tool(
+        "add_text_layer",
+        {
+            "trackId": "ov",
+            "text": "Weekend",
+            "start": 0.0,
+            "end": 3.0,
+            "fontFamily": "Playfair Display",
+            "fontStyle": "italic",
+            "shadow": {"color": "#000000b3", "blur": 0.2, "offsetX": 0, "offsetY": 0.06},
+        },
+        ctx,
+    )
+    assert _text_params(result)["typography"] == {
+        **PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+        "fontStyle": "italic",
+        "shadow": {"color": "#000000b3", "blur": 0.2, "offsetX": 0.0, "offsetY": 0.06},
+    }
+
+
+def test_add_text_layer_refuses_italic_in_a_family_without_one(ctx: ToolContext) -> None:
+    with pytest.raises(ToolSemanticError, match=r"Montserrat ships no italic.*Playfair Display"):
+        run_tool(
+            "add_text_layer",
+            {
+                "trackId": "ov",
+                "text": "Hi",
+                "start": 0.0,
+                "end": 2.0,
+                "fontFamily": "Montserrat",
+                "fontStyle": "italic",
+            },
+            ctx,
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"letterSpacing": -0.1},
+        {"letterSpacing": 0.7},
+        {"lineHeight": 3.5},
+        {"textOpacity": 1.2},
+        {"outlineWidth": 9},
+        {"fontStyle": "oblique"},
+        {"shadow": {"color": "#000", "blur": 0.2, "offsetX": 0, "offsetY": 2}},
+        {"shadow": "soft"},
+    ],
+)
+def test_add_text_layer_refuses_typography_out_of_bounds(
     ctx: ToolContext, extra: dict[str, Any]
 ) -> None:
     with pytest.raises(ToolInputError):

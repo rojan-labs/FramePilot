@@ -271,7 +271,73 @@ BundledFontFamily = Annotated[
 ]
 
 
-class AddTextLayerArgs(BaseModel):
+#: The heaviest text overlay stroke an arg may ask for, sixteenths of the size (TS
+#: ``MAX_TEXT_OUTLINE_WIDTH``).
+_MAX_TEXT_OUTLINE_WIDTH = 8.0
+#: The caption tools' em ranges (TS ``caption-style-facts.ts``).
+_MAX_CAPTION_LETTER_SPACING = 0.6
+_MAX_CAPTION_EM_VALUE = 3.0
+_MAX_CAPTION_SHADOW_OFFSET = 0.5
+
+
+class TextShadowArg(BaseModel):
+    """A text overlay's shadow, in em of the font size (TS ``TYPOGRAPHY_ARGS.shadow``)."""
+
+    model_config = _STRICT
+    color: str = Field(min_length=1)
+    blur: float = Field(ge=0.0, le=_MAX_CAPTION_EM_VALUE)
+    offset_x: float = Field(
+        alias="offsetX", ge=-_MAX_CAPTION_SHADOW_OFFSET, le=_MAX_CAPTION_SHADOW_OFFSET
+    )
+    offset_y: float = Field(
+        alias="offsetY", ge=-_MAX_CAPTION_SHADOW_OFFSET, le=_MAX_CAPTION_SHADOW_OFFSET
+    )
+
+
+class _TextTypographyArgs(BaseModel):
+    """The typography args ``add_text_layer`` and ``set_text_style`` share (TS
+    ``TYPOGRAPHY_ARGS``): each overrides one field of the overlay's ``params.typography``.
+
+    Tracking starts at 0 because the export draws no negative tracking; the other bounds are
+    ``TextOverlayTypographySchema``'s where it has them.
+    """
+
+    model_config = _STRICT
+    letter_spacing: float | None = Field(
+        default=None, alias="letterSpacing", ge=0.0, le=_MAX_CAPTION_LETTER_SPACING
+    )
+    font_style: Literal["normal", "italic"] | None = Field(default=None, alias="fontStyle")
+    line_height: float | None = Field(default=None, alias="lineHeight", ge=0.7, le=3.0)
+    text_transform: Literal["none", "uppercase", "lowercase"] | None = Field(
+        default=None, alias="textTransform"
+    )
+    text_opacity: float | None = Field(default=None, alias="textOpacity", ge=0.0, le=1.0)
+    outline_color: str | None = Field(default=None, alias="outlineColor", min_length=1)
+    outline_width: float | None = Field(
+        default=None, alias="outlineWidth", ge=0.0, le=_MAX_TEXT_OUTLINE_WIDTH
+    )
+    shadow: TextShadowArg | Literal["none"] | None = None
+
+    def typography_fields(self) -> dict[str, Any]:
+        """The typography args that were passed, in the project's camelCase."""
+        fields = self.model_dump(
+            by_alias=True,
+            exclude_none=True,
+            include={
+                "letter_spacing",
+                "font_style",
+                "line_height",
+                "text_transform",
+                "text_opacity",
+                "outline_color",
+                "outline_width",
+                "shadow",
+            },
+        )
+        return fields
+
+
+class AddTextLayerArgs(_TextTypographyArgs):
     """Text overlay plus its styling.
 
     The style keys mirror the web editor's ``TextOverlayParams`` exactly, because they end
@@ -298,7 +364,7 @@ class AddTextLayerArgs(BaseModel):
     font_weight: int | None = Field(default=None, alias="fontWeight", ge=100, le=900)
 
 
-class SetTextStyleArgs(BaseModel):
+class SetTextStyleArgs(_TextTypographyArgs):
     """Restyle one text overlay; mirrors the TS ``set_text_style`` schema."""
 
     model_config = _STRICT

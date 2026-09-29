@@ -817,12 +817,96 @@
               "Young Serif"
             ]
           },
+          "fontStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "italic",
+              "normal"
+            ]
+          },
           "fontWeight": {
             "type": [
               "integer"
             ],
             "minimum": 100,
             "maximum": 900
+          },
+          "letterSpacing": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 0.6
+          },
+          "lineHeight": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.7,
+            "maximum": 3
+          },
+          "outlineColor": {
+            "type": [
+              "string"
+            ]
+          },
+          "outlineWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 8
+          },
+          "shadow": {
+            "anyOf": [
+              {
+                "type": [
+                  "object"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "blur",
+                  "color",
+                  "offsetX",
+                  "offsetY"
+                ],
+                "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "color": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "offsetX": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  },
+                  "offsetY": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  }
+                }
+              },
+              {
+                "type": [
+                  "string"
+                ]
+              }
+            ]
           },
           "sizePercent": {
             "type": [
@@ -907,6 +991,23 @@
           "text": {
             "type": [
               "string"
+            ]
+          },
+          "textOpacity": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "textTransform": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "lowercase",
+              "none",
+              "uppercase"
             ]
           },
           "trackId": {
@@ -6380,12 +6481,96 @@
               "Young Serif"
             ]
           },
+          "fontStyle": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "italic",
+              "normal"
+            ]
+          },
           "fontWeight": {
             "type": [
               "integer"
             ],
             "minimum": 100,
             "maximum": 900
+          },
+          "letterSpacing": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 0.6
+          },
+          "lineHeight": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.7,
+            "maximum": 3
+          },
+          "outlineColor": {
+            "type": [
+              "string"
+            ]
+          },
+          "outlineWidth": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 8
+          },
+          "shadow": {
+            "anyOf": [
+              {
+                "type": [
+                  "object"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "blur",
+                  "color",
+                  "offsetX",
+                  "offsetY"
+                ],
+                "properties": {
+                  "blur": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": 0,
+                    "maximum": 3
+                  },
+                  "color": {
+                    "type": [
+                      "string"
+                    ]
+                  },
+                  "offsetX": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  },
+                  "offsetY": {
+                    "type": [
+                      "number"
+                    ],
+                    "minimum": -0.5,
+                    "maximum": 0.5
+                  }
+                }
+              },
+              {
+                "type": [
+                  "string"
+                ]
+              }
+            ]
           },
           "sizePercent": {
             "type": [
@@ -6464,6 +6649,23 @@
           "text": {
             "type": [
               "string"
+            ]
+          },
+          "textOpacity": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "textTransform": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "lowercase",
+              "none",
+              "uppercase"
             ]
           },
           "xPercent": {

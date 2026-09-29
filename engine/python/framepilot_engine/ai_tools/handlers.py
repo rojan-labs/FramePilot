@@ -73,8 +73,10 @@ from framepilot_engine.ai_tools.registry import (
 )
 from framepilot_engine.ai_tools.skills_generated import SKILLS
 from framepilot_engine.ai_tools.text_overlay_styles import (
+    italic_refusal,
     text_overlay_style_params,
     weight_the_family_has,
+    with_typography_args,
 )
 from framepilot_engine.effects.keyframes import evaluate_keyframes, punch_in_keyframes
 from framepilot_engine.render.caption_templates import get_caption_template, load_catalog
@@ -812,6 +814,12 @@ def add_text_layer(args: AddTextLayerArgs, ctx: ToolContext) -> Operations:
     )
     if "fontWeight" in params:
         params["fontWeight"] = weight_the_family_has(params.get("fontFamily"), params["fontWeight"])
+    typography = args.typography_fields()
+    if typography:
+        refusal = italic_refusal(typography.get("fontStyle"), params.get("fontFamily"))
+        if refusal is not None:
+            raise ValueError(refusal)
+        params["typography"] = with_typography_args(params.get("typography"), typography)
     if params:
         ops.append(
             {

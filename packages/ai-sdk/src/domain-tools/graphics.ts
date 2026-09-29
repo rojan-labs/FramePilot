@@ -26,8 +26,9 @@ import {
   searchTransitions,
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
-import { getCaptionFont } from '@framepilot/timeline-schema/caption-fonts';
+import { CAPTION_FONT_CATALOG, getCaptionFont } from '@framepilot/timeline-schema/caption-fonts';
 import {
+  PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
   TEXT_OVERLAY_STYLE_CATALOG,
   TEXT_OVERLAY_STYLE_CATEGORIES,
   getTextOverlayStyle,
@@ -54,6 +55,11 @@ import {
   type TitleFont,
 } from '../overlay-fit.js';
 import { describeTextOverlayLook } from '../text-overlay-style-facts.js';
+import {
+  MAX_CAPTION_EM_VALUE,
+  MAX_CAPTION_LETTER_SPACING,
+  MAX_CAPTION_SHADOW_OFFSET,
+} from '../caption-style-facts.js';
 import {
   TRANSITION_REASONS,
   type CutawayTransitionDecision,
@@ -243,6 +249,121 @@ function authoredTextParams(a: {
     background: a.background,
   };
   return Object.fromEntries(Object.entries(named).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * The heaviest stroke a text overlay arg may ask for, in sixteenths of the font size. The
+ * catalog strokes at 1–2.5 and 3 already reads heavy; past half an em (8) the outline swallows
+ * the letters' counters, which no brief means.
+ */
+const MAX_TEXT_OUTLINE_WIDTH = 8;
+
+/**
+ * The caption-typography args `add_text_layer` and `set_text_style` take, one per field of a
+ * text overlay's `params.typography` (`TextOverlayTypographySchema`), each overriding only that
+ * field of the style's typography (#135). Bounds are the schema's where it has them
+ * (`lineHeight` 0.7–3, `textOpacity` 0–1); tracking is 0 up, because the export does not draw
+ * negative tracking (`captions._token_width` ignores it) and the preview would; the shadow's
+ * em ranges are the caption tools'. The chip's shape is not here: it comes with a style.
+ */
+const TYPOGRAPHY_ARGS = {
+  letterSpacing: numeric(z.number().min(0).max(MAX_CAPTION_LETTER_SPACING)).optional(),
+  fontStyle: z.enum(['normal', 'italic']).optional(),
+  lineHeight: numeric(z.number().min(0.7).max(3)).optional(),
+  textTransform: z.enum(['none', 'uppercase', 'lowercase']).optional(),
+  textOpacity: numeric(z.number().min(0).max(1)).optional(),
+  outlineColor: z.string().min(1).optional(),
+  outlineWidth: numeric(z.number().min(0).max(MAX_TEXT_OUTLINE_WIDTH)).optional(),
+  shadow: z
+    .union([
+      z
+        .object({
+          color: z.string().min(1),
+          blur: numeric(z.number().min(0).max(MAX_CAPTION_EM_VALUE)),
+          offsetX: numeric(
+            z.number().min(-MAX_CAPTION_SHADOW_OFFSET).max(MAX_CAPTION_SHADOW_OFFSET),
+          ),
+          offsetY: numeric(
+            z.number().min(-MAX_CAPTION_SHADOW_OFFSET).max(MAX_CAPTION_SHADOW_OFFSET),
+          ),
+        })
+        .strict(),
+      z.literal('none'),
+    ])
+    .optional(),
+};
+
+/** The typography args as a handler receives them. */
+interface TypographyArgs {
+  readonly letterSpacing?: number | undefined;
+  readonly fontStyle?: 'normal' | 'italic' | undefined;
+  readonly lineHeight?: number | undefined;
+  readonly textTransform?: 'none' | 'uppercase' | 'lowercase' | undefined;
+  readonly textOpacity?: number | undefined;
+  readonly outlineColor?: string | undefined;
+  readonly outlineWidth?: number | undefined;
+  readonly shadow?:
+    | {
+        readonly color: string;
+        readonly blur: number;
+        readonly offsetX: number;
+        readonly offsetY: number;
+      }
+    | 'none'
+    | undefined;
+}
+
+/** The names of the typography args, for the "nothing to change" sentence. */
+const TYPOGRAPHY_ARG_NAMES = Object.keys(TYPOGRAPHY_ARGS);
+
+/** Whether any typography arg was passed. */
+function hasTypographyArgs(a: TypographyArgs): boolean {
+  return TYPOGRAPHY_ARG_NAMES.some((name) => a[name as keyof TypographyArgs] !== undefined);
+}
+
+/** The families that ship an italic file: the only ones either renderer draws italic. */
+const ITALIC_FAMILIES = CAPTION_FONT_CATALOG.filter((font) => font.italicFile !== undefined).map(
+  (font) => font.family,
+);
+
+/**
+ * `typography` with each typography arg written over its one field; `shadow: "none"` removes
+ * the shadow. An overlay with no typography yet starts from the plain overlay's look in caption
+ * terms (`PLAIN_TEXT_OVERLAY_TYPOGRAPHY`, as the Inspector seeds its first edit): writing one
+ * field must not also drop the black stroke a plain overlay is drawn with.
+ */
+function withTypographyArgs(
+  typography: TextOverlayTypography | undefined,
+  a: TypographyArgs,
+): TextOverlayTypography {
+  const { shadow, ...fields } = a;
+  const named = Object.fromEntries(
+    Object.entries(fields).filter(
+      ([key, value]) => value !== undefined && TYPOGRAPHY_ARG_NAMES.includes(key),
+    ),
+  );
+  const next: Record<string, unknown> = {
+    ...(typography ?? PLAIN_TEXT_OVERLAY_TYPOGRAPHY),
+    ...named,
+  };
+  if (shadow === 'none') delete next.shadow;
+  else if (shadow !== undefined) next.shadow = shadow;
+  return next as TextOverlayTypography;
+}
+
+/**
+ * Refuse an explicit italic in a family that ships none: neither renderer synthesises a slant,
+ * so the title would draw upright while the patch said italic.
+ */
+function assertItalicIsDrawn(a: TypographyArgs, family: unknown): void {
+  if (a.fontStyle !== 'italic') return;
+  // A typed overlay with no family is drawn in the editor's Inter (`_with_editor_defaults`).
+  const drawnIn = typeof family === 'string' ? family : 'Inter';
+  if (ITALIC_FAMILIES.includes(drawnIn)) return;
+  throw new ToolRefusalError(
+    `${drawnIn} ships no italic, so fontStyle "italic" would draw upright in the preview and ` +
+      `the export alike. Pass fontFamily as one that has an italic: ${ITALIC_FAMILIES.join(', ')}.`,
+  );
 }
 
 /**
@@ -722,7 +843,12 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
         'middle, y 15 is near the top), fontFamily (a bundled family) and fontWeight set ' +
         'the typeface, and color/background/align/' +
-        'boxWidthPercent do what they say. Everything renders exactly as the preview ' +
+        'boxWidthPercent do what they say. Typography, each overriding one field of the ' +
+        "style's: letterSpacing (tracking in em, 0–0.6; a brief's +250 tracking is 0.25), " +
+        'lineHeight (0.7–3), fontStyle italic (families that ship one), textTransform, ' +
+        'textOpacity (0–1, the letters only), outlineColor/outlineWidth (sixteenths of the ' +
+        'size; 0 = no outline) and shadow {color, blur, offsetX, offsetY} in em, or "none". ' +
+        'Everything renders exactly as the preview ' +
         'shows it. To restyle it later, set_text_style. For motion, follow this with ' +
         'punch_in on the clip it creates.',
     },
@@ -744,6 +870,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         style: z.enum(TEXT_OVERLAY_STYLE_IDS).optional(),
         fontFamily: bundledFontFamily.optional(),
         fontWeight: cssFontWeight.optional(),
+        ...TYPOGRAPHY_ARGS,
       })
       .strict(),
     (a, ctx) => {
@@ -823,6 +950,10 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       };
       const weight = weightTheFamilyHas(requested.fontFamily, requested.fontWeight);
       if (weight !== undefined) requested.fontWeight = weight;
+      if (hasTypographyArgs(a)) {
+        assertItalicIsDrawn(a, requested.fontFamily);
+        requested.typography = withTypographyArgs(typographyOf(requested.typography), a);
+      }
       const params = fitTextOverlayParams(a.text, requested, ctx.project.resolution);
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
       const trackId = placed.trackId;
@@ -865,7 +996,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'Restyle a text overlay already on the timeline — its words, a designed `style` ' +
         '(ids and looks: discover_text_overlay_styles; applied the way the Text panel ' +
         'applies it, keeping the overlay where it sits), size, font, weight, colour, ' +
-        'background, alignment, box width or position. Pass the clipId add_text_layer ' +
+        'background, alignment, box width, position or typography (letterSpacing, ' +
+        'lineHeight, fontStyle, textTransform, textOpacity, outline, shadow). Pass the clipId add_text_layer ' +
         "created and only what changes, in add_text_layer's units; a styling arg overrides " +
         'that field of the style, and the words are re-fitted to the box the same way. ' +
         'Timing and track stay as they are (move_clip / trim_clip change those).',
@@ -884,6 +1016,7 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         yPercent: numeric(z.number().min(0).max(100)).optional(),
         fontFamily: bundledFontFamily.optional(),
         fontWeight: cssFontWeight.optional(),
+        ...TYPOGRAPHY_ARGS,
       })
       .strict(),
     (a, ctx) => {
@@ -914,6 +1047,10 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       };
       const weight = weightTheFamilyHas(merged.fontFamily, merged.fontWeight);
       if (weight !== undefined) merged.fontWeight = weight;
+      if (hasTypographyArgs(a)) {
+        assertItalicIsDrawn(a, merged.fontFamily);
+        merged.typography = withTypographyArgs(typographyOf(merged.typography), a);
+      }
       const fitted = fitTextOverlayParams(
         typeof merged.text === 'string' ? merged.text : '',
         merged,
@@ -928,8 +1065,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       if (Object.keys(params).length === 0) {
         throw new ToolRefusalError(
           `Nothing to change on ${a.clipId}: name at least one of text, style, sizePercent, ` +
-            'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily or ' +
-            'fontWeight with a value different from what it already has.',
+            'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily, ' +
+            `fontWeight or ${TYPOGRAPHY_ARG_NAMES.join(', ')} with a value different from ` +
+            'what it already has.',
         );
       }
       return [{ type: 'set_effect_params', clipId: clip.id, effectId: effect.id, params }];

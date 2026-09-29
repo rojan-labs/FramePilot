@@ -8,12 +8,22 @@
  * `adjust_effect` on a title's own effect id to enlarge it: "Effect layer not found".
  */
 import { describe, expect, it } from 'vitest';
-import { applyProjectPatch, type AnyOperation } from '@framepilot/editor-core';
+import {
+  applyPatch,
+  applyProjectPatch,
+  invertPatch,
+  type AnyOperation,
+} from '@framepilot/editor-core';
 import type { Project } from '@framepilot/timeline-schema';
 import { assembleEdit } from '../assemble.js';
 import { getTool } from '../tool-registry.js';
 import { makeProject } from '../__fixtures__/project.js';
-import { TEXT_OVERLAY_STYLE_CATALOG } from '@framepilot/timeline-schema/text-overlay-styles';
+import {
+  PLAIN_TEXT_OVERLAY_TYPOGRAPHY,
+  TEXT_OVERLAY_STYLE_CATALOG,
+  getTextOverlayStyle,
+  parseTextOverlayTypography,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import { bundledFontFamily } from './tool-args.js';
 import { typedTitleDrawnWidthPx, typedTitleFont, typedTitleOf } from '../overlay-fit.js';
 
@@ -234,5 +244,139 @@ describe('set_text_style re-fits into a tracked style (#135)', () => {
     const fontPx = Math.floor((1920 * (params.fontSizePercent as number)) / 100);
     const boxPx = Math.floor((1080 * (params.boxWidthPercent as number)) / 100);
     expect(typedTitleDrawnWidthPx('WEEKEND', fontPx, font, typed)).toBeLessThanOrEqual(boxPx);
+  });
+});
+
+describe('typography args override one field of the typography (#135)', () => {
+  const add = (args: Record<string, unknown>): Project =>
+    run('add_text_layer', vertical(), {
+      trackId: 'titles',
+      text: 'Weekend',
+      start: 0,
+      end: 3,
+      ...args,
+    });
+
+  it("writes a brief's tracking over a style and keeps the rest of the style's typography", () => {
+    const style = getTextOverlayStyle('tracked-caps')!;
+    const params = textParams(add({ style: 'tracked-caps', letterSpacing: 0.1, lineHeight: 0.9 }));
+    expect(params.typography).toEqual({
+      ...style.look.typography,
+      letterSpacing: 0.1,
+      lineHeight: 0.9,
+    });
+    // What was written is a typography both renderers draw, not one they fall back from.
+    expect(parseTextOverlayTypography(params.typography)).toEqual(params.typography);
+  });
+
+  it('starts a plain overlay from its own look, so one field does not drop its stroke', () => {
+    const params = textParams(add({ fontFamily: 'Inter', letterSpacing: 0.2 }));
+    expect(params.typography).toEqual({ ...PLAIN_TEXT_OVERLAY_TYPOGRAPHY, letterSpacing: 0.2 });
+  });
+
+  it('sets or removes the shadow, and sets outline, case and letter opacity', () => {
+    const shadow = { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 };
+    const set = textParams(
+      add({
+        style: 'heading',
+        shadow,
+        outlineWidth: 0,
+        textTransform: 'uppercase',
+        textOpacity: 0.8,
+      }),
+    );
+    expect(set.typography).toMatchObject({
+      shadow,
+      outlineWidth: 0,
+      textTransform: 'uppercase',
+      textOpacity: 0.8,
+    });
+    const removed = textParams(add({ style: 'tracked-caps', shadow: 'none' }));
+    expect(removed.typography).not.toHaveProperty('shadow');
+    expect(removed.typography).toMatchObject({ letterSpacing: 0.24 });
+  });
+
+  it('draws italic from a family that ships one, and refuses it where none does', () => {
+    const params = textParams(add({ fontFamily: 'Playfair Display', fontStyle: 'italic' }));
+    expect(params.typography).toMatchObject({ fontStyle: 'italic' });
+    expect(() => add({ fontFamily: 'Montserrat', fontStyle: 'italic' })).toThrow(
+      /Montserrat ships no italic.*Playfair Display/,
+    );
+    // No family named: a typed overlay is drawn in Inter, which has no italic either.
+    expect(() => add({ fontStyle: 'italic' })).toThrow(/Inter ships no italic/);
+  });
+
+  it('refuses values outside the bounds the renderers draw', () => {
+    const tool = getTool('add_text_layer')!;
+    const base = { trackId: 'titles', text: 'Weekend', start: 0, end: 3 };
+    for (const bad of [
+      { letterSpacing: -0.1 }, // the export draws no negative tracking
+      { letterSpacing: 0.7 },
+      { lineHeight: 0.5 },
+      { lineHeight: 3.5 },
+      { textOpacity: 1.2 },
+      { outlineWidth: 9 },
+      { fontStyle: 'oblique' },
+      { textTransform: 'capitalize' },
+      { shadow: { color: '#000', blur: 0.2, offsetX: 0, offsetY: 2 } },
+      { shadow: 'soft' },
+    ]) {
+      expect(() => tool.parse!({ ...base, ...bad }), JSON.stringify(bad)).toThrow();
+    }
+  });
+
+  it('fits the words with the tracking that was asked for', () => {
+    // 0.6 em between the letters of "WEEKEND" at 7.5 % cannot fit 92 % of a 1080-wide frame.
+    const params = textParams(
+      add({
+        text: 'WEEKEND',
+        fontFamily: 'Montserrat',
+        fontWeight: 600,
+        sizePercent: 7.5,
+        boxWidthPercent: 92,
+        letterSpacing: 0.6,
+      }),
+    );
+    expect(params.fontSizePercent).toBeLessThan(7.5);
+    const typed = typedTitleOf(params.typography, params.background)!;
+    const fontPx = Math.floor((1920 * (params.fontSizePercent as number)) / 100);
+    const font = typedTitleFont({ fontFamily: 'Montserrat', fontWeight: 600 }, typed);
+    expect(typedTitleDrawnWidthPx('WEEKEND', fontPx, font, typed)).toBeLessThanOrEqual(
+      Math.floor(1080 * 0.92),
+    );
+  });
+
+  it('restyles one typography field of a placed overlay, reversibly', () => {
+    const placed = add({ style: 'tracked-caps' });
+    const before = textParams(placed);
+    const tool = getTool('set_text_style')!;
+    const ops = tool.buildOps!(
+      { clipId: titleClipId(placed), letterSpacing: 0.12 },
+      {
+        project: placed,
+      },
+    ) as AnyOperation[];
+    const after = run('set_text_style', placed, {
+      clipId: titleClipId(placed),
+      letterSpacing: 0.12,
+    });
+    expect(textParams(after).typography).toEqual({
+      ...(before.typography as object),
+      letterSpacing: 0.12,
+    });
+    // Undo restores the style's own tracking.
+    const patch = { patchId: 'p', createdBy: 'agent' as const, reason: 'r', operations: ops };
+    const back = applyPatch(
+      applyPatch(placed.timeline, patch as never),
+      invertPatch(placed.timeline, patch as never),
+    );
+    expect(back).toEqual(placed.timeline);
+  });
+
+  it('says so when the typography asked for is already what the overlay has', () => {
+    const placed = add({ style: 'tracked-caps' });
+    expect(() =>
+      run('set_text_style', placed, { clipId: titleClipId(placed), letterSpacing: 0.24 }),
+    ).toThrow(/Nothing to change.*letterSpacing/);
   });
 });

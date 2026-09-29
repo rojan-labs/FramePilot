@@ -50,9 +50,9 @@ One text overlay, one idea. Text must add meaning the audio or picture does not 
 - A pixel size in a brief converts against the frame height: `sizePercent` ≈ px ÷ frame
   height × 100 (140 px on a 1920-high frame ≈ 7.3). Words are re-fitted to the box, so a long
   line can come back smaller — look at it with `get_frame`.
-- The separation layer (soft shadow, outline, chip) comes with the style; there is no
-  separate shadow argument. When a brief wants "shadow, no outline", choose a style whose
-  description says so.
+- The separation layer (soft shadow, outline, chip) comes with the style. A brief's exact
+  "shadow, no outline" is `outlineWidth: 0` plus `shadow` ({color, blur, offsetX, offsetY} in
+  em), or `shadow: "none"` to drop a style's.
 - One family of styles per piece: a lower-thirds style for every name, one headline style for
   every section card. Mixing looks reads as inconsistency, not variety.
 - Match the style to the job: `lower-thirds` for names and roles, `headlines` for hooks and
@@ -61,9 +61,11 @@ One text overlay, one idea. Text must add meaning the audio or picture does not 
 - Change a placed overlay with `set_text_style` — its words, a new `style`, size, font,
   weight, colour or position — never delete and re-add it. A new style keeps the overlay
   where it sits.
-- Letter-spacing comes with a style: the ones `discover_text_overlay_styles` describes as
-  "wide tracking" carry it, and there is no separate tracking argument. Never fake tracking
-  with spaces between the letters — each letter then reads, wraps and fits as its own word.
+- Tracking and leading are args: `letterSpacing` in em (a brief's "+250" is 0.25; styles
+  described as "wide tracking" carry ~0.22) and `lineHeight` ("leading 0.9" is 0.9), plus
+  `fontStyle: "italic"` in a family that ships one, `textTransform` and `textOpacity`. Each
+  overrides just that field of the style. Never fake tracking with spaces between letters —
+  each letter then reads, wraps and fits as its own word.
 - Motion is whole-element: `set_element_animation` gives an overlay an in and an out (fade,
   pop, slide, wipe, blur) and a loop; `add_keyframes` moves, scales, rotates or fades the clip
   with easing. There is no per-letter or per-word reveal, typewriter, tracking animation or
