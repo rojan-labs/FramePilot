@@ -1014,7 +1014,7 @@ const MATCH_COLOR_REFERENCE_INDEX = 0;
  * shot's measured luma and "the solver decides that". Those two statements cannot both
  * stand, and the flat cap was the one that was wrong.
  *
- * `WARMTH_PER_TEMPERATURE` scales with the frame's mean luma, because white balance is
+ * The white-balance response scales with the light it multiplies, because white balance is
  * multiplicative: a dark shot's chroma moves less in absolute terms, so the SAME measured
  * warmth change costs more parameter there. That is not a defect, it is the whole point of
  * VU3 — "a bit warmer" must land the same amount of warmer on every shot, in measured units
@@ -1023,8 +1023,10 @@ const MATCH_COLOR_REFERENCE_INDEX = 0;
  *
  * Measured, on `mission-montage` (`vu-ledger-all/warmer-subtle`): asset_004 measures
  * luma_mean **0.1271**, the darkest clip in the fixture. A +0.05 warmth target there solves
- * to 0.05 / (0.6936 × 0.1271) ≈ **0.57** — and the run produced 0.56. The old cap failed a
- * correct, scale-free solve for being applied to dark footage.
+ * to 0.05 / (0.6936 × 0.1271) ≈ **0.57** — and the run produced 0.56 (that is the pre-#107
+ * grey-patch model; the render-calibrated one costs more on the same clip, which only
+ * strengthens the point). The old cap failed a correct, scale-free solve for being applied
+ * to dark footage.
  *
  * So the bound is the renderer's contract range itself. What "not a little any more"
  * actually looks like is the solve hitting the RAIL — at which point the solver reports

@@ -199,6 +199,19 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   orchestrator) and desktop `masking-executor.test.ts` (`track_mask` writes the artifact, then
   `reframe_to_subject` reads it). Unit-verified only: no tracking pack or tracked project was
   available for a live run.
+- [x] **AL25** #107: solved colour's white balance is render-calibrated. New
+  `engine/python/tests/color_response_measure.py` exports a grade grid through `export_video`
+  and reads each file with tier-0's own `signalstats` graph (plus a pure-red probe that names
+  the encode chain). Five real clips, 25 exports each: the renderer's curve is exact
+  (temperature 0.983-1.002, tint 0.991-1.001 of the derivation); the old
+  `WARMTH_PER_TEMPERATURE` 0.6936 was the wrong units — the ledger is limited-range BT.709,
+  `luma.mean` carries the 16-code floor, and temperature scales red/blue, not luma (measured
+  0.503-0.611 per `luma.mean`). `color-solver.ts` now models the response from the frame's
+  channel means (predicts all five within 2%), solves saturation before white balance (it
+  scales the cast), and `measure_color` readings are written in the ledger's units
+  (`ledgerMeasurementFromLight`). Rendered check: `apply_look warmer` +0.10 lands 0.094-0.097
+  (was 0.070-0.083). `measure-color-response.mjs` (never run, sidecar-bound) removed. Open, in a
+  follow-up issue: luma read as code/255, material clipping, WB→`satMean`, BT.601 exports.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

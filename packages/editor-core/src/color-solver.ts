@@ -12,109 +12,104 @@
  * one toward the other, in the renderer's own parameters and inside the
  * renderer's own ranges.
  *
- * ## THE COEFFICIENTS ARE NOT FITTED YET — read this before trusting a number
+ * ## What is derived, what is measured, and what is still open
  *
- * VU3.1 asks for per-parameter response curves **fitted by rendering a grid of
- * parameter values through `/render/frame` and measuring each one**. That needs a
- * running sidecar and real render time, so it has not been done. What is here
- * instead is an **explicit first-order model derived analytically from the
+ * VU3.1 asks for per-parameter response curves fitted by rendering a grid of parameter
+ * values and measuring each one. The model here is **derived analytically from the
  * renderer's source** (`engine/python/framepilot_engine/render/color.py`) and the
  * measurement chain that produces the facts
- * (`engine/python/framepilot_engine/analysis/shot_stats.py`).
+ * (`engine/python/framepilot_engine/analysis/shot_stats.py`), and two render-backed
+ * measurements have now been taken against it.
  *
- * ## FIRST MEASURED FIT — 2026-09-08, `mission-montage`, three clips
+ * ### 2026-09-08 — `fit-color-response.mjs`, float RGB, `mission-montage`, three clips
  *
- * `packages/ai-sdk/scripts/fit-color-response.mjs` has now been run against a live sidecar
- * (it could not be before: it took `--clip` and `--time` independently and never checked
- * the frame was on the graded clip, so it silently fitted every coefficient to 0.00000 and
- * told you to paste that in). What three clips of one fixture measure:
+ * Tint agreed with the derivation to within 5%; `WARMTH_PER_TEMPERATURE` (then a
+ * grey-patch constant, 0.6936 per unit `luma.mean`) measured 0.567/0.633/0.576, a
+ * repeatable ~15% under-shoot. That script reconstructs warmth from RGB through the
+ * matrix under test, so it could not say whether the matrix or the renderer was wrong.
+ * The `*_RESPONSE` fits from it (exposure 0.76-0.96, contrast 0.79-0.96, saturation
+ * 0.63-0.81) are in that script's own units and are superseded below.
  *
- * | constant | derived, in use | clip_002 (luma .544) | clip_004 (luma .078) | clip_001 (luma .406) |
- * | --- | --- | --- | --- | --- |
- * | `EXPOSURE_RESPONSE` | 1.0 | 0.755 | 0.964 | 0.793 |
- * | `CONTRAST_RESPONSE` | 1.0 | 0.959 | −0.251 † | 0.788 |
- * | `SATURATION_RESPONSE` | 1.0 | 0.689 | 0.807 | 0.633 |
- * | `WARMTH_PER_TEMPERATURE` | 0.6936 | 0.567 | 0.633 | 0.576 |
- * | `GREEN_MAGENTA_PER_TEMPERATURE` | −0.0411 | −0.005 | +0.021 | −0.060 |
- * | `WARMTH_PER_TINT` | −0.0429 | −0.043 | −0.041 | −0.043 |
- * | `GREEN_MAGENTA_PER_TINT` | −0.5236 | −0.524 | −0.497 | −0.519 |
+ * ### 2026-09-29 — settled (#107): the ledger's own chain, through the real export
  *
- * † a near-black frame (contrastIdx 0.137) has no spread for a ratio to scale, and the fit
- * comes back with the wrong SIGN. The script warns on it now; it is not a measurement.
+ * `engine/python/tests/color_response_measure.py` exports each grid cell through
+ * `export_video` and measures the FILE with tier-0's own `signalstats` graph. Five
+ * real clips (`bay-aerial`, `beach-sunset`, `driver-beanie`, `camp-coffee`,
+ * `raw_skating`; luma.mean 0.30-0.45), 2 s each, 25 exports per clip:
  *
- * What this says, and it is not "paste these in":
+ * | per unit temperature, per unit luma.mean | bay | beach | driver | camp | skate |
+ * | --- | --- | --- | --- | --- | --- |
+ * | measured, ledger units | 0.566 | 0.577 | 0.503 | 0.567 | 0.611 |
+ * | this module's channel-mean model | 0.569 | 0.587 | 0.512 | 0.569 | 0.610 |
+ * | the old grey-patch constant | 0.694 | 0.694 | 0.694 | 0.694 | 0.694 |
+ * | renderer curve efficiency (measured ÷ derived) | 0.994 | 0.983 | 0.983 | 0.997 | 1.002 |
  *
- *  - **The tint coefficients are solid.** Three clips spanning 7× in luma agree to within
- *    5%, and they match the derived numbers almost exactly. The BT.709 derivation is right
- *    for tint.
- *  - **`WARMTH_PER_TEMPERATURE` is consistently LOWER than derived** — 0.567/0.633/0.576,
- *    mean ≈ 0.59 against 0.6936, so the solver currently under-shoots warmth by ~15%. That
- *    is a real, repeatable disagreement and the most interesting result here.
- *  - **It does not settle the range question.** The script reconstructs warmth from RGB
- *    through the SAME BT.709 matrix this module assumes, so it cannot tell a wrong matrix
- *    from a renderer whose temperature curve is simply shallower. Settling that needs a
- *    `signalstats` pass over a rendered file — the ledger's own chain.
+ * What that says:
  *
- *    That second script now exists: `packages/ai-sdk/scripts/measure-color-response.mjs`
- *    renders each grid cell through `/render/preview` and measures the RESULTING FILE with
- *    `analysis/shot_stats.py#measure_asset`, so the warmth it reports is the warmth the
- *    facts carry, with no reconstruction in between. It has NOT been run — that needs a
- *    live sidecar and real render time, the same reason the first script waited — so the
- *    ~15% disagreement above is still open, and it is now open on a measurement someone
- *    can take rather than on a tool nobody has written. Run it on the same clip as
- *    `fit-color-response.mjs`: agreement means the renderer's curve is shallower than the
- *    derivation and `WARMTH_PER_TEMPERATURE` should move; disagreement means the BT.709
- *    reconstruction is what differs.
- *  - **The `*_RESPONSE` terms are material-dependent by construction.** They are the
- *    clipping efficiencies, and clipping depends on the shot: the darkest clip fits nearest
- *    to 1.0 because it has the most headroom, exactly as this docstring predicted. One
- *    number cannot be right for all footage, so 1.0 (no clipping) stays as the conservative
- *    choice until there is a per-shot model.
+ *  - **The renderer's curve is not shallower.** Measured against the zero-parameter
+ *    prediction in the export's own chain, temperature lands at 0.983-1.002 of the
+ *    derivation and tint at 0.991-1.001; the shortfall is clipping, and small.
+ *  - **The constant had the wrong shape, not just the wrong value.** Three things,
+ *    none of them the renderer: the ledger is LIMITED-range BT.709 (a chroma unit is
+ *    224 codes, not 255: ×0.878); `luma.mean` carries the 16-code floor, so it is not
+ *    the light the white balance multiplies; and temperature multiplies red and blue,
+ *    so a frame with little blue warms less per unit (driver-beanie, 0.503). Modelling
+ *    those — {@link whiteBalanceResponse} — predicts every clip to within 2% with no
+ *    fitted parameter, so the solver now uses the model and there is no constant left
+ *    to paste a fit into. The old one over-stated the response by ~23% and so
+ *    under-corrected warmth by ~18%.
+ *  - **A pure white-balance move now lands.** `apply_look warmer` (+0.10 warmth) on the
+ *    five clips, rendered and measured: the old solver delivered 0.070-0.083, this one
+ *    0.094-0.097.
+ *  - **Saturation had to move ahead of white balance.** Saturation scales every
+ *    pixel's chroma, warmth included; solved after the white balance, a match that raised
+ *    saturation by 0.37 overshot the reference warmth by 0.043. Matches toward
+ *    `beach-sunset` (warmth 0.167) now land within 0.010-0.020 of it (old: 0.004-0.049,
+ *    the 0.004 being two errors cancelling). What is left is clipping in the contrast
+ *    and saturation carry.
  *
- * So the coefficients below are UNCHANGED, and now for a stated reason rather than for want
- * of a measurement. TESTING_PLAN.md T16.4 carries the decision.
+ * Still open, with the numbers the same run measured (tracked in a follow-up to #107):
  *
- * That derivation is exact for the arithmetic it covers and silent about three
- * things it cannot know without a render:
+ * 1. **Luma is read as code/255, not light.** `EXPOSURE_RESPONSE` measures 0.73-0.82
+ *    through `luma.mean` but 0.90-0.97 through light: most of the "clipping" the first
+ *    fit saw is the 16-code floor. The exposure, contrast-pivot and zone solves still
+ *    read `luma.mean` as light.
+ * 2. **Clipping is material-dependent.** `CONTRAST_RESPONSE` measures 0.64-0.99 and
+ *    `SATURATION_RESPONSE` 1.03-1.16; all three stay at 1.0 until there is a per-shot
+ *    model.
+ * 3. **White balance's effect on `satMean`.** The saturation solve ignores it, and it is
+ *    large: ±0.5 temperature moves `satMean` by up to 3.8× on a near-neutral frame, and
+ *    the three renders above over-shoot the reference `satMean` by 19-38%. It is a
+ *    mean of magnitudes, so the means the ledger keeps cannot predict it exactly.
+ * 4. **The export is BT.601, untagged.** The pure-red probe reads Y/U/V 81/90/239
+ *    (BT.709 would be 63/102/240). This does not touch the solve — it reads sources and
+ *    the float composite — but it means tier-0 facts of an EXPORTED file are in a
+ *    different chain from those of its sources.
  *
- * 1. **Clipping.** Every stage ends in a clamp to `[0, 1]`. A bright shot pushed
- *    up a stop loses its highlights to the ceiling, so the *measured* luma moves
- *    less than the model says. The `*_RESPONSE` constants below are the efficiency
- *    terms for exactly this, and they all sit at 1.0 — the no-clipping value.
- * 2. **The chroma matrix and range.** {@link WARMTH_PER_TEMPERATURE} is derived
- *    assuming full-range BT.709 chroma. If the render/measure path is limited
- *    range, or BT.601, the coefficient is wrong by a fixed factor.
- * 3. **White balance's effect on saturation.** Multiplying red up and blue down
- *    changes `satMean`; the saturation solve ignores that cross-term.
- *
- * So: a solved grade here is **directionally right and approximately scaled**. It
- * is a large improvement on a number the model made up, and it is not a
- * calibrated instrument. Do not quote its accuracy — nobody has measured it.
- *
- * **To fit it for real:** run `packages/ai-sdk/scripts/fit-color-response.mjs`
- * against a live sidecar. It renders the grid, measures each cell, prints the
- * fitted coefficients, and says which of the constants below to replace.
+ * So: a solved white balance is now **calibrated against the render**; the tonal stages
+ * are still directionally right and approximately scaled. Quote only what the table
+ * above measured.
  *
  * ## The model, stage by stage
  *
- * The renderer's pipeline order is fixed and the inversion follows it exactly:
+ * The renderer's pipeline order is fixed:
  * exposure → white balance → contrast → shadows/highlights → saturation.
  *
- * | Parameter    | Effect on the pixels                         | Effect on the facts                       |
- * | ------------ | -------------------------------------------- | ----------------------------------------- |
- * | `exposure`   | `rgb *= 2**e`                                | luma and chroma both scale by `2**e`      |
- * | `temperature`| `R *= 1+0.3t`, `B *= 1-0.3t`                 | warmth moves; scaled by the current luma  |
- * | `tint`       | `G *= 1+0.3t`                                | green/magenta moves; warmth barely        |
- * | `contrast`   | `(rgb-0.5)*(1+c)+0.5`                        | luma spread and chroma both scale by `1+c`|
- * | `shadows`    | `+0.5*s*(1-lum)**2`                          | lifts the low percentile                  |
- * | `highlights` | `+0.5*h*lum**2`                              | lifts the high percentile                 |
- * | `saturation` | `lum + (rgb-lum)*(1+s)`                      | `satMean` scales by `1+s`, luma unchanged |
+ * | Parameter    | Effect on the pixels                         | Effect on the facts                          |
+ * | ------------ | -------------------------------------------- | -------------------------------------------- |
+ * | `exposure`   | `rgb *= 2**e`                                | luma and chroma both scale by `2**e`         |
+ * | `temperature`| `R *= 1+0.3t`, `B *= 1-0.3t`                 | warmth moves by the red and blue it scales   |
+ * | `tint`       | `G *= 1+0.3t`                                | green/magenta moves; warmth barely           |
+ * | `contrast`   | `(rgb-0.5)*(1+c)+0.5`                        | luma spread and chroma both scale by `1+c`   |
+ * | `shadows`    | `+0.5*s*(1-lum)**2`                          | lifts the low percentile                     |
+ * | `highlights` | `+0.5*h*lum**2`                              | lifts the high percentile                    |
+ * | `saturation` | `lum + (rgb-lum)*(1+s)`                      | `satMean` AND warmth scale by `1+s`          |
  *
- * Two consequences that are easy to get wrong and that the solver handles:
- * exposure and contrast **both scale chroma**, so the warmth and saturation moves
- * are solved against the values that survive those stages, not against the raw
- * measurement; and shadows and highlights **both** touch **both** percentiles, so
- * they are solved as one 2x2 system rather than one at a time.
+ * Consequences that are easy to get wrong and that the solver handles: exposure,
+ * contrast and saturation **all scale chroma**, so contrast and saturation are solved
+ * first and the white-balance move is solved against what survives all three; and
+ * shadows and highlights **both** touch **both** percentiles, so they are solved as one
+ * 2x2 system rather than one at a time.
  *
  * ## What this module is not
  *
@@ -240,10 +235,27 @@ const CHROMA_HALF_RANGE = 128;
 /** Neutral 8-bit chroma. `uMean == vMean == 128` is a grey frame. */
 const CHROMA_NEUTRAL = 128;
 
-/** BT.709 Cb/Cr divisors, and the 8-bit scale signalstats reports U/V on. */
+/** BT.709 Cb/Cr divisors: `2 * (1 - Kb)` and `2 * (1 - Kr)`. */
 const BT709_CB_DIVISOR = 1.8556;
 const BT709_CR_DIVISOR = 1.5748;
-const CHROMA_8BIT_SCALE = 255;
+
+/**
+ * The ledger's encoding: BT.709, LIMITED range (#107).
+ *
+ * Tier-0 reads the raw planes of the source file, and camera footage is tagged
+ * `tv`/`bt709`: luma codes run 16..235 and chroma codes 128 ± 112. So `luma.mean` is
+ * `(16 + 219 * light) / 255`, not `light`, and one unit of chroma difference is 224
+ * codes, not 255. `picture-facts.ts` writes a rendered (float RGB) reading into these
+ * same units through {@link ledgerMeasurementFromLight}, so the two provenances agree.
+ *
+ * The derivation this module shipped with assumed FULL range, and that — not the
+ * renderer — is most of the "~15% under-shoot" #107 tracked; see the module docstring.
+ */
+const LEDGER_LUMA_FLOOR = 16;
+const LEDGER_LUMA_SPAN = 219;
+const LEDGER_CHROMA_SPAN = 224;
+/** Tier-0 normalises luma codes by 255 (`_LUMA_FULL` in `shot_stats.py`). */
+const LEDGER_CODE_SCALE = 255;
 
 // ---------------------------------------------------------------------------
 // PROVISIONAL COEFFICIENTS — every one of these is what the fit replaces
@@ -277,23 +289,23 @@ const CONTRAST_RESPONSE = 1.0;
 const SATURATION_RESPONSE = 1.0;
 
 /**
- * What one unit of a white-balance parameter does to the two chroma facts, on a
- * neutral patch of unit luma.
+ * What a change in the three channel MEANS does to the two chroma facts, in the
+ * ledger's units (#107).
  *
- * DERIVED, NOT FITTED. This is the renderer's own channel arithmetic
- * (`R *= 1 + 0.3t`, `G *= 1 + 0.3·tint`, `B *= 1 - 0.3t`) pushed through
- * full-range BT.709 into signalstats' 8-bit U/V, written as code rather than as
- * four magic numbers so the assumption is inspectable and the fit has something
- * to disagree with. Two assumptions are baked in and neither can be checked
- * without a render: that the measured chain is full-range BT.709, and that a real
- * frame behaves like a neutral patch.
+ * DERIVED, and since 2026-09-29 MEASURED: the renderer's channel arithmetic
+ * (`R *= 1 + 0.3t`, `G *= 1 + 0.3·tint`, `B *= 1 - 0.3t`) is linear in each channel,
+ * so its effect on a frame's mean chroma is exactly its effect on the frame's mean
+ * R/G/B, pushed through limited-range BT.709 into signalstats' U/V codes.
+ * `engine/python/tests/color_response_measure.py` renders that through the real export
+ * and measures it with tier-0's own filter graph; see the module docstring for the
+ * numbers.
  *
- * @param deltaRed - Fractional change in the red channel per unit of the parameter.
- * @param deltaGreen - Fractional change in green.
- * @param deltaBlue - Fractional change in blue.
- * @returns `[warmth, greenMagenta]` moved per unit, at mean luma 1.0.
+ * @param deltaRed - Change in the mean red channel, in normalised light.
+ * @param deltaGreen - Change in mean green.
+ * @param deltaBlue - Change in mean blue.
+ * @returns `[warmth, greenMagenta]` moved, in the ledger's -1..1 fact units.
  */
-function neutralPatchResponse(
+function chromaResponse(
   deltaRed: number,
   deltaGreen: number,
   deltaBlue: number,
@@ -301,34 +313,113 @@ function neutralPatchResponse(
   const deltaLuma = REC709_RED * deltaRed + REC709_GREEN * deltaGreen + REC709_BLUE * deltaBlue;
   const deltaCr = (deltaRed - deltaLuma) / BT709_CR_DIVISOR;
   const deltaCb = (deltaBlue - deltaLuma) / BT709_CB_DIVISOR;
-  const scale = CHROMA_8BIT_SCALE / CHROMA_HALF_RANGE;
+  const scale = LEDGER_CHROMA_SPAN / CHROMA_HALF_RANGE;
   return [scale * (deltaCr - deltaCb), scale * (deltaCr + deltaCb)];
 }
 
 /**
- * Warmth and green/magenta moved per unit `temperature`, at mean luma 1.0.
- * **Provisional: derived, ~0.6936 and ~-0.0411.**
+ * Normalised light behind a ledger luma fact: `(Y - 16) / 219`, clamped to 0..1.
  *
- * The response **scales with the frame's mean luma** — white balance is
- * multiplicative, so a dark shot's chroma moves less in absolute terms — and the
- * solver evaluates it at the post-exposure luma rather than treating it as a
- * constant. That is what makes "warmer by 0.1" cost more temperature on dark
- * footage than on bright, which is the honest answer and the reason the clamp
- * report matters.
+ * Clamped rather than trusted below the floor: a full-range still can read under 16,
+ * and a negative light would flip the sign of every multiplicative response.
  */
-const [WARMTH_PER_TEMPERATURE, GREEN_MAGENTA_PER_TEMPERATURE] = neutralPatchResponse(
-  RENDER_TEMPERATURE_GAIN,
-  0,
-  -RENDER_TEMPERATURE_GAIN,
-);
+function lightFromLedgerLuma(lumaFact: number): number {
+  return clamp01((finite(lumaFact) * LEDGER_CODE_SCALE - LEDGER_LUMA_FLOOR) / LEDGER_LUMA_SPAN);
+}
+
+/** The ledger luma fact normalised light writes: the inverse of {@link lightFromLedgerLuma}. */
+function ledgerLumaFromLight(light: number): number {
+  return (LEDGER_LUMA_FLOOR + LEDGER_LUMA_SPAN * light) / LEDGER_CODE_SCALE;
+}
 
 /**
- * The same for `tint`. **Provisional: derived, ~-0.0411 and ~-0.5018.**
+ * The mean R'G'B' (normalised light) behind a measurement.
  *
- * Tint barely touches warmth and temperature barely touches green/magenta, which
- * is why the two can be solved together at all: the 2x2 is strongly diagonal.
+ * Exact for means: the BT.709 transform is linear, so the mean of the planes is the
+ * transform of the mean channels. Each is clamped to 0..1 because out-of-gamut
+ * averages cannot be multiplied back by a renderer that clamps.
  */
-const [WARMTH_PER_TINT, GREEN_MAGENTA_PER_TINT] = neutralPatchResponse(0, RENDER_TINT_GAIN, 0);
+function channelMeans(measurement: ColorMeasurement): readonly [number, number, number] {
+  const light = lightFromLedgerLuma(measurement.luma.mean);
+  const cb =
+    (finite(measurement.chroma.uMean, CHROMA_NEUTRAL) - CHROMA_NEUTRAL) / LEDGER_CHROMA_SPAN;
+  const cr =
+    (finite(measurement.chroma.vMean, CHROMA_NEUTRAL) - CHROMA_NEUTRAL) / LEDGER_CHROMA_SPAN;
+  const red = light + BT709_CR_DIVISOR * cr;
+  const blue = light + BT709_CB_DIVISOR * cb;
+  const green = (light - REC709_RED * red - REC709_BLUE * blue) / REC709_GREEN;
+  return [clamp01(red), clamp01(green), clamp01(blue)];
+}
+
+/**
+ * The white-balance 2x2 for one frame: what one unit of `temperature` and of `tint`
+ * move warmth and green/magenta, given the channel means they will multiply.
+ *
+ * This replaces the old `WARMTH_PER_TEMPERATURE × luma` model. That model treated the
+ * frame as a grey patch whose light equalled `luma.mean`; both halves were wrong for the
+ * ledger's facts. Temperature multiplies RED and BLUE, so a frame with little blue has
+ * little blue to take away and warms less per unit — the material dependence the first fit
+ * saw as scatter — and `luma.mean` carries the limited-range floor, so it is not the light.
+ * On a neutral grey of light `L` this reduces to `0.6092·L` warmth and `-0.0361·L`
+ * green/magenta per unit temperature, and `-0.0361·L` / `-0.4408·L` per unit tint: the
+ * old full-range derivation's 0.6936 / -0.0411 / -0.0411 / -0.5018 times 224/255.
+ *
+ * @returns `[[warmthPerTemperature, warmthPerTint], [gmPerTemperature, gmPerTint]]`,
+ *   or `null` when the frame is black and no white balance moves it.
+ */
+function whiteBalanceResponse(
+  channels: readonly [number, number, number],
+): readonly [readonly [number, number], readonly [number, number]] | null {
+  const [red, green, blue] = channels;
+  if (Math.max(red, green, blue) < MEASUREMENT_EPSILON) return null;
+  const [warmthPerTemperature, gmPerTemperature] = chromaResponse(
+    RENDER_TEMPERATURE_GAIN * red,
+    0,
+    -RENDER_TEMPERATURE_GAIN * blue,
+  );
+  const [warmthPerTint, gmPerTint] = chromaResponse(0, RENDER_TINT_GAIN * green, 0);
+  return [
+    [warmthPerTemperature, warmthPerTint],
+    [gmPerTemperature, gmPerTint],
+  ];
+}
+
+/** A rendered (float RGB) reading, as `measure_color`'s evidence route reports it. */
+export interface LightReading {
+  /** Rec.709 luma of the float frame, 0..1: mean and 10th/90th percentiles. */
+  readonly lumaMean: number;
+  readonly lumaP10: number;
+  readonly lumaP90: number;
+  /** Channel means, 0..1. */
+  readonly red: number;
+  readonly blue: number;
+  readonly satMean: number;
+}
+
+/**
+ * Write a float-RGB reading into the ledger's units, so a rendered measurement and a
+ * tier-0 one can sit on the two sides of one match.
+ *
+ * Before #107 the rendered side was written in FULL-range units and the ledger side is
+ * limited-range, so a mixed match compared warmth on scales 255/224 apart and luma with
+ * and without the 16-code floor. `satMean` is carried unchanged: it is only ever read as
+ * a ratio against the same provenance.
+ */
+export function ledgerMeasurementFromLight(reading: LightReading): ColorMeasurement {
+  const light = finite(reading.lumaMean);
+  const uMean =
+    CHROMA_NEUTRAL + (LEDGER_CHROMA_SPAN * (finite(reading.blue) - light)) / BT709_CB_DIVISOR;
+  const vMean =
+    CHROMA_NEUTRAL + (LEDGER_CHROMA_SPAN * (finite(reading.red) - light)) / BT709_CR_DIVISOR;
+  const p10 = ledgerLumaFromLight(finite(reading.lumaP10));
+  const p90 = ledgerLumaFromLight(finite(reading.lumaP90));
+  return {
+    luma: { mean: ledgerLumaFromLight(light), p10, p90 },
+    chroma: { uMean, vMean, satMean: finite(reading.satMean) },
+    warmth: Math.max(-1, Math.min(1, (vMean - uMean) / CHROMA_HALF_RANGE)),
+    contrastIdx: p90 - p10,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Editorial thresholds
@@ -581,18 +672,19 @@ function skinCapScale(
 /**
  * The grade that moves `target`'s measurements toward `reference`'s.
  *
- * Solved in the renderer's pipeline order, each stage against what the previous
- * stages left behind:
+ * Each stage is solved against what the stages before it in the RENDERER leave
+ * behind; the chroma-scaling stages are solved first so the white balance can be
+ * solved net of them (numbers are the renderer's stage order):
  *
  * 1. **exposure** from `log2(ref.mean / target.mean)`;
- * 2. **temperature/tint** as a 2x2 solve against the warmth and green/magenta
- *    residuals, evaluated at the post-exposure luma and net of the chroma scaling
- *    that exposure and contrast apply;
  * 3. **contrast** from the `contrastIdx` ratio after exposure;
- * 4. **shadows/highlights** as a 2x2 solve against the p10/p90 residuals after
- *    exposure and contrast, because each parameter touches both percentiles;
  * 5. **saturation** from the `satMean` ratio net of the exposure and contrast
- *    scaling.
+ *    scaling;
+ * 2. **temperature/tint** as a 2x2 solve against the warmth and green/magenta
+ *    residuals, evaluated at the post-exposure channel means and net of the chroma
+ *    scaling that exposure, contrast and saturation apply;
+ * 4. **shadows/highlights** as a 2x2 solve against the p10/p90 residuals after
+ *    exposure and contrast, because each parameter touches both percentiles.
  *
  * Every stage is clamped to {@link COLOR_GRADE_PARAMETER_CONTRACTS} *before* the
  * next stage predicts from it, so a match the contracts cannot reach degrades
@@ -640,32 +732,54 @@ export function solveColorMatch(
   );
   const contrastGain = 1 + grade.contrast * CONTRAST_RESPONSE;
 
+  // 5) Saturation, solved before white balance for the same reason as contrast:
+  //    `lum + (rgb - lum) * (1 + s)` scales every pixel's chroma, so it scales warmth
+  //    too. Solved after, as it was until #107, a match that raised saturation by a
+  //    third raised the cast the white balance had just set by a third as well —
+  //    render-measured on `bay-aerial` → `beach-sunset`, +0.043 warmth past the
+  //    reference. Shadows and highlights add the same offset to all three channels,
+  //    which leaves absolute chroma alone, so only exposure and contrast are
+  //    discounted here. What this still ignores is the reverse coupling, white
+  //    balance's effect on `satMean` (see the module docstring).
+  const satAfter = finite(target.chroma.satMean) * exposureGain * contrastGain;
+  const satFactor = ratio(finite(reference.chroma.satMean), satAfter);
+  grade.saturation = note(
+    'saturation',
+    clampToContract('saturation', ratio(satFactor - 1, SATURATION_RESPONSE, 0)),
+  );
+  const saturationGain = 1 + grade.saturation * SATURATION_RESPONSE;
+
   // 2) White balance. Chroma reaches the measurement having been scaled by
-  //    exposure and then by contrast, so the warmth the WB stage must produce is
-  //    the reference's divided by the contrast gain, less what the source carries
-  //    through exposure.
+  //    exposure, then by contrast, then by saturation, so the warmth the WB stage
+  //    must produce is the reference's divided by both gains, less what the source
+  //    carries through exposure.
   // `ratio`, not a bare `=== 0` guard: every other divisor in this module goes through
   // MEASUREMENT_EPSILON, and this one guarded only EXACT zero. A contrast solve landing a
   // hair above zero produced a vast carry that drove the 2x2 white-balance solve to absurd
   // temperature and tint before the contract clamp caught it. Reachable depends on
   // CONTRAST_RESPONSE, which is no longer certain to be 1.0 now that it is measurable.
-  const chromaCarry = ratio(1, contrastGain, 0);
+  const chromaCarry = ratio(1, contrastGain * saturationGain, 0);
   const warmthResidual =
     finite(reference.warmth) * chromaCarry - finite(target.warmth) * exposureGain;
   const greenMagentaResidual =
     greenMagenta(reference) * chromaCarry - greenMagenta(target) * exposureGain;
-  // The white-balance response is proportional to the light it multiplies, which
-  // after stage 1 is the exposed mean. Zero luma means zero response, and no
+  // The white-balance response is proportional to the channels it multiplies, which
+  // after stage 1 are the exposed channel means. A black frame has no response, and no
   // temperature value would produce the residual — the clamp then says so.
-  const whiteBalanceLuma = clamp01(targetMean * exposureGain);
+  const [red, green, blue] = channelMeans(target);
+  const response = whiteBalanceResponse([
+    clamp01(red * exposureGain),
+    clamp01(green * exposureGain),
+    clamp01(blue * exposureGain),
+  ]);
   const whiteBalance =
-    whiteBalanceLuma < MEASUREMENT_EPSILON
+    response === null
       ? null
       : solve2x2(
-          WARMTH_PER_TEMPERATURE * whiteBalanceLuma,
-          WARMTH_PER_TINT * whiteBalanceLuma,
-          GREEN_MAGENTA_PER_TEMPERATURE * whiteBalanceLuma,
-          GREEN_MAGENTA_PER_TINT * whiteBalanceLuma,
+          response[0][0],
+          response[0][1],
+          response[1][0],
+          response[1][1],
           warmthResidual,
           greenMagentaResidual,
         );
@@ -701,16 +815,6 @@ export function solveColorMatch(
     grade.shadows = note('shadows', clampToContract('shadows', zones[0]));
     grade.highlights = note('highlights', clampToContract('highlights', zones[1]));
   }
-
-  // 5) Saturation. Shadows and highlights add the same offset to all three
-  //    channels, which leaves absolute chroma alone, so only exposure and
-  //    contrast have to be discounted here.
-  const satAfter = finite(target.chroma.satMean) * exposureGain * contrastGain;
-  const satFactor = ratio(finite(reference.chroma.satMean), satAfter);
-  grade.saturation = note(
-    'saturation',
-    clampToContract('saturation', ratio(satFactor - 1, SATURATION_RESPONSE, 0)),
-  );
 
   return assemble(grade, clampedParameters, capScale < 1);
 }
@@ -925,8 +1029,16 @@ const LOOK_DELTAS: Readonly<Record<LookIntent, LookDelta>> = {
 function lookTarget(baseline: ColorMeasurement, delta: LookDelta, scale: number): ColorMeasurement {
   const gain = 2 ** ((delta.exposureStops ?? 0) * scale);
   const spread = (delta.contrastRatio ?? 1) ** scale;
+  const satRatio = (delta.satRatio ?? 1) ** scale;
   /** What exposure and contrast between them do to every chroma reading. */
   const chromaCarry = gain * spread;
+  /**
+   * What the cast carries: saturation scales every pixel's chroma, so a punchier look
+   * deepens the cast with it. Leaving it out asked the solver — which now discounts
+   * saturation from the white-balance residual (#107) — to take a fifth of the cast
+   * out of a "punchier", a white-balance move nobody requested.
+   */
+  const castCarry = chromaCarry * satRatio;
   const neutralize = Math.min(1, (delta.neutralize ?? 0) * scale);
   const keep = 1 - neutralize;
 
@@ -944,19 +1056,16 @@ function lookTarget(baseline: ColorMeasurement, delta: LookDelta, scale: number)
 
   const warmth = Math.max(
     -1,
-    Math.min(1, finite(baseline.warmth) * chromaCarry * keep + (delta.warmthDelta ?? 0) * scale),
+    Math.min(1, finite(baseline.warmth) * castCarry * keep + (delta.warmthDelta ?? 0) * scale),
   );
-  const gm = greenMagenta(baseline) * chromaCarry * keep;
+  const gm = greenMagenta(baseline) * castCarry * keep;
   return {
     luma: { mean, p10, p90 },
     chroma: {
       // Invert `warmth = (v - u) / 128` and `gm = (u + v - 256) / 128` together.
       uMean: CHROMA_NEUTRAL + ((gm - warmth) * CHROMA_HALF_RANGE) / 2,
       vMean: CHROMA_NEUTRAL + ((gm + warmth) * CHROMA_HALF_RANGE) / 2,
-      satMean: Math.max(
-        0,
-        finite(baseline.chroma.satMean) * chromaCarry * (delta.satRatio ?? 1) ** scale,
-      ),
+      satMean: Math.max(0, finite(baseline.chroma.satMean) * chromaCarry * satRatio),
     },
     warmth,
     contrastIdx: p90 - p10,

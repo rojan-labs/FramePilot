@@ -1011,7 +1011,7 @@ describe('warmer-subtle: warmth, on every clip, and nothing else', () => {
 
   it('passes the larger temperature a DARK shot needs for the same measured warmth', () => {
     // The scale-free contract (VU3): "a bit warmer" moves every shot by the same amount in
-    // MEASURED units, and `WARMTH_PER_TEMPERATURE` scales with mean luma — so a dark shot
+    // MEASURED units, and the white-balance response scales with the light — so a dark shot
     // costs more parameter to move the same distance. Measured on `mission-montage`,
     // asset_004 is luma_mean 0.1271 and a +0.05 warmth target solves to ≈0.57; the live run
     // produced 0.56 and the old flat cap of 0.5 failed it. Failing a correct solve for

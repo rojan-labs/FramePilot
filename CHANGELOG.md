@@ -70,6 +70,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **"Warmer", "cooler" and colour matching now land the amount they promise.** The assistant's
+  colour solver priced white balance with a number that assumed the wrong video range. It
+  under-corrected warmth by about 18%, and more on footage with little blue in it. It now works
+  that out from the clip's own colour, and it was checked by exporting real clips and measuring
+  them. A "warmer" look now adds 94-97% of the asked-for warmth (70-83% before). When a match
+  also boosts saturation, it now allows for the extra cast that adds.
 - **Tightly spaced text exports as the editor shows it.** Negative letter spacing (the "Heading"
   and "Statement" styles, or below 0 % in the Inspector) was dropped on export and on the
   desktop monitor, so that text came out looser than the browser preview. It now tightens in both.

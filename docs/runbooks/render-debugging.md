@@ -91,6 +91,28 @@ decode, the encoder probe - must call `find_export_ffmpeg()` in `media/ffmpeg.py
 ran with `ps -o args` during a render, or `test_media_ffmpeg.py` /
 `test_render_pts_reader.py::test_variable_rate_decode_runs_moviepys_ffmpeg_not_path_or_override`.
 
+## Recurring failure mode: a solved colour grade lands short (or long) by a steady fraction
+
+Symptom: `match_color` / `apply_look` produce the right direction but the export measures a
+fixed fraction off what the solver promised (#107: "warmer" delivered 70-83% of its +0.10).
+Do not fit a constant from float-RGB previews: the ledger's facts are `signalstats` codes of a
+LIMITED-range BT.709 file, and a reconstruction through an assumed matrix cannot tell a wrong
+matrix from a wrong renderer. Measure the export with the ledger's own graph:
+
+    cd engine/python
+    uv run python -m tests.color_response_measure --work <scratch dir> \
+        --media <short real clips, 2-3 s each> --json fit.json --raw raw.json
+    uv run python -m tests.color_response_measure --refit raw.json   # re-fit, no renders
+
+It exports 25 grade cells per clip at 480p through `export_video` (one at a time, well under
+1 GB), measures each with `shot_stats.measure_asset`, and first exports a pure-red probe to name
+the encode chain from evidence. Read `temperature_curve_efficiency` first: near 1.0 means the
+renderer does what `render/color.py` says and any miss is the solver's model; below 1.0 is
+clipping. As of 2026-09-29 the export encodes **BT.601 limited, untagged** (probe 81/90/239)
+while camera sources are BT.709 limited, so compare facts of an export and of its sources only
+through the script's re-expression. Media goes into the scratch sandbox; never point `--work`
+at a real project folder.
+
 ## Recurring failure mode: "applies but doesn't render"
 
 A distinct class of bug from the checklist above — the op **validates and applies** (it

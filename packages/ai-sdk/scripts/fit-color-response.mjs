@@ -43,8 +43,13 @@
  *    so warmth and green/magenta are computed from the red/blue/luma means through
  *    the same BT.709 matrix the solver assumes. That means this script CANNOT
  *    settle whether the ledger's chain is full-range BT.709 — the one assumption
- *    behind `WARMTH_PER_TEMPERATURE` that most deserves settling. Doing that needs
- *    a `signalstats` pass over a rendered file, which is a second script.
+ *    behind `WARMTH_PER_TEMPERATURE` that most deserves settling. That was settled
+ *    (#107) by `engine/python/tests/color_response_measure.py`, which exports the grid
+ *    and reads the file with tier-0's own `signalstats` graph: the ledger is
+ *    LIMITED-range, and the solver now models white balance from the frame's channel
+ *    means instead of carrying `WARMTH_PER_*` constants. The temperature/tint rows
+ *    printed here are in this script's float, full-range units; they no longer name a
+ *    constant to replace. Use the Python script for anything white-balance.
  *  - **One frame of one clip.** The response depends on the material, because
  *    every stage ends in a clamp. Run it on more than one fixture before believing
  *    a number, and record which fixture produced it.

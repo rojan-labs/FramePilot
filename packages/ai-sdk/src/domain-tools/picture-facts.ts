@@ -23,6 +23,7 @@
  * (`assetStart`/`assetEnd` vs `start`/`end`) and every block states `timeBase`.
  */
 import type { Project } from '@framepilot/timeline-schema';
+import { ledgerMeasurementFromLight } from '@framepilot/editor-core';
 import type { ColorMeasurement as SolverMeasurement } from '@framepilot/editor-core';
 import type { ToolContext } from '../tool-context.js';
 import { indexFor } from '../project-index.js';
@@ -312,13 +313,6 @@ export interface ResolvedMeasurement {
   readonly occlusionFree: boolean;
 }
 
-/** BT.709 chroma divisors and the 8-bit scale `signalstats` reports U/V on. */
-const BT709_CB_DIVISOR = 1.8556;
-const BT709_CR_DIVISOR = 1.5748;
-const CHROMA_8BIT_SCALE = 255;
-const CHROMA_NEUTRAL = 128;
-const CHROMA_HALF_RANGE = 128;
-
 function medianOf(values: readonly number[]): number | undefined {
   if (values.length === 0) return undefined;
   const sorted = [...values].sort((a, b) => a - b);
@@ -341,10 +335,12 @@ function channelStat(
 /**
  * Convert a `measure_color` evidence payload into the solver's measurement shape.
  *
- * The evidence route measures RGB, luma and saturation; the solver reads luma, raw 8-bit
- * U/V and warmth. The conversion is the BT.709 forward transform — the exact inverse of
- * the one `color-solver.ts` documents — applied to the channel medians, so both sides of a
- * match that mixes an evidence reading with a ledger reading are on one scale.
+ * The evidence route measures RGB, luma and saturation on the float frame; the solver
+ * reads the ledger's units — limited-range BT.709 signalstats codes. The conversion is
+ * `ledgerMeasurementFromLight` in `color-solver.ts`, applied to the channel medians, so
+ * both sides of a match that mixes an evidence reading with a ledger reading are on one
+ * scale. Until #107 this wrote FULL-range units, which the ledger is not: a mixed match
+ * compared warmth on scales 255/224 apart and luma with and without the 16-code floor.
  *
  * `undefined` when a whole-frame channel is missing: an incomplete reading must not be
  * completed with a zero, which reads as a black, desaturated shot.
@@ -374,15 +370,7 @@ export function measurementFromEvidence(
   // the measured `luma` channel already is — so it is read for completeness of the guard
   // above rather than used twice here.
   void green;
-  const uMean = CHROMA_NEUTRAL + (CHROMA_8BIT_SCALE * (blue - lumaMean)) / BT709_CB_DIVISOR;
-  const vMean = CHROMA_NEUTRAL + (CHROMA_8BIT_SCALE * (red - lumaMean)) / BT709_CR_DIVISOR;
-  const warmth = Math.max(-1, Math.min(1, (vMean - uMean) / CHROMA_HALF_RANGE));
-  return {
-    luma: { mean: lumaMean, p10: lumaP10, p90: lumaP90 },
-    chroma: { uMean, vMean, satMean },
-    warmth,
-    contrastIdx: lumaP90 - lumaP10,
-  };
+  return ledgerMeasurementFromLight({ lumaMean, lumaP10, lumaP90, red, blue, satMean });
 }
 
 /** The ledger's tier-0 facts already ARE the solver's shape; this is the projection. */
