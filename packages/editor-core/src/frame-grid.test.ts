@@ -62,6 +62,7 @@ describe('AI operation normalization', () => {
         asOperation({ type: 'add_marker', id: 'm', time: 0.049 }),
       ],
       fps,
+      [],
     );
 
     expect(operations[0]).toMatchObject({ start: frameTime(1), end: frameTime(31) });

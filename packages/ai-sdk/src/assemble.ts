@@ -271,7 +271,7 @@ export function assembleEdit(
 
   let normalizedOperations: AnyOperation[];
   try {
-    normalizedOperations = normalizeOperationTimes(operations, project.fps);
+    normalizedOperations = normalizeOperationTimes(operations, project.fps, project.assets);
   } catch (cause) {
     /* v8 ignore next -- frame normalization always rejects with a RangeError. */
     const message = cause instanceof Error ? cause.message : String(cause);

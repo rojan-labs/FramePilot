@@ -27,7 +27,7 @@
  */
 import type { AnyOperation, Patch } from './patch.js';
 import type { AddClipOp } from './operations.js';
-import type { Effect, EffectLayer, Keyframe } from '@framepilot/timeline-schema';
+import type { Asset, Effect, EffectLayer, Keyframe } from '@framepilot/timeline-schema';
 
 export type FrameRounding = 'nearest' | 'floor' | 'ceil';
 
@@ -153,8 +153,17 @@ function snapEffectLayer(layer: EffectLayer, fps: number): EffectLayer {
  * Snapshot operations (`restore_*`, seeded `add_layer`) and source observations
  * (`set_transcript`, caption cue words, speed-ramp source points) deliberately pass
  * through unchanged. Their values describe exact prior state or provider evidence.
+ *
+ * @param op - The operation to normalize.
+ * @param fps - The project's frame rate.
+ * @param mediaSeconds - For an `add_clip`, the known length of the media it reads (see
+ *   {@link mediaLengthSeconds}); `undefined` when unknown or not time-based.
  */
-export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperation {
+export function normalizeOperationTime(
+  op: AnyOperation,
+  fps: number,
+  mediaSeconds?: number,
+): AnyOperation {
   switch (op.type) {
     case 'trim_clip':
       return {
@@ -249,7 +258,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
         ...(op.end === undefined ? {} : { end: snapSecondsToFrame(op.end, fps) }),
       };
     case 'add_clip':
-      return snapAddClip(op, fps);
+      return snapAddClip(op, fps, mediaSeconds);
     case 'add_asset':
     case 'remove_asset':
     case 'move_asset':
@@ -342,14 +351,23 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
  *   would change which one that is; the out-point is rescaled around it instead. So a
  *   run asking for "exact frame-aligned cuts" gets frame-aligned CUTS — its in-points
  *   may still seek to an off-grid source frame, which no downstream operation reads.
- * - Snapping `end` up can push a full-source placement (`sourceEnd` = the asset's whole
- *   duration, which is how `stock-placement.ts` and `music-placement.ts` build one)
- *   under a frame past the real end. That is safe and already handled where it lands:
- *   `compiler.py#_subclipped_source` drops a `source_end` at or beyond the asset's
- *   duration and plays to the end. Clamping here is not possible anyway — this is a pure
- *   operation transform and knows nothing of the media bin.
+ * - The out-point never lands past the media (AL42). Nearest-frame rounding of a
+ *   full-source placement (`sourceEnd` = the asset's whole duration, which is how
+ *   `stock-placement.ts` and `music-placement.ts` build one) used to carry `sourceEnd`
+ *   under a frame past the real end of the file whenever the length was not a whole
+ *   number of frames: harness run 17's `add_music` placed a 1.998 s hit as 2.0 s. The
+ *   same run's `add_clip` calls ASKED for 2.0 s of it, and for 14 frames (0.4667 s) of a
+ *   0.4475 s whoosh — a length rounded to the frame by the author, meaning "all of it".
+ *   The media has no such frame to give. When its length is known
+ *   ({@link mediaLengthSeconds}) and the out-point would read past it by no more than one
+ *   project frame, the clip ends on the last whole frame inside it instead: the sequence
+ *   stays on the grid, the speed and the in-point are untouched, and the clip is a frame
+ *   short rather than a frame longer than its media. A request further past the end is
+ *   not float noise but a wrong length, and is left for the validator
+ *   (`source_past_media_end`) to refuse with the asset's length. Every other clip keeps
+ *   nearest rounding, so butt-joined cuts still meet.
  */
-function snapAddClip(op: AddClipOp, fps: number): AddClipOp {
+function snapAddClip(op: AddClipOp, fps: number, mediaSeconds?: number): AddClipOp {
   const start = snapSecondsToFrame(op.start, fps);
   const end = snapSecondsToFrame(op.end, fps);
   const sequence = op.end - op.start;
@@ -360,15 +378,91 @@ function snapAddClip(op: AddClipOp, fps: number): AddClipOp {
   // The clip's speed, preserved exactly: one second of sequence consumes `speed` seconds
   // of source, and that ratio must survive a sub-frame nudge of the out-point.
   const speed = source / sequence;
-  return { ...op, start, end, sourceEnd: op.sourceStart + (end - start) * speed };
+  const sourceEnd = op.sourceStart + (end - start) * speed;
+  if (
+    mediaSeconds === undefined ||
+    speed <= 0 ||
+    sourceEnd <= mediaSeconds + SOURCE_SECONDS_EPSILON ||
+    op.sourceEnd - mediaSeconds > sourcePastMediaToleranceSeconds(fps)
+  ) {
+    return { ...op, start, end, sourceEnd };
+  }
+  const lastEndInside = frameToSeconds(
+    secondsToFrame(
+      start + (mediaSeconds - op.sourceStart) / speed + SOURCE_SECONDS_EPSILON,
+      fps,
+      'floor',
+    ),
+    fps,
+  );
+  // Media shorter than one frame from the in-point: nothing whole fits, so the nearest
+  // frame stands and the validator's one-frame tolerance covers it.
+  if (lastEndInside <= start) return { ...op, start, end, sourceEnd };
+  return {
+    ...op,
+    start,
+    end: lastEndInside,
+    sourceEnd: op.sourceStart + (lastEndInside - start) * speed,
+  };
 }
 
-/** Normalize a complete proposed patch before identity and validation are computed. */
+/**
+ * Seconds of float noise a source out-point may carry and still be "at" the media's end.
+ * Far below one sample at 192 kHz, so it can never hide a real overrun.
+ */
+const SOURCE_SECONDS_EPSILON = 1e-6;
+
+/**
+ * How far a clip's source out-point may sit past the end of its media before it is a wrong
+ * length rather than rounding: one project frame. The frame grid pulls an out-point within
+ * it back inside the media; the validator refuses one beyond it (`source_past_media_end`,
+ * mirrored in `engine/python/.../timeline/validation.py`).
+ *
+ * @param fps - The project's frame rate.
+ * @returns Seconds of source.
+ */
+export function sourcePastMediaToleranceSeconds(fps: number): number {
+  return 1 / fps + SOURCE_SECONDS_EPSILON;
+}
+
+/** The part of an asset the frame grid reads: which one, what it is, and how long. */
+export type MediaLength = Pick<Asset, 'id' | 'kind' | 'durationSeconds'>;
+
+/**
+ * The length a clip of this asset may read up to, or `undefined` when there is none to
+ * respect: a still is drawn for as long as it is placed, and an unprobed asset's length is
+ * unknown.
+ *
+ * @param asset - The asset, if the bin holds it.
+ * @returns Its duration in seconds for audio and video with a known positive length.
+ */
+export function mediaLengthSeconds(asset: MediaLength | undefined): number | undefined {
+  if (asset === undefined || (asset.kind !== 'audio' && asset.kind !== 'video')) return undefined;
+  const seconds = asset.durationSeconds;
+  return seconds !== undefined && Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+/**
+ * Normalize a complete proposed patch before identity and validation are computed.
+ *
+ * @param operations - The patch's operations, in order.
+ * @param fps - The project's frame rate.
+ * @param assets - The project's media bin, so an `add_clip` never snaps past the end of
+ *   its media. An `add_asset` earlier in the same patch (`add_music`, a stock drop) joins
+ *   it for the operations after it.
+ */
 export function normalizeOperationTimes(
   operations: readonly AnyOperation[],
   fps: number,
+  assets: readonly MediaLength[],
 ): AnyOperation[] {
-  return operations.map((operation) => normalizeOperationTime(operation, fps));
+  const bin = new Map<string, MediaLength>(assets.map((asset) => [asset.id, asset]));
+  return operations.map((operation) => {
+    if (operation.type === 'add_asset') bin.set(operation.asset.id, operation.asset);
+    const mediaSeconds =
+      operation.type === 'add_clip' ? mediaLengthSeconds(bin.get(operation.assetId)) : undefined;
+    return normalizeOperationTime(operation, fps, mediaSeconds);
+  });
 }
 
 /** Exposed for tests and diagnostics that need to distinguish an actual change. */
@@ -395,10 +489,11 @@ export function snapOptionalSeconds(value: number | undefined, fps: number): num
  *
  * @param patch - The proposed patch, from either author.
  * @param fps - The project's frame rate.
+ * @param assets - The project's media bin (see {@link normalizeOperationTimes}).
  * @returns The same patch with its sequence edit points on the grid.
  */
-export function quantizePatch(patch: Patch, fps: number): Patch {
-  const operations = normalizeOperationTimes(patch.operations, fps);
+export function quantizePatch(patch: Patch, fps: number, assets: readonly MediaLength[]): Patch {
+  const operations = normalizeOperationTimes(patch.operations, fps, assets);
   // Structural comparison, not reference: `normalizeOperationTime` rebuilds each operation
   // whether or not a value moved, so a reference check would report "changed" for every
   // patch and quietly defeat the identity below.
