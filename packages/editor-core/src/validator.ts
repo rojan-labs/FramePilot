@@ -455,12 +455,39 @@ function overlapChecks(tracks: readonly Track[], index: number): ValidationIssue
   return issues;
 }
 
-function transitionOverlapChecks(tracks: readonly Track[], index: number): ValidationIssue[] {
+/** The fields of a clip the transition checks read. */
+type TransitionCheckClip = Pick<Clip, 'id' | 'start' | 'end' | 'effects'>;
+
+/** One lane, as far as the transition checks are concerned. */
+export interface TransitionCheckLane {
+  readonly id: string;
+  readonly clips: readonly TransitionCheckClip[];
+}
+
+/**
+ * The validator's own transition sentences for one lane: every cross, In and Out on it that
+ * does not hold.
+ *
+ * Exported for lane placement (AL43). A picker deciding whether a new clip may go on a lane asks
+ * the rule that will judge the patch, with the clip in place, rather than keeping a second copy
+ * of what "a butt-join breaks an entrance" means that could drift from this one.
+ *
+ * @param lane - The lane's id and clips (a placement probe needs only id, start, end, effects).
+ * @returns The problems, in the validator's words; empty when every transition holds.
+ */
+export function laneTransitionProblems(lane: TransitionCheckLane): string[] {
+  return transitionOverlapChecks([lane], 0).map((issue) => issue.message);
+}
+
+function transitionOverlapChecks(
+  tracks: readonly TransitionCheckLane[],
+  index: number,
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const issue = (message: string): void => {
     issues.push({ code: 'transition_overlap', severity: 'error', message, operationIndex: index });
   };
-  const duration = (clip: Clip): number => clip.end - clip.start;
+  const duration = (clip: TransitionCheckClip): number => clip.end - clip.start;
 
   for (const track of tracks) {
     const ordered = track.clips.slice().sort((a, b) => a.start - b.start);

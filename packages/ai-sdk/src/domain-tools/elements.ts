@@ -159,6 +159,42 @@ export function shapeBoxInFrame(
 }
 
 /** The param changes a tool call's style, box and ends ask for; refuses a colour it cannot read. */
+/**
+ * Why a lane the model named for a shape cannot take it, or `null` when it can.
+ *
+ * The shared builder (`buildAddShapeOps`) quietly falls back to the ordinary choice for a named
+ * lane it cannot use, which suits the Shapes tab (a drop on the footage still lands the shape).
+ * For the agent it hid the mistake: a `trackId` that named nothing, or a picture lane, put the
+ * shape somewhere the model never asked for and never heard about (AL43). A named lane is
+ * honoured or refused. A named graphics lane that is merely busy over the span is still the
+ * allocator's to resolve: it stacks the shape on another lane where it is valid.
+ *
+ * No echo of the id: the repeated-failure guard keys on this text, and a new wrong id each attempt
+ * must not read as progress.
+ */
+function namedShapeLaneProblem(
+  tracks: readonly { id: string; type: string; locked?: boolean | undefined }[],
+  trackId: string,
+): string | null {
+  const lane = tracks.find((track) => track.id === trackId);
+  if (lane === undefined) {
+    return (
+      'trackId names no track on the timeline. Leave trackId out and the shape lands on a ' +
+      'graphics lane with room (a new one if needed), or name a graphics lane from get_timeline.'
+    );
+  }
+  if (lane.type !== 'overlay') {
+    return (
+      'Shapes go on a graphics lane, and trackId names a picture or audio lane. Leave trackId ' +
+      'out, or name a graphics lane from get_timeline.'
+    );
+  }
+  if (lane.locked === true) {
+    return 'trackId names a locked lane. Leave trackId out, or name an unlocked graphics lane.';
+  }
+  return null;
+}
+
 function styleChanges(args: { readonly [key: string]: unknown }): Record<string, unknown> {
   const box = args.box as Record<string, number> | undefined;
   const ends = args.ends as Record<string, number> | undefined;
@@ -429,6 +465,10 @@ export const ELEMENT_TOOLS: readonly ToolSpec[] = [
       );
       const problem = shapeParamsProblem(params);
       if (problem !== null) throw new ToolRefusalError(problem);
+      if (a.trackId !== undefined) {
+        const laneProblem = namedShapeLaneProblem(ctx.project.timeline.tracks, a.trackId);
+        if (laneProblem !== null) throw new ToolRefusalError(laneProblem);
+      }
       const placed = buildAddShapeOps(ctx.project.timeline, params, a.start, a.end, a.trackId);
       const ops: Operation[] = [...placed.operations];
       if (a.rotation !== undefined && a.rotation !== 0) {

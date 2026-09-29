@@ -568,3 +568,133 @@ describe('shapeColour', () => {
     expect(shapeColour('rgb(1,2,3)')).toBeUndefined();
   });
 });
+
+// Run 17 (AL43): three add_shape calls were rejected because the picker put each shape on the
+// captions lane `CAP`, ending exactly where `text__CAP_17500` starts. That title carries an
+// entrance (a layer transition that names no clip), and an entrance on a clip that now starts on
+// a cut must name the clip before it — so the placement broke its neighbour.
+describe('add_shape keeps its neighbours valid (AL43, run 17)', () => {
+  const plain = (id: string, trackId: string, start: number, end: number, assetId = '__text__') => ({
+    id,
+    assetId,
+    trackId,
+    start,
+    end,
+    sourceStart: 0,
+    sourceEnd: end - start,
+    effects: [],
+    keyframes: [],
+  });
+  /** `text__CAP_17500` as run 17 left it: a zoom-out In and a fade Out, naming no clip. */
+  const enteringTitle = {
+    ...plain('text__CAP_17500', 'CAP', 17.5, 19.8),
+    effects: [
+      {
+        id: 'text__CAP_17500__transition',
+        type: 'transition',
+        params: { kind: 'zoom-out', durationSeconds: 0.26666666666666666 },
+        keyframes: [],
+      },
+      {
+        id: 'text__CAP_17500__transition_out',
+        type: 'transition_out',
+        params: { kind: 'fade', durationSeconds: 0.26666666666666666, alignment: 'end' },
+        keyframes: [],
+      },
+    ],
+  };
+  const cap = {
+    id: 'CAP',
+    type: 'overlay' as const,
+    clips: [
+      plain('text__CAP_6633', 'CAP', 6.633333333333334, 8),
+      plain('text__CAP_8000', 'CAP', 8, 9.9),
+      plain('shape__CAP_15100', 'CAP', 15.1, 15.6, '__shape__'),
+      enteringTitle,
+    ],
+  };
+  const txt = {
+    id: 'TXT',
+    type: 'overlay' as const,
+    clips: [plain('text__TXT_9920', 'TXT', 9.933333333333334, 11.8)],
+  };
+  const video = { id: 'video_1', type: 'video' as const, clips: [] };
+  const turn34 = (): Project => makeProject({ timeline: { tracks: [cap, txt, video] } } as never);
+  const turn35 = (): Project =>
+    makeProject({
+      timeline: {
+        tracks: [
+          {
+            id: 'STK',
+            type: 'overlay',
+            clips: [plain('shape__STK_15600', 'STK', 15.6, 17.5, '__shape__')],
+          },
+          cap,
+          txt,
+          video,
+        ],
+      },
+    } as never);
+
+  const landed = (on: Project, ops: AnyOperation[]) => {
+    const edit = assembleEdit(on, ops, 'shape', 'agent');
+    const shape = ops.find((op) => op.type === 'add_shape') as { trackId: string };
+    return { valid: edit.validation.valid, issues: edit.validation.issues, trackId: shape.trackId };
+  };
+
+  it.each([
+    ['the red arrow', { shape: 'line-arrow/red', start: 15.6, end: 17.5 }],
+    ['the yellow pin', { shape: 'location-pin/yellow', start: 16.3, end: 17.5 }],
+  ])('places %s off the lane whose next title enters on its own', (_, args) => {
+    const on = turn34();
+    const result = landed(on, run('add_shape', args, on));
+    expect(result.issues).toEqual([]);
+    expect(result.valid).toBe(true);
+    expect(result.trackId).not.toBe('CAP');
+  });
+
+  it('a named lane with no room is never swapped for a lane the shape would break', () => {
+    const on = turn35();
+    const result = landed(
+      on,
+      run('add_shape', { shape: 'location-pin/yellow', trackId: 'STK', start: 16.1, end: 17.5 }, on),
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.valid).toBe(true);
+    expect(['STK', 'CAP']).not.toContain(result.trackId);
+  });
+
+  it('honours a named lane where the shape fits', () => {
+    const on = turn35();
+    const result = landed(
+      on,
+      run('add_shape', { shape: 'location-pin/yellow', trackId: 'STK', start: 20, end: 22 }, on),
+    );
+    expect(result.trackId).toBe('STK');
+    expect(result.valid).toBe(true);
+  });
+
+  it('refuses a trackId that names no lane, rather than placing it somewhere else', () => {
+    expect(() =>
+      run('add_shape', { shape: 'ellipse/outline', trackId: 'STK', start: 1, end: 2 }, turn34()),
+    ).toThrow(
+      'trackId names no track on the timeline. Leave trackId out and the shape lands on a ' +
+        'graphics lane with room (a new one if needed), or name a graphics lane from get_timeline.',
+    );
+  });
+
+  it('refuses a trackId that names a picture or locked lane', () => {
+    expect(() =>
+      run('add_shape', { shape: 'ellipse/outline', trackId: 'video_1', start: 1, end: 2 }, turn34()),
+    ).toThrow(
+      'Shapes go on a graphics lane, and trackId names a picture or audio lane. Leave trackId ' +
+        'out, or name a graphics lane from get_timeline.',
+    );
+    const locked = makeProject({
+      timeline: { tracks: [{ ...txt, locked: true }, video] },
+    } as never);
+    expect(() =>
+      run('add_shape', { shape: 'ellipse/outline', trackId: 'TXT', start: 1, end: 2 }, locked),
+    ).toThrow('trackId names a locked lane. Leave trackId out, or name an unlocked graphics lane.');
+  });
+});
