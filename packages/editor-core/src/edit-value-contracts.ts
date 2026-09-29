@@ -380,19 +380,27 @@ export function audioAutomationContractIssue(
   return undefined;
 }
 
-/** Validate the effect produced by `apply_color_grade`. */
+/**
+ * Validate the effect produced by `apply_color_grade`.
+ *
+ * A blur's amount may be 0: that is how a blur is turned off. Both renderers already read 0
+ * as no blur (`clip-blur.ts`, `render/clip_blur.py`), and the AI tool's input contract, its
+ * Python mirror and its description all offer it — this was the one layer that refused it.
+ * Harness run 16 blurred the only copy of a shot, followed the description ("amount 0 turns
+ * it off") to take it off, was refused here, and left the shot at 0.0001 instead.
+ */
 export function colorGradeContractIssues(effect: Effect): ContractIssue[] {
   if (effect.type === CLIP_BLUR_EFFECT_TYPE) {
     const amount = effect.params.amount;
     return typeof amount === 'number' &&
       Number.isFinite(amount) &&
-      amount > 0 &&
+      amount >= 0 &&
       amount <= MAX_CLIP_BLUR_AMOUNT
       ? []
       : [
           {
             field: 'params.amount',
-            message: `A blur needs an amount above 0 and at most ${String(MAX_CLIP_BLUR_AMOUNT)} (a fraction of the picture's smaller side).`,
+            message: `A blur needs an amount from 0 (off) to ${String(MAX_CLIP_BLUR_AMOUNT)} (a fraction of the picture's smaller side).`,
           },
         ];
   }

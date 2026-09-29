@@ -76,7 +76,7 @@ describe('clip blur', () => {
   });
 
   it('refuses a blur with no amount or one past the ceiling', () => {
-    for (const amount of [0, -0.1, 0.5, Number.POSITIVE_INFINITY, 'strong', undefined]) {
+    for (const amount of [-0.1, 0.5, Number.POSITIVE_INFINITY, 'strong', undefined]) {
       const issues = colorGradeContractIssues({
         id: 'b',
         type: 'blur',
@@ -91,5 +91,15 @@ describe('clip blur', () => {
     expect(
       colorGradeContractIssues({ id: 'b', type: 'blur', params: { amount: 0.25 }, keyframes: [] }),
     ).toEqual([]);
+  });
+
+  it('accepts amount 0: the way a blur is turned off, and a blur both renderers skip', () => {
+    // Harness run 16 was refused `amount: 0` (the tool description's "turns it off") and
+    // left the shot at 0.0001 instead.
+    expect(
+      colorGradeContractIssues({ id: 'b', type: 'blur', params: { amount: 0 }, keyframes: [] }),
+    ).toEqual([]);
+    expect(clipBlurRadius({ amount: 0 }, 1920, 1080)).toBe(0);
+    expect(validatePatch(timeline, patchOf(0))).toEqual({ valid: true, issues: [] });
   });
 });

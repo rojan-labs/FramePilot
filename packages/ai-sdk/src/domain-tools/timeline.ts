@@ -17,6 +17,7 @@ import { z } from 'zod/v4';
 import { AudioRoleSchema, BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
 import type { CropRect, Project, Timeline, Track } from '@framepilot/timeline-schema';
 import {
+  CLIP_TRANSFORM_PROPERTIES,
   buildTimelineMap,
   coverCropFor,
   listCutawayEdges,
@@ -551,8 +552,30 @@ function sameCrop(a: CropRect | undefined, b: CropRect | undefined): boolean {
  * placer runs can say so; without one the placer may still add the same cover crop, and the
  * copy would be the invisible duplicate the refusal exists for.
  */
-function differentGeometry(geometry: KnownGeometry, existing: CropRect | undefined): boolean {
-  return geometry !== undefined && !sameCrop(geometry.crop, existing);
+function differentGeometry(geometry: KnownGeometry, existing: Framing): boolean {
+  if (geometry === undefined) return false;
+  // A new placement arrives with no keyframes, so a clip framed by them — a `reframe_pan`,
+  // a punch-in, a Ken Burns — shows the same frames as a DIFFERENT picture whatever its crop
+  // says. Harness run 16 panned an aerial with x/scale keyframes (the pan clears the crop),
+  // then followed the blurred-fill recipe with `crop: null`; the two crops compared equal
+  // (none and none) and the fitted foreground was refused as invisible behind a 3.16x zoom.
+  return !sameCrop(geometry.crop, existing.crop) || framedByKeyframes(existing);
+}
+
+/** How a placed or booked copy shows its source: its crop, and the keyframes that move it. */
+interface Framing {
+  readonly crop?: CropRect | undefined;
+  readonly keyframes?: readonly { readonly property: string }[];
+}
+
+/** The keyframe properties that move or size a picture: every clip transform but opacity. */
+const FRAMING_PROPERTIES: ReadonlySet<string> = new Set(
+  CLIP_TRANSFORM_PROPERTIES.filter((property) => property !== 'opacity'),
+);
+
+/** Whether a copy is positioned or sized by keyframes rather than by its crop alone. */
+function framedByKeyframes(copy: Framing): boolean {
+  return (copy.keyframes ?? []).some((keyframe) => FRAMING_PROPERTIES.has(keyframe.property));
 }
 
 /**
@@ -616,11 +639,22 @@ function existingPlacement(
     for (const existing of track.clips) {
       const shared = sameFrames(frame, existing, clip);
       if (!shared) continue;
-      if (differentGeometry(geometry, existing.crop)) continue;
+      if (differentGeometry(geometry, existing)) continue;
       return { trackId: track.id, clipId: existing.id, ...shared };
     }
   }
   return undefined;
+}
+
+/**
+ * A clip on the lane `clip` names that reads the same frames at the same moment, whatever its
+ * framing. Only asked after {@link existingPlacement} let the call through, so any hit here is
+ * framed differently: the blurred-fill background the new copy goes in front of.
+ */
+function sameFramesOnLane(project: Project, clip: Placement & { readonly trackId: string }) {
+  const frame = frameSlack(project);
+  const lane = project.timeline.tracks.find((track) => track.id === clip.trackId);
+  return lane?.clips.find((existing) => sameFrames(frame, existing, clip) !== undefined);
 }
 
 /**
@@ -645,7 +679,7 @@ function bookedPlacement(
   for (const earlier of booked) {
     const shared = sameFrames(frame, earlier, clip);
     if (!shared) continue;
-    if (differentGeometry(geometry, earlier.crop)) continue;
+    if (differentGeometry(geometry, earlier)) continue;
     return shared;
   }
   return undefined;
@@ -671,7 +705,12 @@ interface BookedPlacement extends Placement {
  */
 function sameFramesRefusal(
   ctx: ToolContext,
-  clip: { readonly assetId: string; readonly start: number; readonly end: number },
+  clip: {
+    readonly assetId: string;
+    readonly start: number;
+    readonly end: number;
+    readonly crop?: CropRect | null | undefined;
+  },
   existing: SameFramesPlacement | undefined,
 ): string {
   const isSound = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind === 'audio';
@@ -689,7 +728,42 @@ function sameFramesRefusal(
     `${assetLabel(ctx, clip.assetId)} already ${isSound ? 'plays' : 'shows'} these same ` +
     `${isSound ? 'seconds' : 'frames'} from ${from}s to ${to}s${where}. ${doubles} ` +
     `Place it at a different time, use ${isSound ? 'different media' : 'a different shot'}, ` +
-    `or ${lengthen}.`
+    `or ${lengthen}.` +
+    (isSound ? '' : blurredFillRoute(clip.crop === null, existing))
+  );
+}
+
+/**
+ * The one way two copies of the same frames at the same moment ARE both seen: a blurred fill,
+ * the shot whole and fitted in front of a soft copy of itself that fills the frame.
+ *
+ * Appended to every picture refusal rather than guessed from the call: run 16 was refused a
+ * second copy it wanted for exactly this, took the refusal at its word, and blocked the
+ * treatment as impossible. The route depends only on the call's crop and on whether the other
+ * copy is on the timeline or in this same call.
+ *
+ * @param askedWhole - The refused call already asked for the whole picture (`crop: null`), so
+ *   the copy that is there shows it too and has to be the one that changes.
+ * @param existing - The copy on the timeline, or `undefined` when this call booked it.
+ */
+function blurredFillRoute(askedWhole: boolean, existing: SameFramesPlacement | undefined): string {
+  if (existing === undefined) {
+    return (
+      ' For a blurred fill, give one of the two entries crop: null: that one shows the whole ' +
+      'picture, in front of the other.'
+    );
+  }
+  if (askedWhole) {
+    return (
+      ` For a blurred fill, one copy has to fill the frame: give ${existing.clipId} a fill ` +
+      'crop with set_clip_crop and blur it (apply_color_grade type "blur"), then add this ' +
+      'shot again with crop: null.'
+    );
+  }
+  return (
+    ` For a blurred fill, keep ${existing.clipId} as the background (blur it with ` +
+    'apply_color_grade type "blur") and add this shot again with crop: null: it lands on a ' +
+    'layer in front, the whole picture fitted.'
   );
 }
 
@@ -788,6 +862,9 @@ function addClipOperation(
       ),
     );
   }
+  // Past both checks, a copy of the same frames on the lane it names is a LAYERED copy (its
+  // framing differs), and a lane cannot hold two clips at once: it goes in front.
+  const overOwnLane = sameFramesOnLane(ctx.project, clip) !== undefined;
   const placed: { trackId: string; setupOps: readonly Operation[]; crop?: CropRect } = isPicture
     ? picture.place({
         trackId: clip.trackId,
@@ -796,6 +873,7 @@ function addClipOperation(
         end: clip.end,
         compositing: planned ? { crop: planned } : {},
         ...(chosen !== undefined ? { keepGeometry: true } : {}),
+        ...(overOwnLane ? { overOwnLane: true } : {}),
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
   // The placer's own cover crop wins when it applied one: it is the crop the lane was

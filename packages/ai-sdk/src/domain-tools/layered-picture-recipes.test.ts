@@ -200,6 +200,120 @@ describe('blurred fill: a 16:9 shot fitted whole over a blurred, cover-cropped c
   });
 });
 
+// AL39 — harness run 16 panned an aerial with `reframe_pan` (x/scale keyframes, no crop), blurred
+// it, then followed the recipe with `add_clip … crop: null` on the same track, and was refused:
+// "already shows these same frames … cannot be seen behind the first". The two crops compared
+// equal (none and none) though one copy is a 3x zoom and the other the whole picture. It then
+// tried `apply_color_grade { type: "blur", amount: 0 }` to take the blur off — refused too,
+// though the tool's description says amount 0 turns it off — and blocked the treatment.
+describe('blurred fill after a pan, and the route a refused copy is given (run 16)', () => {
+  const place = (): Step => ({
+    name: 'add_clip',
+    arguments: { trackId: 'v_main', assetId: 'wide', start: 0, end: 1 },
+  });
+  const blur =
+    (amount: number) =>
+    (project: Project): Step => ({
+      name: 'apply_color_grade',
+      arguments: { clipId: clipOn(project, 0, 'wide').id, type: 'blur', params: { amount } },
+    });
+  /** The run-16 foreground call: same asset, same moment, same (named) track, whole picture. */
+  const foreground = (): Step => ({
+    name: 'add_clip',
+    arguments: { trackId: 'v_main', assetId: 'wide', start: 0, end: 1, sourceStart: 0, crop: null },
+  });
+  const refusal = (project: Project, step: Step): string => {
+    try {
+      operationsForCall({ id: 'refused', name: step.name, arguments: step.arguments }, { project });
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error(`${step.name} was not refused`);
+  };
+
+  it('lets the whole-picture copy in front of a panned, blurred copy of itself', () => {
+    const chain = runChain(portraitProject(['wide']), [
+      place,
+      (project) => ({
+        name: 'reframe_pan',
+        arguments: { clipId: clipOn(project, 0, 'wide').id, from: { x: 0.3 }, to: { x: 0.6 } },
+      }),
+      blur(0.06),
+      foreground,
+    ]);
+    expect(chain.opTypes.at(-1)).toEqual(['add_layer', 'add_clip']);
+    const front = clipOn(chain.project, 0, 'wide');
+    const back = clipOn(chain.project, 1, 'wide');
+    expect(front.crop).toBeUndefined();
+    expect(front.keyframes).toEqual([]);
+    expect(front.effects).toEqual([]);
+    // The background keeps its pan and its blur.
+    expect(back.keyframes.map((k) => k.property)).toEqual(expect.arrayContaining(['x', 'scale']));
+    expect(back.effects.map((e) => e.type)).toEqual(['blur']);
+    expect(hiddenPictureClips(chain.project)).toEqual([]);
+    expect(undoAll(chain).tracks).toEqual(portraitProject(['wide']).timeline.tracks);
+  });
+
+  it('refuses a second fill copy with the blurred-fill route, and the route then succeeds', () => {
+    const start = runChain(portraitProject(['wide']), [place, blur(0.06)]).project;
+    const background = clipOn(start, 0, 'wide').id;
+    // The copy without `crop: null` is cover-cropped like the first: truly invisible.
+    const message = refusal(start, {
+      name: 'add_clip',
+      arguments: { trackId: 'v_main', assetId: 'wide', start: 0, end: 1 },
+    });
+    expect(message).toContain('cannot be seen behind the first');
+    expect(message).toContain(
+      `For a blurred fill, keep ${background} as the background (blur it with apply_color_grade type "blur") and add this shot again with crop: null`,
+    );
+    // Following it lands the foreground in front, over the blurred background.
+    const followed = runChain(start, [foreground]);
+    expect(clipOn(followed.project, 0, 'wide').crop).toBeUndefined();
+    expect(clipOn(followed.project, 1, 'wide').id).toBe(background);
+    expect(hiddenPictureClips(followed.project)).toEqual([]);
+  });
+
+  it('when the copy there already shows the whole picture, says to make that one the fill', () => {
+    const fitted = runChain(portraitProject(['wide']), [foreground]).project;
+    const there = clipOn(fitted, 0, 'wide').id;
+    const message = refusal(fitted, foreground());
+    expect(message).toContain(
+      `For a blurred fill, one copy has to fill the frame: give ${there} a fill crop with set_clip_crop and blur it`,
+    );
+    const followed = runChain(fitted, [
+      () => ({
+        name: 'set_clip_crop',
+        arguments: { clipId: there, crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 } },
+      }),
+      blur(0.06),
+      foreground,
+    ]);
+    expect(clipOn(followed.project, 0, 'wide').crop).toBeUndefined();
+    expect(clipOn(followed.project, 1, 'wide').id).toBe(there);
+  });
+
+  it('never offers the route for sound', () => {
+    const project = parseProject({
+      ...portraitProject([]),
+      assets: [{ id: 'bed', path: 'bed.wav', kind: 'audio', durationSeconds: 2 }],
+      timeline: { tracks: [{ id: 'a1', type: 'audio', clips: [] }], markers: [] },
+    });
+    const bed = (): Step => ({
+      name: 'add_clip',
+      arguments: { trackId: 'a1', assetId: 'bed', start: 0, end: 1 },
+    });
+    const placed = runChain(project, [bed]).project;
+    expect(refusal(placed, bed())).not.toContain('blurred fill');
+  });
+
+  it('takes a blur off with amount 0, as the tool says', () => {
+    const chain = runChain(portraitProject(['wide']), [place, blur(0.06), blur(0)]);
+    expect(clipOn(chain.project, 0, 'wide').effects).toEqual([
+      expect.objectContaining({ type: 'blur', params: { amount: 0 } }),
+    ]);
+  });
+});
+
 describe('3-up split screen: three shots, each cropped to a third of the frame and moved', () => {
   /** A 1080x640 panel of a 16:9 source: the full height, 1.6875/1.7778 of the width. */
   const PANEL = { x: 0.025390625, y: 0, width: 0.94921875, height: 1 };

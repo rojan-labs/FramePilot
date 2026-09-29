@@ -64,12 +64,17 @@ differently shaped sequence arrives with a CENTRED crop, which is a guess, not a
   `create_mask` with `track: true`), then `reframe_to_subject { clipId, maskId }`. Without a
   track, pan between the positions you saw and say the framing is a pan, not a track.
 - **Blurred fill** — the whole shot, never upscaled, over a soft copy of itself. Use it when a
-  crop would cut the subject or zoom past about 115%. The shot's placed copy is the background
-  (it arrives cover-cropped): blur it with `apply_color_grade { clipId, type: "blur", params:
-  { amount: 0.06 } }`. Then `add_clip` the same asset with the same start, end and sourceStart
-  and `crop: null`. It lands on a front layer, fitted whole (a 1920×1080 source is 1080×607 in
-  a 1080×1920 frame, scale 0.5625), and its bars show the blur. Each shot is now two clips, so
-  trim or move both. Check one frame with `get_frame { timeSeconds }`.
+  crop would cut the subject or zoom past about 115%. Two copies of one shot, in this order:
+  1. **Background = the clip already cut in.** It fills the frame (its cover crop, or a pan's
+     zoom). Blur it: `apply_color_grade { clipId, type: "blur", params: { amount: 0.06 } }`.
+  2. **Foreground = a new copy, in FRONT.** `add_clip` the same asset with the same start, end
+     and sourceStart and `crop: null`. It lands on a new layer in front of the background,
+     the whole picture fitted (a 1920×1080 source is 1080×607 in a 1080×1920 frame, scale
+     0.5625), and its bars show the blur.
+
+  Never blur the foreground, and never add the copy without `crop: null`: it would fill the
+  frame too and hide the background. Blur on the wrong clip? `amount: 0` takes it off. Each
+  shot is now two clips, so trim or move both. Check one frame with `get_frame { timeSeconds }`.
 
 ## Professional heuristics
 

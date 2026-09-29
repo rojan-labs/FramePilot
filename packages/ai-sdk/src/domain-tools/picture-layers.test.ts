@@ -151,6 +151,18 @@ describe('pictureOverlapAcross', () => {
     expect(hits).toEqual([]);
   });
 
+  it('counts its own lane for a layered copy of the clip that lane holds (run 16)', () => {
+    // A blurred-fill foreground named on its background's lane: the lane cannot hold both.
+    const hits = pictureOverlapAcross(baseProject(), {
+      trackId: 'video_1',
+      assetId: 'asset_v',
+      start: 2,
+      end: 6,
+      overOwnLane: true,
+    });
+    expect(hits.map((hit) => hit.clipId)).toEqual(['clip_a']);
+  });
+
   it('does not fire for a text overlay, a caption, or an audio bed over picture', () => {
     const project = baseProject();
     for (const assetId of [TEXT_ASSET, CAPTION_ASSET, 'asset_aud']) {

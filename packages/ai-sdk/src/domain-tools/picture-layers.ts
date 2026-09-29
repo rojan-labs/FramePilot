@@ -77,6 +77,13 @@ export interface PictureCandidate {
    */
   readonly keepGeometry?: boolean;
   /**
+   * The named lane already holds this same shot at this moment, framed differently, and the
+   * candidate is a layered copy of it: a blurred-fill foreground named on its background's own
+   * lane, as harness run 16 named it. Two clips cannot share a lane at one time, so that lane
+   * counts as picture the copy covers, and the copy goes in front of it like any other.
+   */
+  readonly overOwnLane?: boolean;
+  /**
    * The compositing the placed clip will carry, when it is not a plain placement.
    *
    * `add_clip`/`add_clips` compute their crop (the auto-reframe, or the one the caller
@@ -158,7 +165,7 @@ export function pictureOverlapAcross(
 
   const conflicts: PictureConflict[] = [];
   project.timeline.tracks.forEach((track, depth) => {
-    if (track.id === candidate.trackId) return;
+    if (track.id === candidate.trackId && candidate.overOwnLane !== true) return;
     if (!carriesPicture(track)) return;
     for (const clip of track.clips) {
       if (clip.id === candidate.ignoreClipId) continue;
@@ -475,7 +482,10 @@ export function createPicturePlacer(
       // The lane the caller named wins whenever it can be seen — the agent chose
       // it, and relocating a placement it did not ask to relocate is its own kind
       // of wrong.
-      const named = project.timeline.tracks.find((track) => track.id === candidate.trackId);
+      const named =
+        candidate.overOwnLane === true
+          ? undefined
+          : project.timeline.tracks.find((track) => track.id === candidate.trackId);
       if (named && usableLane(named, candidate.start, candidate.end, frontOf)) {
         take(named.id, true);
         return withCrop({ trackId: named.id, setupOps: [] });
