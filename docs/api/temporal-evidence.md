@@ -103,9 +103,21 @@ authored schema-v17 role. A missing role fails closed rather than relabeling pro
 or returning the silence floor as a reassuring result.
 
 Hosts call the route through `createTemporalEvidenceAcquirer`. The client strips bulky derived
-asset media from the inline working project, forwards cancellation, imposes a hard timeout, validates
-the complete batch against `TemporalEvidenceBatchSchema`, and fails closed on HTTP or schema errors.
-A failed acquisition can therefore never become an empty successful review.
+asset media from the inline working project, forwards cancellation, validates every response against
+`TemporalEvidenceBatchSchema`, and fails closed when nothing came back or on cancellation. A failed
+acquisition can therefore never become an empty successful review.
+
+It sends the plan in small chunks (`chunkTemporalRequests`: about eight rendered frames per call, a
+request never split, a mix measurement alone) under ONE deadline for the whole acquisition
+(`estimatedBatchDeadline`): a 300 s queueing floor, because the route is serialized behind one
+semaphore and waits behind exports and other runs, plus the measured ~726 ms per sampled frame at
+540x960 (compiles included, commit ffdcf440) scaled by the pixels the engine will render (review
+frames capped at 960 on the long side, scope frames at full resolution) with 3x headroom, capped at
+900 s. When the deadline passes or a chunk fails after others came back, the acquirer returns the
+results it has with `incomplete` saying why the rest are missing (#99). The run then reviews what it
+has and reports the requests without evidence as **not checked**, by place in the programme
+(`describePartialTemporalReview`): a failure among the checked moments is still a finding, but an
+unchecked moment is never a finding and a partial review is never reported as a whole or clean one.
 
 ## Unified run gate
 

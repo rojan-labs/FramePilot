@@ -158,6 +158,13 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   rasters in the export and on the desktop monitor. Tests: `overlay-fit`, `title-typography`,
   `text-overlay-styles`, `test_title_metrics.py`, `test_ai_tools.py`. Not measured on a live run
   yet.
+- [x] **AL22** #99: the post-edit review keeps what it measured. `createTemporalEvidenceAcquirer`
+  sends the plan in ~8-frame chunks under one deadline scaled from the measured ~726 ms/frame at
+  540x960 (ffdcf440) by frames and render size, floored at the old 300 s, capped at 900 s. A
+  deadline or failed chunk returns the results that landed with `incomplete`; the run reports the
+  rest as not checked, by frame (`describePartialTemporalReview`, `Partial review:` notice). An
+  unchecked moment is never a finding and never a clean review. Late-review wait unchanged. Tests:
+  `temporal-evidence-client`, `temporal-review`, `editor-run-adapter`. Not measured on a live run.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

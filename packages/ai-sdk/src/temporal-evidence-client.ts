@@ -10,80 +10,156 @@ import {
 
 const log = createLogger('ai-sdk:temporal-evidence-client');
 /**
- * The floor under every batch, and what the whole deadline used to be.
+ * The floor under every acquisition, and what the whole deadline used to be.
  *
- * The old fixed 300s was set as headroom for the worst batch the engine will accept
- * (~3 compiles + 400 frames x 38ms ≈ 30s of RENDER). What it did not cover is the
- * WAITING: `/review/temporal-evidence` is serialized process-wide behind one semaphore
- * and the index governor, so a batch queues behind another run's batch, an export and a
- * preview before it renders a frame. On a ~110s project with 400+ caption cues and
- * several overlay tracks, run `19e20922`'s final review — the run's only chance to look
- * at what it had made — crossed the deadline and the whole acquisition was discarded.
+ * It is a QUEUEING allowance, not a render one: `/review/temporal-evidence` is serialized
+ * process-wide behind one semaphore and the index governor, so a batch waits behind another
+ * run's batch, an export and a preview before it renders a frame. Kept as the floor so no
+ * batch ever gets less time than it did before the deadline scaled.
  */
 const BASE_TIMEOUT_MS = 300_000;
 /**
- * Per rendered frame, on top of {@link BASE_TIMEOUT_MS}.
+ * What one sampled frame costs the engine at {@link REFERENCE_FRAME_PIXELS}, compiles included.
  *
- * Deliberately far above the measured 38ms per sampled frame: this is not a render
- * budget, it is a queueing one, and it must be wrong on the generous side. A full
- * 400-frame batch is allowed 300s + 200s.
+ * MEASURED, commit ffdcf440, on the real 29-clip / 60 s / five-effect-layer desktop project:
+ * a representative review batch of 16 frames at 540x960 with captions took 11.61 s end to
+ * end (8.42 s of windowed compiles, the rest compositing), i.e. ~726 ms a frame. The compile
+ * is per contiguous run of sampled frames, so it scales with the frames asked for, which is
+ * why it is folded into the per-frame figure rather than paid once.
  */
-const PER_FRAME_TIMEOUT_MS = 500;
+const MEASURED_MS_PER_REFERENCE_FRAME = 726;
+/** The render size the per-frame cost was measured at (the 9:16 review size, 540x960). */
+const REFERENCE_FRAME_PIXELS = 540 * 960;
+/**
+ * The engine's cap on a review frame's longest side (`REVIEW_MAX_DIMENSION` in
+ * `validation/temporal_evidence.py`). Scope frames are measured at full project resolution.
+ */
+const REVIEW_MAX_DIMENSION = 960;
+/**
+ * A whole-timeline compile, paid once by any batch that measures the mix: 32.78 s measured
+ * on the same project (ffdcf440). Audio evidence cannot use the windowed compile.
+ */
+const MEASURED_MIX_COMPILE_MS = 33_000;
+/**
+ * How far above the measurement the deadline sits. The measurement is one machine and one
+ * project; long-GOP camera sources seek slower and a laptop on battery renders slower. A
+ * deadline that is too long costs a late review; one that is too short throws evidence away,
+ * so it errs generous.
+ */
+const RENDER_COST_HEADROOM = 3;
 /** Nothing waits longer than this, however large the batch. */
 const MAX_TIMEOUT_MS = 900_000;
+/**
+ * How many rendered frames one HTTP call asks for.
+ *
+ * The acquisition is split so that a deadline or failure part-way keeps what already came
+ * back: run `19e20922` lost a whole review — the run's last look at what it made — to one
+ * deadline over one all-or-nothing batch. Small chunks cost little: the engine's compile is
+ * per contiguous run of frames anyway and its review-window cache carries it across calls.
+ * At the measured cost, eight frames is a few seconds of work lost at most.
+ */
+const CHUNK_FRAME_BUDGET = 8;
 const MAX_ERROR_CHARS = 400;
 
-/**
- * How many frames this batch will make the engine render, counted the way the engine
- * counts them (`validation/temporal_evidence.py#acquire_temporal_evidence`).
- *
- * Approximate on purpose — it does not de-duplicate frames two requests share, and the
- * engine's own cap is the authority on what is acceptable. It only has to be
- * proportional to the work, because it is scaling a deadline rather than enforcing one.
- *
- * @param requests - The batch about to be sent.
- * @returns A frame count, at least 1.
- */
-function estimatedFrames(requests: readonly TemporalEvidenceRequest[]): number {
-  let frames = 0;
-  for (const request of requests) {
-    switch (request.kind) {
-      case 'frame':
-        frames += 1;
-        break;
-      case 'comparison':
-        frames += 2;
-        break;
-      case 'range':
-        frames +=
-          Math.ceil((request.endFrame - request.startFrame) / request.sampleEveryFrames) + 1;
-        break;
-      case 'scope':
-        frames += request.endFrame - request.startFrame;
-        break;
-      default:
-        // Motion is derived from authored keyframes and audio is measured off the mix:
-        // neither renders picture, so neither buys the batch any more time.
-        break;
-    }
-  }
-  return Math.max(1, frames);
+/** The width and height the engine will render a batch's frames at. */
+interface ReviewResolution {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Pixels in a review frame, scaled the way the engine scales it (longest side <= 960). */
+function reviewFramePixels(resolution: ReviewResolution): number {
+  const longest = Math.max(resolution.width, resolution.height);
+  const scale = longest <= REVIEW_MAX_DIMENSION ? 1 : REVIEW_MAX_DIMENSION / longest;
+  return resolution.width * scale * (resolution.height * scale);
 }
 
 /**
- * The deadline this batch gets, in milliseconds.
+ * How many frames one request makes the engine render, counted the way the engine counts
+ * them (`validation/temporal_evidence.py#_plan_visual_frames` / `_scope_plan`).
+ *
+ * Approximate on purpose — it does not de-duplicate frames two requests share. It only has
+ * to be proportional to the work: it sizes chunks and a deadline, it enforces nothing.
+ */
+function renderedFrames(request: TemporalEvidenceRequest): number {
+  switch (request.kind) {
+    case 'frame':
+      return 1;
+    case 'comparison':
+      return 2;
+    case 'range':
+      return Math.ceil((request.endFrame - request.startFrame) / request.sampleEveryFrames);
+    case 'scope':
+      // Three representative frames, at full project resolution (see the deadline).
+      return 3;
+    default:
+      // Motion is derived from authored keyframes and audio is measured off the mix:
+      // neither renders picture.
+      return 0;
+  }
+}
+
+function measuresMix(request: TemporalEvidenceRequest): boolean {
+  return request.kind === 'audio' || request.kind === 'loudness';
+}
+
+/**
+ * The deadline this acquisition gets, in milliseconds: the queueing floor plus the measured
+ * render cost of every frame it asks for at the size it will be rendered, with headroom.
  *
  * Exported so the decision is testable on its own: it is the difference between a review
- * that waits out a queue and one that throws away every frame it had already rendered.
+ * that waits out a queue and one that throws away the moments it had not reached yet.
  *
- * @param requests - The batch about to be sent.
+ * @param requests - The whole acquisition.
+ * @param resolution - The project's resolution; absent, frames are costed at the reference
+ *   review size.
  * @returns A deadline of at least {@link BASE_TIMEOUT_MS} and at most {@link MAX_TIMEOUT_MS}.
  */
-export function estimatedBatchDeadline(requests: readonly TemporalEvidenceRequest[]): number {
-  return Math.min(
-    MAX_TIMEOUT_MS,
-    BASE_TIMEOUT_MS + PER_FRAME_TIMEOUT_MS * estimatedFrames(requests),
-  );
+export function estimatedBatchDeadline(
+  requests: readonly TemporalEvidenceRequest[],
+  resolution?: ReviewResolution,
+): number {
+  const reviewScale = resolution ? reviewFramePixels(resolution) / REFERENCE_FRAME_PIXELS : 1;
+  const scopeScale = resolution
+    ? (resolution.width * resolution.height) / REFERENCE_FRAME_PIXELS
+    : 1;
+  let renderMs = requests.some(measuresMix) ? MEASURED_MIX_COMPILE_MS : 0;
+  for (const request of requests) {
+    const scale = request.kind === 'scope' ? scopeScale : reviewScale;
+    renderMs += renderedFrames(request) * MEASURED_MS_PER_REFERENCE_FRAME * scale;
+  }
+  return Math.min(MAX_TIMEOUT_MS, Math.round(BASE_TIMEOUT_MS + RENDER_COST_HEADROOM * renderMs));
+}
+
+/**
+ * Split an acquisition into the HTTP calls that make it, in plan order.
+ *
+ * A request is never split (the engine answers whole requests), so one larger than
+ * {@link CHUNK_FRAME_BUDGET} travels alone. A request that renders nothing still counts as
+ * one, so a chunk of motion checks stays bounded too; one that measures the mix fills a
+ * chunk on its own, because it compiles the whole timeline.
+ *
+ * @param requests - The whole acquisition.
+ * @returns Non-empty chunks whose concatenation is `requests`.
+ */
+export function chunkTemporalRequests(
+  requests: readonly TemporalEvidenceRequest[],
+): readonly (readonly TemporalEvidenceRequest[])[] {
+  const chunks: TemporalEvidenceRequest[][] = [];
+  let current: TemporalEvidenceRequest[] = [];
+  let weight = 0;
+  for (const request of requests) {
+    const cost = measuresMix(request) ? CHUNK_FRAME_BUDGET : Math.max(1, renderedFrames(request));
+    if (current.length > 0 && weight + cost > CHUNK_FRAME_BUDGET) {
+      chunks.push(current);
+      current = [];
+      weight = 0;
+    }
+    current.push(request);
+    weight += cost;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 export interface TemporalEvidenceClientOptions {
@@ -98,11 +174,24 @@ export interface TemporalEvidenceClientOptions {
   readonly timeoutMs?: number;
 }
 
+/**
+ * What an acquisition returns: the engine's batch, plus why it is short when it is.
+ */
+export interface TemporalEvidenceAcquisition extends TemporalEvidenceBatch {
+  /**
+   * Set only when the acquisition stopped early — a deadline, or some of its calls failing —
+   * and kept the results that had already come back. Requests with no result were then NOT
+   * CHECKED, which is not the same as failing: the reviewer must say so rather than turn a
+   * shorter review into findings. Absent, every call came back.
+   */
+  readonly incomplete?: string;
+}
+
 export type TemporalEvidenceAcquirer = (
   project: Project,
   requests: readonly TemporalEvidenceRequest[],
   signal?: AbortSignal,
-) => Promise<TemporalEvidenceBatch>;
+) => Promise<TemporalEvidenceAcquisition>;
 
 export class TemporalEvidenceClientError extends Error {
   public constructor(message: string, options?: ErrorOptions) {
@@ -121,10 +210,62 @@ function errorDetail(body: string): string {
   return body.slice(0, MAX_ERROR_CHARS) || 'no error detail';
 }
 
+/** One HTTP call for one chunk; throws on a rejection or a contract mismatch. */
+async function postChunk(
+  fetchFn: typeof fetch,
+  baseUrl: string,
+  engineProject: unknown,
+  requests: readonly TemporalEvidenceRequest[],
+  signal: AbortSignal,
+): Promise<TemporalEvidenceBatch> {
+  const response = await fetchFn(`${baseUrl}/review/temporal-evidence`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ project: engineProject, requests }),
+    signal,
+  });
+  if (!response.ok) {
+    const detail = errorDetail(await response.text());
+    throw new TemporalEvidenceClientError(
+      `Temporal evidence engine rejected the batch (${response.status}): ${detail}`,
+    );
+  }
+  const parsed = TemporalEvidenceBatchSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    // NAME THE FIELDS. This is the only place a TS/Python contract drift on the
+    // review path can be caught, and a bare "did not match its contract" is a dead
+    // end: run `137d8fd0` lost all seven of its reviews to `perceptualHash: null`
+    // and the sentence gave nobody anything to look at. The path list is what turns
+    // that into a one-line diagnosis.
+    const where = parsed.error.issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+      .join('; ');
+    const more =
+      parsed.error.issues.length > 5 ? `, and ${String(parsed.error.issues.length - 5)} more` : '';
+    log.error('acquire ← temporal evidence failed its contract', {
+      issues: parsed.error.issues.length,
+      where,
+    });
+    throw new TemporalEvidenceClientError(
+      `Temporal evidence response did not match its contract — ${where}${more}.`.slice(
+        0,
+        MAX_ERROR_CHARS + 120,
+      ),
+    );
+  }
+  return parsed.data;
+}
+
 /**
- * Create a strict, cancelling acquisition callback. Unlike optional cache warmers,
- * this fails closed: a run cannot claim temporal verification after an HTTP,
- * timeout, cancellation, or response-schema failure.
+ * Create a cancelling acquisition callback that keeps what landed.
+ *
+ * The requests go to the engine in small chunks ({@link chunkTemporalRequests}) under ONE
+ * deadline for the whole acquisition ({@link estimatedBatchDeadline}). When the deadline
+ * passes or a chunk fails after others came back, the results already received are returned
+ * with {@link TemporalEvidenceAcquisition.incomplete} saying why the rest are missing. It
+ * still fails closed when nothing came back, and always on cancellation: an answer that
+ * arrives after the editor moved on is not consent to use it.
  */
 export function createTemporalEvidenceAcquirer(
   options: TemporalEvidenceClientOptions,
@@ -137,9 +278,9 @@ export function createTemporalEvidenceAcquirer(
       );
     }
     // SCALED WITH THE BATCH, not fixed. The acquirer knows how many frames it is asking
-    // for and at what settings; the deadline that was right for a three-frame probe was
-    // the one that discarded a whole review of a long sequence.
-    const timeoutMs = options.timeoutMs ?? estimatedBatchDeadline(requests);
+    // for and at what size; the deadline that was right for a three-frame probe was the
+    // one that discarded a whole review of a long sequence.
+    const timeoutMs = options.timeoutMs ?? estimatedBatchDeadline(requests, project.resolution);
     const controller = new AbortController();
     let timedOut = false;
     const onAbort = (): void => controller.abort(signal?.reason);
@@ -149,76 +290,91 @@ export function createTemporalEvidenceAcquirer(
       timedOut = true;
       controller.abort(new Error('Temporal evidence timed out.'));
     }, timeoutMs);
+
+    const engineProject = toEngineProject(project);
+    const chunks = chunkTemporalRequests(requests);
+    const landed: TemporalEvidenceBatch[] = [];
+    let acquired = 0;
+    let failed = 0;
+    let firstFailure: TemporalEvidenceClientError | undefined;
     try {
-      const response = await fetchFn(`${options.baseUrl}/review/temporal-evidence`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ project: toEngineProject(project), requests }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const detail = errorDetail(await response.text());
-        throw new TemporalEvidenceClientError(
-          `Temporal evidence engine rejected the batch (${response.status}): ${detail}`,
-        );
+      for (const chunk of chunks) {
+        if (controller.signal.aborted) break;
+        try {
+          landed.push(
+            await postChunk(fetchFn, options.baseUrl, engineProject, chunk, controller.signal),
+          );
+          acquired += chunk.length;
+        } catch (error) {
+          // A deadline or a cancellation ends the acquisition; any other failure costs
+          // only its own chunk; the next may well succeed (one request past the
+          // timeline's end is rejected, the rest are fine).
+          if (controller.signal.aborted) break;
+          failed += chunk.length;
+          firstFailure ??=
+            error instanceof TemporalEvidenceClientError
+              ? error
+              : new TemporalEvidenceClientError('Temporal evidence acquisition failed.', {
+                  cause: error,
+                });
+        }
       }
-      const parsed = TemporalEvidenceBatchSchema.safeParse(await response.json());
-      if (!parsed.success) {
-        // NAME THE FIELDS. This is the only place a TS/Python contract drift on the
-        // review path can be caught, and a bare "did not match its contract" is a dead
-        // end: run `137d8fd0` lost all seven of its reviews to `perceptualHash: null`
-        // and the sentence gave nobody anything to look at. The path list is what turns
-        // that into a one-line diagnosis.
-        const where = parsed.error.issues
-          .slice(0, 5)
-          .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-          .join('; ');
-        const more =
-          parsed.error.issues.length > 5
-            ? `, and ${String(parsed.error.issues.length - 5)} more`
-            : '';
-        log.error('acquire ← temporal evidence failed its contract', {
-          issues: parsed.error.issues.length,
-          where,
-        });
-        throw new TemporalEvidenceClientError(
-          `Temporal evidence response did not match its contract — ${where}${more}.`.slice(
-            0,
-            MAX_ERROR_CHARS + 120,
-          ),
-        );
-      }
-      const resultRenderSettings = [
-        ...new Set(
-          parsed.data.results.flatMap((result) =>
-            result.renderSettings ? [result.renderSettings.identity] : [],
-          ),
-        ),
-      ];
-      log.action('acquire ← temporal evidence', {
-        revision: requests[0]?.projectRevision,
-        requests: requests.length,
-        results: parsed.data.results.length,
-        renderSettings:
-          resultRenderSettings.length > 0
-            ? resultRenderSettings.join(',')
-            : parsed.data.renderSettings.identity,
-      });
-      return parsed.data;
-    } catch (error) {
-      if (error instanceof TemporalEvidenceClientError) throw error;
-      const cancelled = signal?.aborted === true;
-      throw new TemporalEvidenceClientError(
-        cancelled
-          ? 'Temporal evidence acquisition was cancelled.'
-          : timedOut
-            ? `Temporal evidence acquisition timed out after ${timeoutMs}ms for ${requests.length} request(s). The engine serializes one batch at a time, so this may be a queue behind an export or another run rather than a slow render.`
-            : 'Temporal evidence acquisition failed.',
-        { cause: error },
-      );
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
     }
+
+    if (signal?.aborted === true) {
+      throw new TemporalEvidenceClientError('Temporal evidence acquisition was cancelled.');
+    }
+    const timeoutText = `timed out after ${timeoutMs}ms`;
+    const first = landed[0];
+    if (first === undefined) {
+      if (timedOut && firstFailure === undefined) {
+        throw new TemporalEvidenceClientError(
+          `Temporal evidence acquisition ${timeoutText} for ${requests.length} request(s). The engine serializes one batch at a time, so this may be a queue behind an export or another run rather than a slow render.`,
+        );
+      }
+      throw (
+        firstFailure ?? new TemporalEvidenceClientError('Temporal evidence acquisition failed.')
+      );
+    }
+
+    const results = landed.flatMap((batch) => batch.results);
+    const missing = requests.length - acquired;
+    const reasons = [
+      ...(firstFailure ? [`${String(failed)} failed (${firstFailure.message})`] : []),
+      ...(missing - failed > 0
+        ? [`${String(missing - failed)} not reached before the acquisition ${timeoutText}`]
+        : []),
+    ];
+    const incomplete =
+      missing > 0
+        ? `${String(missing)} of ${String(requests.length)} evidence request(s) came back without evidence: ${reasons.join('; ')}.`
+        : undefined;
+    const resultRenderSettings = [
+      ...new Set(
+        results.flatMap((result) =>
+          result.renderSettings ? [result.renderSettings.identity] : [],
+        ),
+      ),
+    ];
+    const logFields = {
+      revision: requests[0]?.projectRevision,
+      requests: requests.length,
+      chunks: chunks.length,
+      results: results.length,
+      renderSettings:
+        resultRenderSettings.length > 0
+          ? resultRenderSettings.join(',')
+          : first.renderSettings.identity,
+    };
+    if (incomplete) log.warn('acquire ← temporal evidence (partial)', { ...logFields, incomplete });
+    else log.action('acquire ← temporal evidence', logFields);
+    return {
+      renderSettings: first.renderSettings,
+      results,
+      ...(incomplete === undefined ? {} : { incomplete }),
+    };
   };
 }

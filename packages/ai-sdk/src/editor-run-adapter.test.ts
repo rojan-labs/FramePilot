@@ -495,6 +495,79 @@ describe('streamEditorRun route adapters', () => {
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
   });
 
+  describe('when the evidence came back only in part (#99)', () => {
+    // Run 19e20922 lost its last review to one deadline over one all-or-nothing batch. The
+    // acquirer now keeps what landed and says why the rest is missing; the run must review
+    // what it has, and say plainly which moments it never looked at.
+    const partialEvidence =
+      (options: { readonly blackOpening: boolean }) =>
+      async (_project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        const landed = passingEvidence(requests.slice(0, -1)).map((result) => {
+          const withLineage = { ...result, renderSettings } as TemporalEvidenceResult;
+          return options.blackOpening && withLineage.kind === 'frame'
+            ? { ...withLineage, sample: { ...withLineage.sample, luma: 0, blackRatio: 1 } }
+            : withLineage;
+        });
+        return {
+          renderSettings,
+          results: landed,
+          incomplete: '1 of N evidence request(s) came back without evidence: timed out.',
+        };
+      };
+    let lastRequestId = '';
+    let plannedRequests = 0;
+    const recordingLast =
+      (inner: ReturnType<typeof partialEvidence>) =>
+      async (project: unknown, requests: readonly TemporalEvidenceRequest[]) => {
+        lastRequestId = requests.at(-1)?.requestId ?? '';
+        plannedRequests = requests.length;
+        return inner(project, requests);
+      };
+
+    it('reports what it did not check instead of a finding or a full review', async () => {
+      const events = await collect(
+        new Orchestrator(new MockProvider()).streamEditorRun(
+          input,
+          { ...options, runId: 'partial_clean_review' },
+          { route: 'edit' },
+          { temporalEvidence: recordingLast(partialEvidence({ blackOpening: false })) },
+        ),
+      );
+
+      // Nothing it looked at was wrong, so there is nothing to steer on…
+      expect(events.some((event) => event.type === 'review_finding')).toBe(false);
+      // …and it is not "could not run", nor silence that reads as a clean review.
+      const account = events.find(
+        (event) => event.type === 'warning' && event.text.startsWith('Partial review:'),
+      );
+      expect(account).toBeDefined();
+      const text = account?.type === 'warning' ? account.text : '';
+      expect(text).toContain(`not checked: ${lastRequestId} (`);
+      expect(text).toMatch(/moments not checked were not perceptually checked/);
+      expect(text).not.toMatch(/could not run/i);
+      expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+    });
+
+    it('raises what the checked moments found, and still names what went unchecked', async () => {
+      const events = await collect(
+        new Orchestrator(new MockProvider()).streamEditorRun(
+          input,
+          { ...options, runId: 'partial_failing_review' },
+          { route: 'edit' },
+          { temporalEvidence: recordingLast(partialEvidence({ blackOpening: true })) },
+        ),
+      );
+      // The mock edit plans several moments, so at least one is checked and one is not.
+      expect(plannedRequests).toBeGreaterThan(1);
+      const finding = events.find((event) => event.type === 'review_finding');
+      expect(finding?.type).toBe('review_finding');
+      if (finding?.type !== 'review_finding') return;
+      expect(finding.detail).toMatch(/black/i);
+      expect(finding.detail).toContain(`not checked: ${lastRequestId} (`);
+      expect(finding.detail).not.toMatch(/Evidence was not returned/);
+    });
+  });
+
   it('says it is checking while the run waits on a review, before it reports completed', async () => {
     // Run fb90e58d: the reply was written at 07:35:09 and the terminal status held until the
     // review drained 77 s later, under a panel still reading "Generating…".

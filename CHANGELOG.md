@@ -65,6 +65,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A slow final check no longer throws the whole check away.** After an edit the assistant looks
+  at sample frames of the result. On a long project with many captions that check could run out of
+  time, and everything it had already looked at was discarded, so the edits went unchecked. It now
+  checks in small pieces, gets more time for bigger projects, and keeps what it finished. If it runs
+  out of time it tells you which moments it checked and which it did not.
 - **Widely tracked titles stay inside the frame.** When the assistant fitted a title, it ignored
   letter spacing, italic and chip padding. A spaced-out style such as "Tracked caps" could run
   off the frame at a size the fit had accepted. The fit now measures the title as it is drawn.

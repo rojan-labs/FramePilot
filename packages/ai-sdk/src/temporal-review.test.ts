@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TemporalEvidenceRequestSchema,
   authoredBlackFrames,
+  describePartialTemporalReview,
   planTemporalEvidence,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
@@ -1067,5 +1068,62 @@ describe('representative frames assert what they measure', () => {
     for (const request of representative) {
       expect(request).toMatchObject({ kind: 'frame', checks: ['black_frames'] });
     }
+  });
+});
+
+/**
+ * Issue #99: a review over the moments that came back before the deadline is strictly better
+ * than none — but only if it says which moments it did NOT look at, and never reads as whole.
+ */
+describe('a review over partial evidence', () => {
+  const frame = (requestId: string, atFrame: number): TemporalEvidenceRequest => ({
+    ...requestBase,
+    requestId,
+    kind: 'frame',
+    atFrame,
+    metrics: ['luma', 'black_ratio'],
+    checks: ['black_frames'],
+  });
+  const opening = frame('opening', 0);
+  const ending = frame('ending', 3299);
+  const cut = { ...rangeRequest, requestId: 'edit_range_1491', startFrame: 1489, endFrame: 1494 };
+  const clean = (request: TemporalEvidenceRequest): TemporalEvidenceResult => ({
+    ...resultBase,
+    requestId: request.requestId,
+    kind: 'frame',
+    sample: { frame: request.kind === 'frame' ? request.atFrame : 0, luma: 0.4, blackRatio: 0 },
+  });
+
+  it('marks what did not come back as not checked, naming where it is', () => {
+    const report = reviewTemporalEvidence([opening, cut, ending], [clean(opening)]);
+    expect(report.ok).toBe(false);
+    expect(report.checks.map((check) => check.status)).toEqual(['pass', 'skipped', 'skipped']);
+    expect(report.checks[1]?.issues).toEqual(['Evidence was not returned for frames 1489–1494.']);
+    expect(report.checks[2]?.issues).toEqual(['Evidence was not returned for frame 3299.']);
+  });
+
+  it('names every unchecked moment and does not claim a full review', () => {
+    const requests = [opening, cut, ending];
+    const report = reviewTemporalEvidence(requests, [clean(opening)]);
+    const account = describePartialTemporalReview(requests, report, 'The deadline passed.');
+    expect(account).toBe(
+      'Partial review: checked 1 of 3 requested moments and found nothing wrong there; ' +
+        'not checked: edit_range_1491 (frames 1489–1494), ending (frame 3299). The deadline passed.',
+    );
+  });
+
+  it('does not say the checked moments were clean when one of them failed', () => {
+    const requests = [opening, ending];
+    const black = { ...clean(opening), sample: { frame: 0, luma: 0, blackRatio: 1 } };
+    const report = reviewTemporalEvidence(requests, [black]);
+    const account = describePartialTemporalReview(requests, report, 'x');
+    expect(account).toMatch(
+      /^Partial review: checked 1 of 2 requested moments; not checked: ending/,
+    );
+  });
+
+  it('has nothing to say when every moment was checked', () => {
+    const report = reviewTemporalEvidence([opening], [clean(opening)]);
+    expect(describePartialTemporalReview([opening], report, 'x')).toBeUndefined();
   });
 });

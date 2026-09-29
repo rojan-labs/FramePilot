@@ -613,7 +613,7 @@ export function reviewTemporalEvidence(
         requestId: request.requestId,
         kind: request.kind,
         status: 'skipped',
-        issues: ['Evidence was not returned.'],
+        issues: [`Evidence was not returned for ${describeTemporalMoment(request)}.`],
       };
     if (result.projectRevision !== request.projectRevision) {
       return {
@@ -644,6 +644,68 @@ export function reviewTemporalEvidence(
     checks: diagnoseWholeProgrammeBlack(requests, checks),
     evidenceRequestIds: requests.map((request) => request.requestId),
   };
+}
+
+/**
+ * Where in the programme a request looks, in words a finding can carry.
+ *
+ * A check the review did NOT make has to say which moment went unchecked: a partial review
+ * that names only request ids tells the editor nothing about what might still be wrong.
+ *
+ * @param request - The evidence request.
+ * @returns e.g. `frame 0`, `frames 1480–1500`, `frames 899 and 900`.
+ */
+export function describeTemporalMoment(request: TemporalEvidenceRequest): string {
+  switch (request.kind) {
+    case 'frame':
+      return `frame ${String(request.atFrame)}`;
+    case 'comparison':
+      return `frames ${String(request.leftFrame)} and ${String(request.rightFrame)}`;
+    default:
+      return `frames ${String(request.startFrame)}–${String(request.endFrame)}`;
+  }
+}
+
+/** Opens every account of a review that looked at some requested moments and not others. */
+export const PARTIAL_REVIEW_PREFIX = 'Partial review:';
+/** How many unchecked moments an account names before it summarises the rest. */
+const MAX_NAMED_UNCHECKED = 6;
+
+/**
+ * The honest account of a review over partial evidence (#99): how many of the requested
+ * moments it checked, and which ones it did NOT, by place in the programme.
+ *
+ * Only for an acquisition that stopped early. Reviewing three of five moments is strictly
+ * better than reviewing none, but only if the account never reads as a full review.
+ *
+ * @param requests - Every request the review planned.
+ * @param report - The review over whatever evidence came back.
+ * @param reason - Why the rest came back without evidence (the acquirer's `incomplete`).
+ * @returns `undefined` when every request was checked; the account otherwise.
+ */
+export function describePartialTemporalReview(
+  requests: readonly TemporalEvidenceRequest[],
+  report: TemporalReviewReport,
+  reason: string,
+): string | undefined {
+  const unchecked = report.checks.filter((check) => check.status === 'skipped');
+  if (unchecked.length === 0) return undefined;
+  const byId = new Map(requests.map((request) => [request.requestId, request]));
+  const checked = report.checks.length - unchecked.length;
+  const failed = report.checks.filter((check) => check.status === 'fail').length;
+  const named = unchecked.slice(0, MAX_NAMED_UNCHECKED).map((check) => {
+    const request = byId.get(check.requestId);
+    return request ? `${check.requestId} (${describeTemporalMoment(request)})` : check.requestId;
+  });
+  const more =
+    unchecked.length > MAX_NAMED_UNCHECKED
+      ? `, and ${String(unchecked.length - MAX_NAMED_UNCHECKED)} more`
+      : '';
+  const verdict = failed === 0 ? ' and found nothing wrong there' : '';
+  return (
+    `${PARTIAL_REVIEW_PREFIX} checked ${String(checked)} of ${String(report.checks.length)} ` +
+    `requested moments${verdict}; not checked: ${named.join(', ')}${more}. ${reason}`
+  );
 }
 
 /** The earliest black frame a range sampled that the edit did not author, if any. */

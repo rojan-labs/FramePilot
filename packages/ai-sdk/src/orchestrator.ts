@@ -193,6 +193,8 @@ import { type RunRecording, createRecordingEffectRuntime } from './kernel/replay
 import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   authoredBlackFrames,
+  describePartialTemporalReview,
+  PARTIAL_REVIEW_PREFIX,
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
   type TemporalEvidenceRequest,
@@ -8677,7 +8679,11 @@ export class Orchestrator {
               ...evidenceBase(),
               id: `${options.turnId}:review-unavailable:${String(index)}`,
               type: 'warning',
-              text: `Review could not run: ${failure} Your edits are applied and validated, but were not perceptually checked.`,
+              // A partial review DID run; it must neither be called one that could not, nor
+              // be mistaken for a whole one.
+              text: failure.startsWith(PARTIAL_REVIEW_PREFIX)
+                ? `${failure} Your edits are applied and validated; the moments not checked were not perceptually checked.`
+                : `Review could not run: ${failure} Your edits are applied and validated, but were not perceptually checked.`,
             };
             projector?.observe(notice);
             yield notice;
@@ -8776,6 +8782,13 @@ export class Orchestrator {
     readonly repairable: boolean;
     readonly detail: string;
     readonly lineage: readonly string[];
+    /** How many checks the evidence actually failed (unchecked moments are not failures). */
+    readonly failedChecks: number;
+    /**
+     * The account of a review that stopped early, naming the moments it did not check (#99).
+     * Absent when the acquisition came back whole.
+     */
+    readonly partial?: string;
     /**
      * Where in the programme the earliest FAILING evidence sits, when it has a frame.
      *
@@ -8811,9 +8824,21 @@ export class Orchestrator {
     const passed = critique(workingProject, { temporal: report }).checks.some(
       (check) => check.id === 'temporal_evidence' && check.status === 'pass',
     );
-    const failing = report.checks.filter((check) => check.status !== 'pass');
-    const detail = failing
-      .map((check) => `${check.requestId}: ${check.issues.join(' ')}`)
+    // An acquisition that stopped early (#99) left some requests NOT CHECKED, and a moment
+    // nobody looked at is not a defect: it goes in the account, never in the findings.
+    // Without `incomplete`, a missing result is the engine's omission and fails as before.
+    const partial =
+      acquisition.incomplete === undefined
+        ? undefined
+        : describePartialTemporalReview(requests, report, acquisition.incomplete);
+    const failing = report.checks.filter((check) =>
+      partial === undefined ? check.status !== 'pass' : check.status === 'fail',
+    );
+    const detail = [
+      failing.map((check) => `${check.requestId}: ${check.issues.join(' ')}`).join(' '),
+      partial ?? '',
+    ]
+      .filter((part) => part.length > 0)
       .join(' ')
       .slice(0, 1000);
     const atSeconds = failingReviewSecond(requests, failing, workingProject.fps);
@@ -8822,6 +8847,8 @@ export class Orchestrator {
       passed,
       repairable: failing.length > 0 && failing.every((check) => check.status === 'fail'),
       detail,
+      failedChecks: failing.length,
+      ...(partial === undefined ? {} : { partial }),
       ...(atSeconds === undefined ? {} : { atSeconds }),
       lineage: [
         `temporal:revision=${report.projectRevision}`,
@@ -8865,6 +8892,7 @@ export class Orchestrator {
     // The turn's location, used only when a finding cannot place itself.
     const turnSecond = earliestTouchedSecond(args.after, region);
     const found: ReviewFinding[] = [];
+    let partialOnly: string | undefined;
     const base = {
       turnIndex: args.turnIndex,
       scope,
@@ -8880,7 +8908,9 @@ export class Orchestrator {
         args.temporal,
         args.signal,
       );
-      if (review && !review.passed) {
+      if (review?.partial !== undefined && review.failedChecks === 0) {
+        partialOnly = review.partial;
+      } else if (review && !review.passed) {
         found.push({
           ...base,
           // The failing evidence places itself; `base`'s turn location is the fallback.
@@ -8913,6 +8943,12 @@ export class Orchestrator {
       }
     }
 
+    // Nothing it looked at was wrong, but it did not look at everything. That is neither a
+    // finding (nothing is known to be wrong) nor a clean review (a clean review resolves
+    // delivered findings in its region, and part of that region went unseen), so it is
+    // reported the way an unreachable reviewer is — with its own wording at the end of the
+    // run (see PARTIAL_REVIEW_PREFIX where the failures are published).
+    if (partialOnly !== undefined && found.length === 0) throw new Error(partialOnly);
     return found;
   }
 
