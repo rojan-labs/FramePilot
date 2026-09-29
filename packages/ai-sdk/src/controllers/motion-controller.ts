@@ -17,6 +17,22 @@ const log = createLogger('ai-sdk:controllers:motion');
 const MAX_MOTION_DURATION_FRAMES = 18_000;
 const KEYFRAME_TIME_EPSILON = 0.001;
 
+const TARGET_REFERENTS = ['this', 'playhead'] as const;
+
+/**
+ * The message a model gets when it puts an id where a referent belongs. Zod's own words
+ * (`expected "this"`) read as a typo, not as "an id is the wrong kind of thing here" —
+ * the same lesson `professional_audio` learned in run `137d8fd0`.
+ */
+const targetHint = (input: unknown): string | undefined =>
+  typeof input === 'string' &&
+  !TARGET_REFERENTS.includes(input as (typeof TARGET_REFERENTS)[number])
+    ? `target names what is selected in the editor — "this" (the selected clip) or ` +
+      `"playhead" (the clip under the playhead). It is never a clip id, so "${input}" ` +
+      `cannot be resolved. To animate a clip you can name, pass its id in clipIds — ` +
+      `get_clips lists them.`
+    : undefined;
+
 export const MotionObjectiveSchema = z
   .object({
     intent: z.enum(['animate_to', 'continue']),
@@ -24,7 +40,28 @@ export const MotionObjectiveSchema = z
     value: z.number().finite().optional(),
     durationFrames: z.number().int().positive().max(MAX_MOTION_DURATION_FRAMES),
     easing: z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold', 'bezier']).optional(),
-    target: z.enum(['this', 'playhead']).default('this'),
+    target: z
+      .enum(TARGET_REFERENTS, { error: (issue) => targetHint(issue.input) })
+      .default('this')
+      .describe(
+        'What the editor has selected: "this" (the selected clip) or "playhead" (the clip ' +
+          'under the playhead). Never a clip id — name the clip with clipIds instead.',
+      ),
+    /**
+     * The clip to animate, by id — the resolver's `explicit` referent, which ranks above the
+     * selection and refuses an id the project does not hold. Without it an agent run, which
+     * has no selection, could reach this tool's trajectory continuation only by luck of
+     * where the playhead sat (issue #138; `professional_audio` had the same gap, run
+     * `6cb12e30`). One clip, because a motion has one trajectory.
+     */
+    clipIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(1)
+      .optional()
+      .describe(
+        'The one clip to animate, by id (get_clips lists them). When given, target is ignored.',
+      ),
     constraintPolicy: z.enum(['property_bounds', 'cover_canvas']).default('property_bounds'),
   })
   .strict()
@@ -107,13 +144,17 @@ function resolveClip(
   const resolution = resolveEditorTarget(
     input.project,
     input.interaction,
-    { kind: 'clips', referent: input.objective.target },
+    input.objective.clipIds === undefined
+      ? { kind: 'clips', referent: input.objective.target }
+      : { kind: 'clips', referent: 'explicit', clipIds: input.objective.clipIds },
     { projectRevision: input.projectRevision ?? input.interaction.projectRevision },
   );
   if (resolution.status !== 'resolved') {
+    // The way out is part of the refusal: without it a run concludes the editor must select.
     const detail =
       resolution.status === 'ambiguous'
-        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')}`
+        ? `${resolution.reason}: ${resolution.candidateIds.join(', ')} — name the clip you ` +
+          'mean with clipIds'
         : `${resolution.reason}: ${resolution.detail}`;
     return rejected(
       input.objective,
@@ -210,7 +251,14 @@ function continuationPoints(
     .sort((left, right) => left.time - right.time);
   const selectedTime = selectedAnchorTime(input, clip, property);
   const playheadTime = input.interaction.playhead.seconds - clip.start;
-  const anchorTime = selectedTime ?? playheadTime;
+  const playheadInClip = playheadTime >= 0 && playheadTime <= clip.end - clip.start;
+  // A clip named by id, with the playhead somewhere else, continues from its latest
+  // keyframes: the playhead was never pointed at it, so it cannot anchor the trajectory.
+  const anchorTime =
+    selectedTime ??
+    (input.objective.clipIds !== undefined && !playheadInClip
+      ? Number.POSITIVE_INFINITY
+      : playheadTime);
   let anchorIndex = -1;
   for (let index = points.length - 1; index >= 0; index -= 1) {
     if (points[index]!.time <= anchorTime + KEYFRAME_TIME_EPSILON) {
@@ -251,10 +299,15 @@ function animatePoints(
 ): readonly MotionCommand['points'][number][] | MotionControllerRejection {
   const relativeTime = input.interaction.playhead.seconds - clip.start;
   if (relativeTime < 0 || relativeTime > clip.end - clip.start) {
+    // animate_to starts from the property's value at the playhead, so a clip named by id
+    // still needs the playhead over it; say which tool keys a clip at a chosen time.
     return rejected(
       input.objective,
       'playhead_outside_clip',
-      `The playhead is outside clip "${clip.id}".`,
+      input.objective.clipIds === undefined
+        ? `The playhead is outside clip "${clip.id}".`
+        : `The playhead is outside clip "${clip.id}", and animate_to starts at the playhead. ` +
+            'To key a clip at a time you choose, use add_keyframes with its clipId.',
     );
   }
   const startFrame = clipFrame(relativeTime, rate);

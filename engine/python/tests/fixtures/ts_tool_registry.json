@@ -3701,6 +3701,16 @@
               }
             }
           },
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "groupShots": {
             "type": [
               "boolean"
@@ -3851,6 +3861,16 @@
           "intent"
         ],
         "properties": {
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
           "constraintPolicy": {
             "type": [
               "string"

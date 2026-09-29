@@ -22,9 +22,28 @@ validated reversible patches through the same patch authority as timeline editin
 - `continue`: use the last two property keyframes ending at the selected keyframe (or playhead) to
   extrapolate the established value-per-second trajectory for `durationFrames`.
 
-The target is the primary selected clip or the single clip under the playhead. `property` may be
-explicit. When omitted, exactly one selected keyframe property must resolve; FramePilot rejects an
+The target is the clip named in `clipIds`, or else the primary selected clip or the single clip
+under the playhead. `property` may be explicit. When omitted, exactly one selected keyframe property must resolve; FramePilot rejects an
 empty or multi-property selection instead of choosing one.
+
+### Naming the clip (`clipIds`)
+
+`clipIds` takes exactly one clip id from `get_clips`, resolved through the target resolver's
+`explicit` referent: it ranks above the selection and refuses an id the project does not hold
+(`missing_explicit_target`). One, because a motion has one trajectory.
+
+This reverses the original design, in which "the live selection/playhead resolves the target" and
+the tool accepted no clip id. That holds for a person at the editor and leaves an agent run, which
+has no selection, unable to reach trajectory continuation except by where the playhead happened to
+sit (issue #138; `professional_audio` made the same change for run `6cb12e30`). An ambiguous
+playhead's refusal now names `clipIds` as the way to settle it, and an id written into `target`
+is answered with the same pointer.
+
+The playhead still means what it meant. `animate_to` starts at the playhead, so a named clip the
+playhead is not over is refused with `playhead_outside_clip`, and the refusal points at
+`add_keyframes`, which keys a clip at a time the caller chooses. `continue` anchors on a selected
+keyframe or the playhead; for a named clip the playhead is not over, it anchors on the property's
+latest keyframe — the playhead was never pointed at that clip, so it cannot anchor it.
 
 Durations and positions use integer clip-presentation frames with the project's rational sequence
 rate. Stored keyframe seconds are derived only in `compileMotionCommand`, avoiding decimal-fps drift

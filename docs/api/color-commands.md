@@ -10,9 +10,19 @@ ColorObjective
   → validated apply_color_grade patch + inverse patch
 ```
 
-The controller never selects a shot from prose. `this`, `these`, and `playhead` resolve through the
-revision-bound `EditorInteractionContext`; stale, missing, ambiguous, audio, and caption targets are
-rejected before an operation is emitted.
+The controller never selects a shot from prose. The shots are the ids named in `clipIds`, or else
+`this`, `these`, or `playhead`, resolved through the revision-bound `EditorInteractionContext`;
+stale, missing, ambiguous, audio, and caption targets are rejected before an operation is emitted.
+
+`clipIds` takes ids from `get_clips` and resolves through the target resolver's `explicit`
+referent, which ranks above the selection and refuses an id the project does not hold
+(`missing_explicit_target`). `match_reference` and `groupShots` take exactly one, the same rule
+`these` already obeyed; a matched shot's target evidence must measure the named clip. The tool
+used to accept no clip ids — selection state supplied the shots — which holds for a person at the
+editor and left an agent run, having no selection, unable to reach reference matching at all
+(issue #138; `professional_audio` made the same change for run `6cb12e30`). An ambiguous playhead's
+refusal now names `clipIds` as the way to settle it, and an id written into `target` is answered
+with the same pointer.
 
 ## Primary correction node
 

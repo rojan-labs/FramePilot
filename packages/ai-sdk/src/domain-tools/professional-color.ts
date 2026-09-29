@@ -41,11 +41,14 @@ function buildProfessionalColor(rawArgs: unknown, ctx: ToolContext) {
   return validateProfessionalOperationBatch(ctx, 'professional_color', operations);
 }
 
-/** Model supplies bounded correction values; selection state supplies the shots. */
+/**
+ * Model supplies bounded correction values; the shots are the ones it names (`clipIds`,
+ * checked against the project) or else the editor's selection.
+ */
 export const PROFESSIONAL_COLOR_TOOL: ToolSpec = {
   name: 'professional_color',
   description:
-    'Apply explicit bounded primary corrections, or match this shot from two trusted measure_color evidence handles. Uses one canonical correction node per clip and preserves separate creative LUT/look layers. Matching derives conservative exposure, contrast, saturation, temperature, and tint from revision-bound unobstructed measurements; stale, incomplete, wrong-clip, or occluded evidence fails closed. Set groupShots to grade every shot from the same camera file at once — "match all of camera B" — instead of one clip. Set preserveSkin on a match to hold faces where they are: the white-balance part of the match is scaled back until skin warmth stays inside tolerance, and a shot with too little skin to read says so rather than pretending nothing moved.',
+    'Grade the clips you name in clipIds (get_clips lists them; without it, the selected clip): apply explicit bounded primary corrections, or match the shot from two trusted measure_color evidence handles. Uses one canonical correction node per clip and preserves separate creative LUT/look layers. Matching derives conservative exposure, contrast, saturation, temperature, and tint from revision-bound unobstructed measurements; stale, incomplete, wrong-clip, or occluded evidence fails closed. Set groupShots to grade every shot from the same camera file at once — "match all of camera B" — instead of one clip. Set preserveSkin on a match to hold faces where they are: the white-balance part of the match is scaled back until skin warmth stays inside tolerance, and a shot with too little skin to read says so rather than pretending nothing moved.',
   version: '3',
   capabilities: ['color', 'professional-editing'],
   permissions: ['write'],

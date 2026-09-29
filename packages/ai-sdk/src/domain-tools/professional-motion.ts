@@ -41,11 +41,14 @@ function buildProfessionalMotion(rawArgs: unknown, ctx: ToolContext) {
   return validateProfessionalOperationBatch(ctx, 'professional_motion', operations);
 }
 
-/** Model supplies an editorial motion objective, never raw keyframe choreography. */
+/**
+ * Model supplies an editorial motion objective, never raw keyframe choreography. The clip is
+ * the one it names (`clipIds`, checked against the project) or else the editor's selection.
+ */
 export const PROFESSIONAL_MOTION_TOOL: ToolSpec = {
   name: 'professional_motion',
   description:
-    'Animate the selected clip/property to a target value or continue its established trajectory using clip-frame timing and deterministic easing. The live selection/playhead resolves the target; property and canvas-cover constraints fail closed. Supply duration in frames, not raw keyframe arrays.',
+    'Animate a clip property to a target value or continue its established trajectory using clip-frame timing and deterministic easing. Name the clip in clipIds (get_clips lists them), or without it the selected clip/the clip under the playhead is used; animate_to starts at the playhead; continue extends from the selected keyframe or the playhead, or from the latest keyframes of a named clip the playhead is not over. Property and canvas-cover constraints fail closed. Supply duration in frames, not raw keyframe arrays.',
   version: '1',
   capabilities: ['motion', 'professional-editing'],
   permissions: ['write'],
