@@ -131,6 +131,7 @@ from framepilot_engine.render.edge_styles import (
 from framepilot_engine.render.frame_effects import apply_effect_layers
 from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.frame_plan import (
+    LayerMatteSources,
     back_to_front,
     caption_tracks,
     clips_in_sequence,
@@ -184,7 +185,11 @@ from framepilot_engine.render.mattes import (
     assert_frames_align,
     prepare_matte,
 )
-from framepilot_engine.render.picture_window import PictureWindow
+from framepilot_engine.render.picture_window import (
+    REACH_SLACK_SECONDS,
+    PictureWindow,
+    clip_reach,
+)
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.pts_reader import (
     VideoTiming,
@@ -2048,21 +2053,40 @@ def compile_timeline(
             on_progress(min(1.0, prepared / total_clips))
 
     picture_by_track: list[list[_PictureLayer]] = []
+    # A window's layers in the full compile's order, with the blended layers it leaves out
+    # (`_window_blend_guard`); one list per track, like `picture_by_track`.
+    blend_plan_by_track: list[list[_PictureLayer | _SkippedBlend]] = []
+    may_frost_elsewhere = False
     audio_layers: list[Any] = []
     opened: list[Any] = []
     try:
         for track in project.timeline.tracks:
             track_pictures: list[_PictureLayer] = []
+            track_plan: list[_PictureLayer | _SkippedBlend] = []
+            synced = 0
             # Clips in sequence order, so a transition can find the shot on the other side of
             # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
             ordered = clips_in_sequence(track)
             for position, clip in enumerate(ordered):
+                # The layers the previous clip built, in the order it built them.
+                track_plan.extend(track_pictures[synced:])
+                synced = len(track_pictures)
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
                 if window is not None and clip.id not in window.clip_ids:
                     # Still in `ordered`, so a windowed clip's transition finds this one as
                     # its neighbour and borrows its handle exactly as the full compile does.
                     _refuse_like_the_full_compile(clip, kind, track, asset_index)
+                    if not track.hidden:
+                        track_plan.extend(
+                            _SkippedBlend(end)
+                            for end in _skipped_blend_ends(
+                                track.id, clip, position, ordered, kind, asset_kinds, matte_sources
+                            )
+                        )
+                        may_frost_elsewhere = may_frost_elsewhere or (
+                            kind == "text" and _may_frost(clip)
+                        )
                     continue
                 if kind in _PICTURE_KINDS:
                     if track.hidden:
@@ -2215,11 +2239,21 @@ def compile_timeline(
                             layer_mattes.add(track.id, clip.id, graphic.picture)
                         else:
                             track_pictures.append(graphic)
+            track_plan.extend(track_pictures[synced:])
             picture_by_track.append(track_pictures)
+            blend_plan_by_track.append(track_plan)
 
         video_layers: list[_PictureLayer] = []
         for track_pictures in back_to_front(picture_by_track):
             video_layers.extend(track_pictures)
+        window_guard = (
+            None
+            if window is None
+            else _window_blend_guard(
+                [entry for plan in back_to_front(blend_plan_by_track) for entry in plan],
+                may_frost_elsewhere,
+            )
+        )
 
         if not video_layers and audio_layers:
             video_layers.append(
@@ -2291,6 +2325,8 @@ def compile_timeline(
         if window is not None and picture_end is not None:
             # See the docstring: only instants before the picture's end are the full frame.
             composite = composite.with_duration(float(picture_end))
+        if window_guard is not None:
+            composite._framepilot_window_guard = window_guard
         return composite
     except BaseException:
         for clip_obj in opened:
@@ -2320,6 +2356,127 @@ class _PictureLayer(NamedTuple):
     picture: Any
     blend_mode: str | None
     frost: _Frost | None = None
+
+
+#: `_blend_layer_over` reads the frame beneath a blended layer at ``min(t, end - 1e-6)``.
+_HOLD_EPSILON = 1e-6
+
+
+class _SkippedBlend(NamedTuple):
+    """A blended layer the full compile builds that a picture window leaves out, and its end."""
+
+    end: float
+
+
+def _blends(mode: str | None) -> bool:
+    return mode is not None and mode != "normal"
+
+
+def _skipped_blend_ends(
+    track_id: str,
+    clip: Clip,
+    position: int,
+    ordered: Sequence[Clip],
+    kind: str,
+    asset_kinds: Mapping[str, str | None],
+    matte_sources: LayerMatteSources,
+) -> list[float]:
+    """When the blended layers the full compile builds for ``clip`` can end, in placement order.
+
+    A video's transition under-layers (placed before it, each taking its NEIGHBOUR's mode, and
+    ending with its ramp), then its own layer (as far as :func:`clip_reach` lets it play). Layers
+    consumed as a track matte are never composited and are not counted.
+    """
+    if kind not in (*_PICTURE_KINDS, "text", "shape"):
+        return []
+    ends: list[float] = []
+    if kind == "video":
+        for planned in transition_underlays(clip, position, ordered, asset_kinds):
+            neighbour = planned.neighbour
+            if _blends(neighbour.blend_mode) and not matte_sources.consumes(
+                track_id, neighbour.id, clip.id
+            ):
+                ends.append(float(planned.window[1]) + REACH_SLACK_SECONDS)
+    if _blends(clip.blend_mode) and not matte_sources.consumes(track_id, clip.id, None):
+        ends.append(clip_reach(clip, kind)[1])
+    return ends
+
+
+def _may_frost(clip: Clip) -> bool:
+    """Whether a text overlay may draw a frosted chip (``typography.background.blur``)."""
+    content = text_overlay_text(clip)
+    if content is None:
+        return False
+    typography = content[1].get("typography")
+    chip = typography.get("background") if isinstance(typography, Mapping) else None
+    blur = chip.get("blur") if isinstance(chip, Mapping) else None
+    return isinstance(blur, (int, float)) and not isinstance(blur, bool) and blur > 0
+
+
+def _plan_end(entry: _PictureLayer | _SkippedBlend) -> float:
+    if isinstance(entry, _SkippedBlend):
+        return entry.end
+    end = entry.picture.end
+    return math.inf if end is None else float(end)
+
+
+def _window_blend_guard(
+    plan: Sequence[_PictureLayer | _SkippedBlend], may_frost_elsewhere: bool
+) -> Callable[[float], bool] | None:
+    """The instants at which a window's blend composite is the export's, or ``None``: all.
+
+    ``plan`` is the full compile's layers in composite order: the window's, built, and the
+    blended ones it left out. :func:`_composite_with_blend_modes` puts the first layer on without
+    its mode, and blends a layer that outlives everything beneath it over their last frame,
+    held; a layer that is not playing changes nothing (an 8-bit frame survives its float round
+    trip, and a blend at alpha 0 is the base). So when every blended layer that has not ended by
+    ``t`` has a layer beneath it, built here, lasting past ``t``, no blended layer playing at
+    ``t`` is first or holds a frame — in the export or in the window — and both are the
+    composite of the layers playing at ``t``. A window holding a frosted overlay is the export's
+    at every instant: both go through the frost compositor, which composites exactly those.
+
+    :raises PictureWindowMiss: The export goes through the frost compositor for an overlay the
+        window leaves out, which rounds a blend differently from the window's compositor.
+    """
+    blended = [
+        index
+        for index, entry in enumerate(plan)
+        if isinstance(entry, _SkippedBlend) or _blends(entry.blend_mode)
+    ]
+    if not blended:
+        return None
+    if any(isinstance(entry, _PictureLayer) and entry.frost is not None for entry in plan):
+        return None
+    if may_frost_elsewhere:
+        raise PictureWindowMiss(
+            "A blended layer is composited through a frosted text overlay outside the window."
+        )
+
+    def answers(t: float) -> bool:
+        for index in blended:
+            if _plan_end(plan[index]) <= t:
+                continue
+            if not any(
+                isinstance(entry, _PictureLayer) and _plan_end(entry) > t + _HOLD_EPSILON
+                for entry in plan[:index]
+            ):
+                return False
+        return True
+
+    return answers
+
+
+def window_answers(composition: Any, at: float) -> bool:
+    """Whether a windowed composite gives the full compile's frame at ``at``.
+
+    A windowed composite is cached by the clips it holds and read at every instant of them, but
+    it is the export's frame only before its picture ends, and — when a layer is blended — only
+    where :func:`_window_blend_guard` says so. A caller composites the whole timeline elsewhere.
+    """
+    if composition.duration is not None and at >= float(composition.duration):
+        return False
+    guard = getattr(composition, "_framepilot_window_guard", None)
+    return guard is None or bool(guard(at))
 
 
 def _composite_with_blend_modes(

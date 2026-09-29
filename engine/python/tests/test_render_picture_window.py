@@ -27,7 +27,7 @@ from pydantic import TypeAdapter
 from framepilot_engine.media.assets import AssetIndex, index_assets
 from framepilot_engine.render import frame_grab as frame_grab_module
 from framepilot_engine.render import video_reader
-from framepilot_engine.render.compiler import compile_timeline
+from framepilot_engine.render.compiler import PictureWindowMiss, compile_timeline, window_answers
 from framepilot_engine.render.compiler import compile_timeline as compile_timeline_for_real
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
@@ -316,6 +316,33 @@ MATTE_SOURCES = {
 MATTE_TIMES = (0.95, 1.95, 2.0, 2.3, 2.59, 2.6, 2.7, 2.95)
 
 
+#: Blended variants of :func:`_edit` (AL38), by the clips given a mode. A multiplied title over
+#: the picture; a screened shot on the picture's own track, which the export blends over B's
+#: frame HELD while it plays (nothing beneath it lasts); the bottom layer blended, whose mode the
+#: export ignores while it plays and lends to B's dissolve under-layer; and three at once.
+BLENDED_EDITS: dict[str, dict[str, str]] = {
+    "title": {"title": "multiply"},
+    "same-track": {"C": "screen"},
+    "bottom-layer": {"A": "lighten"},
+    "several": {"title": "screen", "B": "overlay", "D": "difference"},
+}
+
+
+def _with_blend(modes: dict[str, str], *, frosted_title: bool = False) -> Project:
+    """:func:`_edit` with ``modes`` set on the named clips (and, optionally, a frosted title)."""
+    payload = _edit().model_dump(mode="json", by_alias=True)
+    for track in payload["timeline"]["tracks"]:
+        for clip in track["clips"]:
+            if clip["id"] in modes:
+                clip["blendMode"] = modes[clip["id"]]
+            if frosted_title and clip["id"] == "title":
+                clip["effects"][0]["params"].update(
+                    background="#ffffff29",
+                    typography={"background": {"radius": 0.3, "paddingX": 0.6, "blur": 0.4}},
+                )
+    return Project.model_validate(payload)
+
+
 def _index(project: Project, base: Path) -> AssetIndex:
     return index_assets([asset.model_dump() for asset in project.assets], base_dir=base)
 
@@ -347,6 +374,16 @@ PARITY_TIMES = (
     3.5,
     119 / FPS,
 )
+
+
+#: Instants each variant's window must answer, and instants where the export holds a frame (or
+#: ignores a mode) so it must not.
+BLENDED_WINDOWED: dict[str, tuple[set[float], set[float]]] = {
+    "title": (set(PARITY_TIMES), set()),
+    "same-track": ({0.0, 0.5, 1.2, 3.5}, {2.2, 2.5}),
+    "bottom-layer": ({2.5, 3.5}, {0.0, 0.5}),
+    "several": ({0.0, 0.5, 2.5}, {3.5}),
+}
 
 
 class TestWindowedFrameIsTheExportFrame:
@@ -420,6 +457,80 @@ class TestWindowedFrameIsTheExportFrame:
                 np.testing.assert_array_equal(np.asarray(part.get_frame(t)), reference[t], str(t))
             finally:
                 close_clip_tree(part)
+
+    @pytest.mark.parametrize("name", sorted(BLENDED_EDITS))
+    def test_a_blended_frame_matches_the_whole_timeline_to_the_pixel(
+        self, media_dir: Path, name: str
+    ) -> None:
+        """AL38: a blend mode is windowed wherever the export holds nothing, and only there.
+
+        Every instant is checked twice: the windowed compile, where it answers, against the whole
+        timeline; and the grab, which falls back to the whole timeline where it does not.
+        """
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        project = _with_blend(BLENDED_EDITS[name])
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        full = compile_timeline(
+            project, index, preset, burn_captions=True, max_decode_dimension=budget
+        )
+        try:
+            reference = {t: np.asarray(full.get_frame(t)).copy() for t in PARITY_TIMES}
+        finally:
+            close_clip_tree(full)
+
+        answered: set[float] = set()
+        for t in PARITY_TIMES:
+            window = picture_window_at(project, t, _kinds(index))
+            assert window is not None, t
+            try:
+                part = compile_timeline(
+                    project,
+                    index,
+                    preset,
+                    burn_captions=True,
+                    max_decode_dimension=budget,
+                    window=window,
+                )
+            except PictureWindowMiss:
+                part = None
+            try:
+                if part is not None and window_answers(part, t):
+                    answered.add(t)
+                    np.testing.assert_array_equal(
+                        np.asarray(part.get_frame(t)), reference[t], str(t)
+                    )
+            finally:
+                close_clip_tree(part)
+            frame = grab_frame(
+                project, media_dir, t, image_format="png", max_dimension=GRAB_DIMENSION
+            )
+            decoded = np.asarray(Image.open(io.BytesIO(frame.data)).convert("RGB"))
+            np.testing.assert_array_equal(decoded, reference[t][..., :3], f"grab {t}")
+        windowed, held = BLENDED_WINDOWED[name]
+        assert windowed <= answered, "the window must answer where the export holds nothing"
+        assert not (held & answered), "the window must not answer where the export holds a frame"
+
+    def test_a_blend_beside_a_frosted_overlay_left_out_takes_the_whole_timeline(
+        self, media_dir: Path
+    ) -> None:
+        """The frost compositor rounds a blend differently; a window without it must refuse."""
+        project = _with_blend({"C": "screen"}, frosted_title=True)
+        index = _index(project, media_dir)
+        preset, budget = _grab_preset(project)
+        window = picture_window_at(project, 0.2, _kinds(index))
+        assert window is not None and "title" not in window.clip_ids
+        with pytest.raises(PictureWindowMiss):
+            compile_timeline(
+                project,
+                index,
+                preset,
+                burn_captions=True,
+                max_decode_dimension=budget,
+                window=window,
+            )
 
     def test_grab_frame_returns_the_whole_timeline_frame(self, media_dir: Path) -> None:
         pytest.importorskip("PIL")
@@ -533,16 +644,25 @@ class TestOnlyTheWindowIsOpened:
 
 
 class TestFallsBackToTheWholeTimeline:
-    def test_a_blend_mode_composites_everything(
+    def test_a_blend_mode_is_windowed_until_the_export_holds_a_frame(
         self, media_dir: Path, opened: _OpenedReaders
     ) -> None:
-        project = _edit(C={"blendMode": "screen"})
-        assert picture_window_at(project, 0.5, KINDS) is None
+        """AL38: a screened shot no longer makes every grab composite the whole timeline.
 
-        misses = FRAME_WINDOW_CACHE.misses
+        At 0.5s only A plays and A lasts past it, so the window answers with A's reader alone.
+        At 2.5s the screened C plays over nothing that lasts (A and B have ended): the export
+        blends it over B's last frame, held, which the window leaves out, so it falls back.
+        """
+        project = _with_blend({"C": "screen"})
+        assert picture_window_at(project, 0.5, KINDS) is not None
+
         grab_frame(project, media_dir, 0.5)
+        assert opened.files == {"x.mp4"}
+
+        misses = COMPOSITION_CACHE.misses
+        grab_frame(project, media_dir, 2.5)
         assert opened.files == {"x.mp4", "y.mp4", "z.mp4"}
-        assert FRAME_WINDOW_CACHE.misses == misses
+        assert COMPOSITION_CACHE.misses == misses + 1
 
     def test_an_instant_past_the_windowed_picture_is_the_full_frame(self, media_dir: Path) -> None:
         """A natural-rate clip whose source runs out before its timeline span does.
@@ -822,6 +942,10 @@ class TestPictureWindowPlanning:
         # ... and at 2.8s it is idle: an idle source draws the empty matte, so it stays out.
         idle = picture_window_at(project, 2.8, KINDS)
         assert idle is not None and idle.clip_ids == {"C", "cue2"}
+
+    def test_a_blended_picture_is_planned_and_a_blended_caption_is_not(self) -> None:
+        assert picture_window_at(_with_blend({"C": "screen"}), 2.5, KINDS) is not None
+        assert picture_window_at(_with_blend({"cue2": "screen"}), 2.5, KINDS) is None
 
     def test_a_gap_composites_everything(self) -> None:
         project = _edit(D={"start": 3.5, "end": 4.0, "sourceEnd": 1.5})

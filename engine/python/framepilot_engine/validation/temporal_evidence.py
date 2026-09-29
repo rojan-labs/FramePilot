@@ -42,6 +42,7 @@ from framepilot_engine.render.compiler import (
     PictureWindowMiss,
     compile_timeline,
     timeline_duration,
+    window_answers,
 )
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE as COMPOSITION_CACHE,
@@ -1041,9 +1042,10 @@ class _ReviewFrames:
         composition = self._held_composition
         if composition is None:
             return None
-        # A composite borrowed for an earlier instant of these clips may end before this one;
-        # past its end the full compile would hold its own picture's last frame (captions).
-        if composition.duration is not None and at >= float(composition.duration):
+        # A composite borrowed for an earlier instant of these clips may not answer this one:
+        # past its end the full compile would hold its own picture's last frame (captions), and
+        # a blend may take in layers the window left out (``compiler.window_answers``).
+        if not window_answers(composition, at):
             return None
         return composition
 

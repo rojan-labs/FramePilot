@@ -50,6 +50,7 @@ from framepilot_engine.render.compiler import (
     PictureWindowMiss,
     compile_timeline,
     timeline_duration,
+    window_answers,
 )
 from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE,
@@ -182,10 +183,10 @@ def _windowed_frame(
     )
     try:
         with FRAME_WINDOW_CACHE.borrow(key, build) as composition:
-            # `duration` is where the windowed picture stops being the full one (see
-            # `compile_timeline`); a composite cached for another instant may end before this.
-            if composition.duration is not None and at >= float(composition.duration):
-                _log.info("frame grab: window ends before %.3fs; compositing everything", at)
+            # A composite cached for another instant of these clips may not answer this one:
+            # its picture may end before it, or a blend may take in layers it left out.
+            if not window_answers(composition, at):
+                _log.info("frame grab: the window cannot give %.3fs; compositing everything", at)
                 return None
             _log.debug("frame grab: %d clip(s) in the window at %.3fs", len(window.clip_ids), at)
             # The decode takes a slot like the build did: concurrent grabs must not all decode

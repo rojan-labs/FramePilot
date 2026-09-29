@@ -515,9 +515,30 @@ class TestReviewFramesCompositeOnlyTheClipsOnScreen:
     def test_a_project_the_window_cannot_reproduce_reads_the_whole_timeline(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """A blend mode makes idle layers matter (``picture_window.whole_timeline_reason``)."""
+        """A blended caption makes idle layers matter (``picture_window.whole_timeline_reason``).
+
+        (A blended picture layer is windowed where the export holds nothing, AL38.)
+        """
         fixture = _project().model_dump(mode="json", by_alias=True)
-        fixture["timeline"]["tracks"][0]["clips"][0]["blendMode"] = "screen"
+        fixture["timeline"]["tracks"].append(
+            {
+                "id": "captions",
+                "type": "caption",
+                "clips": [
+                    {
+                        "id": "cue",
+                        "assetId": "__caption__",
+                        "trackId": "captions",
+                        "start": 0,
+                        "end": 2,
+                        "sourceStart": 0,
+                        "sourceEnd": 2,
+                        "blendMode": "screen",
+                        "captionCue": {"text": "hello", "words": []},
+                    }
+                ],
+            }
+        )
         spy = _CompileSpy()
         monkeypatch.setattr(evidence_module, "compile_timeline", spy)
         monkeypatch.setattr(evidence_module, "index_assets", _no_assets)
