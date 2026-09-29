@@ -359,6 +359,14 @@ update_plan({
   and status). A second reply with the same mark settles the run through verification. `blocked`
   is not open. `maxSteps` (widened to fit the plan, as a drafted plan widens it), wall time and
   cost still bound everything. Nothing reads the model's prose or the request.
+- **A plan that ends on blocked items (AL39):** when a no-tool reply leaves nothing open, at least
+  one item `blocked`, and tool domains the run never loaded, the run continues ONCE. That turn's
+  DO THIS NOW names the blocked items and each unloaded domain with its `load_tools` summary:
+  load and retry an item, or reply without a tool call to leave it blocked. The runtime reports
+  the unloaded domains (`AgentTurnResult.unloadedToolDomains`); the reducer decides from plan
+  statuses alone. Never when cancelled, over budget, or out of steps; a second no-tool reply ends
+  the run. Harness run 16 blocked "Sound design" on "No SFX in the bin" without ever loading
+  `sourcing`.
 - **What the editor sees:** the existing `plan` event, one checklist node per run. `done` maps to
   `completed`, `in_progress` to `running`, `pending` to `pending`, and `blocked` to `failed`
   with the note. Once the model owns the plan, the positional drafted ledger (`planFirst`) never
@@ -540,7 +548,8 @@ landscape source, and a placement over picture whose shape leaves bars gets the 
 that closes them. Scale and position come from `add_keyframes` (`scale`, `x`/`y` in project
 pixels from the frame centre). `apply_color_grade` with `type: "blur"` and `params.amount`
 (0..0.25, a fraction of the picture's smaller side) blurs a whole clip, under the same effect
-id the Inspector's Blur control edits.
+id the Inspector's Blur control edits; `amount: 0` turns it off (AL39: the op contract used to
+refuse 0 while every other layer took it). No tool removes a clip effect.
 
 Recipes, pinned end to end by `domain-tools/layered-picture-recipes.test.ts` and rendered by
 `engine/python/tests/test_layered_picture_render.py`:
@@ -548,7 +557,9 @@ Recipes, pinned end to end by `domain-tools/layered-picture-recipes.test.ts` and
 - **Blurred fill (9:16 from 16:9):** the shot's cover-cropped copy, blurred
   (`apply_color_grade` `blur`), and the same asset, span and `sourceStart` again with
   `crop: null`, which lands in front fitted whole (scale 0.5625 for a 1920×1080 source in a
-  1080×1920 frame, never upscaled).
+  1080×1920 frame, never upscaled). The background may be a `reframe_pan` (keyframes, no crop),
+  and the foreground may name the background's own track: it is placed on a layer in front
+  (`PictureCandidate.overOwnLane`) rather than colliding with it.
 - **3-up split (9:16):** three shots, each `crop` `{ x: 0.025391, y: 0, width: 0.949219,
   height: 1 }` (a 1080×640 panel), moved with a `y` keyframe of −640, 0 and +640.
 
@@ -573,9 +584,13 @@ visible):
   overlap by more than a frame — the span itself need not match. A different pin is a
   different moment of the file and is allowed. So is the same moment through a different
   crop that is known before placement (`add_clip`'s own `crop`, or the portrait
-  auto-reframe): that is a blurred-fill foreground, not an invisible duplicate. Audio goes
+  auto-reframe), or when the clip already there is framed by transform keyframes (a pan,
+  punch-in or Ken Burns; every clip transform but opacity): that is a blurred-fill foreground,
+  not an invisible duplicate. A picture refusal always ends with the blurred-fill route (keep
+  the clip that is there as the background and add this one with `crop: null`; or, when the
+  call already asked for `crop: null`, give the one there a fill crop first). Audio goes
   through the same path, where the defect is audible rather than invisible: the same bed on
-  two lanes plays over itself.
+  two lanes plays over itself, and no route is offered.
 
 `add_stock` keeps a third, `picture_over_picture`: it places a full-frame cutaway at a moment
 and takes no geometry, so a stock clip that cannot be shown to hide the footage under it (an
