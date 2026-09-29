@@ -1075,11 +1075,26 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         ),
       );
       if (Object.keys(params).length === 0) {
+        // Harness run 14 sent six restyles whose colour and background each clip already had,
+        // and heard "name at least one of … color, background": told to name what it had just
+        // named. A call that named something is answered with what it named — names only, so
+        // the repeat guard keys on a stable sentence (never the values).
+        const named = [
+          ...(a.text === undefined ? [] : ['text']),
+          ...(a.style === undefined ? [] : ['style']),
+          // The arg names the model wrote, not the params they land in.
+          ...Object.keys(authoredTextParams(a)).map((key) =>
+            key === 'fontSizePercent' ? 'sizePercent' : key,
+          ),
+          ...TYPOGRAPHY_ARG_NAMES.filter((name) => a[name as keyof TypographyArgs] !== undefined),
+        ];
         throw new ToolRefusalError(
-          `Nothing to change on ${a.clipId}: name at least one of text, style, sizePercent, ` +
-            'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily, ' +
-            `fontWeight or ${TYPOGRAPHY_ARG_NAMES.join(', ')} with a value different from ` +
-            'what it already has.',
+          named.length > 0
+            ? `${a.clipId} already has the ${named.join(', ')} you gave, so nothing changed — ` +
+                'it is done. Restyle it only with a value different from what it has.'
+            : `Nothing to change on ${a.clipId}: name at least one of text, style, sizePercent, ` +
+                'color, background, align, boxWidthPercent, xPercent, yPercent, fontFamily, ' +
+                `fontWeight or ${TYPOGRAPHY_ARG_NAMES.join(', ')}.`,
         );
       }
       return [{ type: 'set_effect_params', clipId: clip.id, effectId: effect.id, params }];

@@ -201,7 +201,19 @@ describe('set_text_style restyles a placed title', () => {
       () =>
         tool.kind === 'mutate' &&
         tool.buildOps({ clipId: titleClipId(before), sizePercent: 6 }, { project: before }),
-    ).toThrow(/Nothing to change/);
+    ).toThrow(/already has the sizePercent you gave, so nothing changed/);
+  });
+
+  it('says a call that names nothing to name something', () => {
+    // Harness run 14 heard "name at least one of … color, background" for a call that named
+    // both (at the values the clip already had). That sentence is for a call naming nothing.
+    const before = placed();
+    const tool = getTool('set_text_style')!;
+    expect(
+      () =>
+        tool.kind === 'mutate' &&
+        tool.buildOps({ clipId: titleClipId(before) }, { project: before }),
+    ).toThrow(/Nothing to change on .*: name at least one of/);
   });
 
   it('refuses a clip that is not a title, naming the tool that is', () => {
@@ -395,6 +407,6 @@ describe('typography args override one field of the typography (#135)', () => {
     const placed = add({ style: 'tracked-caps' });
     expect(() =>
       run('set_text_style', placed, { clipId: titleClipId(placed), letterSpacing: 0.24 }),
-    ).toThrow(/Nothing to change.*letterSpacing/);
+    ).toThrow(/already has the letterSpacing you gave, so nothing changed/);
   });
 });
