@@ -187,3 +187,30 @@ def test_a_typed_text_overlay_with_no_family_or_size_takes_the_editors_defaults(
     sized = text_overlay_caption_style({"fontSize": 120, "typography": {}}, H)
     assert sized is not None
     assert int(H / 22 * (sized.font_scale or 0)) == 120
+
+
+def _white_pixels(image: np.ndarray) -> int:
+    rgb, alpha = image[..., :3], image[..., 3]
+    return int(((rgb >= 250).all(axis=-1) & (alpha == 255)).sum())
+
+
+def test_a_tracked_outline_never_cuts_through_the_neighbouring_letter() -> None:
+    # Tracked words are drawn letter by letter; each letter's outline used to be painted over
+    # the letter before it, a stripe through every letter at a tight tracking (and through the
+    # "comic", "punchline" and "sticker" looks at their positive tracking). Outlines first,
+    # then fills: every pixel of letter fill survives the outline, as it does untracked.
+    word = "HEADING"
+    for spacing in (-0.1, 0.0, 0.03):
+        filled = _raster({"typography": {"letterSpacing": spacing}}, text=word)
+        outlined = _raster(
+            {
+                "typography": {
+                    "letterSpacing": spacing,
+                    "outlineColor": "#ff0000",
+                    "outlineWidth": 3,
+                }
+            },
+            text=word,
+        )
+        # The outline only ever eats the letters' anti-aliased rim, never their solid fill.
+        assert _white_pixels(outlined) >= _white_pixels(filled) * 0.97, spacing

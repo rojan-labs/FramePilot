@@ -173,7 +173,11 @@ reads the model's prose or the request. Branch `fix/agent-loop-audit-2026-09-28`
   Render diff over all 68 caption templates + 60 text styles: exactly `heading` and `statement`
   change. The agent's own `letterSpacing` arg stays 0-0.6 (widening it moves the tool description;
   follow-up). Tests: `test_text_overlay_typography.py`, `test_title_metrics.py` (two negative typed
-  reference cases), `overlay-fit`, `captionPreview`.
+  reference cases), `overlay-fit`, `captionPreview`. Same pass: a tracked word was stroked letter
+  by letter, each outline over the previous letter's fill (a stripe; visible at 0.03 em in `comic`,
+  `punchline`, `sticker` + 4 more): `_draw_token_text` now strokes every letter, then fills. Those
+  7 looks change (no golden encodes them); test
+  `test_a_tracked_outline_never_cuts_through_the_neighbouring_letter`.
 **Preview playback reliability (2026-09-27, maintainer: "the preview is stuck every now and then
 … not able to render the captions properly … 0 performance issues on preview").** Evidence: code
 audits of the layer engine, decode path, compositor and player, plus an engine benchmark (all 68

@@ -68,6 +68,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Tightly spaced text exports as the editor shows it.** Negative letter spacing (the "Heading"
   and "Statement" styles, or below 0 % in the Inspector) was dropped on export and on the
   desktop monitor, so that text came out looser than the browser preview. It now tightens in both.
+- **Outlined, letter-spaced captions no longer have stripes through the letters.** In looks such
+  as Comic, Punchline and Sticker, each letter's outline was painted over the letter before it in
+  the export. Outlines are now drawn first and letters on top, as the preview draws them.
 - **A slow final check no longer throws the whole check away.** After an edit the assistant looks
   at sample frames of the result. On a long project with many captions that check could run out of
   time, and everything it had already looked at was discarded, so the edits went unchecked. It now

@@ -871,20 +871,31 @@ def _draw_token_text(
         if glyphs is not None:
             glyphs.draw.text((x, y), token, font=font, fill=glyphs.level, anchor="ls")
         return
+    origins: list[float] = []
     cursor = x
     for ch in token:
-        canvas.text(
-            (cursor, y),
-            ch,
-            font=font,
-            fill=fill,
-            anchor="ls",
-            stroke_width=stroke_width,
-            stroke_fill=stroke_color,
-        )
-        if glyphs is not None:
-            glyphs.draw.text((cursor, y), ch, font=font, fill=glyphs.level, anchor="ls")
+        origins.append(cursor)
         cursor += font.getlength(ch) + letter_spacing_px
+    # Every letter's outline first, then every letter's fill — what one call on the whole word
+    # (the untracked branch above) and the preview's stroke do. Drawn letter by letter, each
+    # letter's outline painted over its left neighbour's fill wherever the two met: at a tight
+    # or negative tracking, a stripe of outline through the letters.
+    if stroke_width > 0:
+        outline = stroke_color if stroke_color is not None else fill
+        for origin, ch in zip(origins, token, strict=True):
+            canvas.text(
+                (origin, y),
+                ch,
+                font=font,
+                fill=outline,
+                anchor="ls",
+                stroke_width=stroke_width,
+                stroke_fill=outline,
+            )
+    for origin, ch in zip(origins, token, strict=True):
+        canvas.text((origin, y), ch, font=font, fill=fill, anchor="ls")
+        if glyphs is not None:
+            glyphs.draw.text((origin, y), ch, font=font, fill=glyphs.level, anchor="ls")
 
 
 def _bare_token(token: str) -> str:
