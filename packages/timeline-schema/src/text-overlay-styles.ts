@@ -26,7 +26,12 @@
  * that the editor writes into the text overlay's params when it is applied. Nothing resolves a template
  * id at render time, so revising a template never changes a text overlay already placed.
  */
-import { CaptionBackgroundSchema, CaptionStyleSchema, type CaptionStyle } from './index.js';
+import {
+  CaptionBackgroundSchema,
+  CaptionShadowSchema,
+  CaptionStyleSchema,
+  type CaptionStyle,
+} from './index.js';
 import { z } from 'zod/v4';
 
 /**
@@ -79,8 +84,9 @@ export const TextOverlayLineSchema = CaptionStyleSchema.pick({
   textOpacity: true,
   outlineColor: true,
   outlineWidth: true,
-  shadow: true,
 }).extend({
+  /** `null` draws the line with no shadow even when the overlay has one (a chip line). */
+  shadow: CaptionShadowSchema.nullable().optional(),
   scale: z.number().positive().max(8).optional(),
   color: z.string().min(1).optional(),
   background: z.string().min(1).nullable().optional(),
@@ -210,8 +216,10 @@ function lockupLineStyle(
   params: TextOverlayStyleParams,
   line: TextOverlayLine,
 ): CaptionStyle {
-  const { scale = 1, color, background, chip, spaceBefore: _space, ...typography } = line;
+  const { scale = 1, color, background, chip, spaceBefore: _space, shadow, ...typography } = line;
   const style: CaptionStyle = { ...base, ...typography, fontScale: (base.fontScale ?? 1) * scale };
+  if (shadow === null) delete style.shadow;
+  else if (shadow !== undefined) style.shadow = shadow;
   if (line.fontWeight !== undefined) {
     style.fontWeight = Math.round(Math.min(900, Math.max(100, line.fontWeight)));
   }
@@ -270,12 +278,21 @@ export function parseTextOverlayTypography(value: unknown): TextOverlayTypograph
 
 /** Gallery grouping in the Text panel. */
 export type TextOverlayStyleCategory =
-  'basic' | 'headlines' | 'lower-thirds' | 'callouts' | 'social' | 'quotes' | 'script' | 'retro';
+  | 'combos'
+  | 'basic'
+  | 'headlines'
+  | 'lower-thirds'
+  | 'callouts'
+  | 'social'
+  | 'quotes'
+  | 'script'
+  | 'retro';
 
 export const TEXT_OVERLAY_STYLE_CATEGORIES: readonly {
   readonly id: TextOverlayStyleCategory;
   readonly label: string;
 }[] = [
+  { id: 'combos', label: 'Combos' },
   { id: 'basic', label: 'Basic' },
   { id: 'headlines', label: 'Headlines' },
   { id: 'lower-thirds', label: 'Lower thirds' },
@@ -314,10 +331,18 @@ const GOLD = '#f2c14e';
 const ORANGE = '#ff6b1a';
 const GREEN = '#16a34a';
 const PHOSPHOR = '#7dff9b';
+/** A secondary line's white, stepped back so the headline leads (research: fg at ~75 %). */
+const MUTED = '#ffffffbf';
+const MUTED_WARM = '#f4f1eabf';
+const PAPER = '#f2ecdf';
+const HIGHLIGHTER = '#ffd200';
+const CHAMPAGNE = '#f3dfb4';
 
 const SOFT_DROP = { color: '#000000b3', blur: 0.2, offsetX: 0, offsetY: 0.06 } as const;
 const HALO = { color: '#000000d9', blur: 0.26, offsetX: 0, offsetY: 0.02 } as const;
 const HARD_DROP = { color: '#000000', blur: 0, offsetX: 0.05, offsetY: 0.07 } as const;
+/** The cinematic register: a soft lift off the picture, never a visible drop. */
+const LIFT = { color: '#00000080', blur: 0.3, offsetX: 0, offsetY: 0.03 } as const;
 /** A coloured glow: zero offset, a wide blur in the letter colour. */
 const glow = (color: string) => ({ color, blur: 0.55, offsetX: 0, offsetY: 0 }) as const;
 
@@ -345,6 +370,17 @@ const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22
  * name on one line in 9:16 as well as 16:9.
  */
 const LOWER_THIRD = { align: 'left', boxWidthPercent: 76, xPercent: 42, yPercent: 76 } as const;
+/**
+ * A two-line lower third (name over role). The box is centred on x/y and hugs its lines, so a
+ * lockup sits nearer the left edge than a one-line tag to start where lower thirds start
+ * (research: text from ~7 % of the width) and stays above the caption band.
+ */
+const LOWER_THIRD_LOCKUP = {
+  align: 'left',
+  boxWidthPercent: 70,
+  xPercent: 26,
+  yPercent: 78,
+} as const;
 
 function look(
   fields: Omit<TextOverlayLook, 'background' | 'typography'> & Partial<TextOverlayLook>,
@@ -354,6 +390,305 @@ function look(
 
 const HAND_MADE: readonly TextOverlayStyle[] = [
   // ------------------------------------------------------------------ basic
+  // ----------------------------------------------------------------- combos
+  // Multi-font LOCKUPS (typography.lines): one text overlay whose lines are set in different
+  // faces, sizes and colours, the way title designers build a title. Researched 2026-09-30
+  // (docs/guides/text-overlays.md "Lockups"): two families, a third only as a script or hand
+  // accent; secondary lines 15–40 % of the headline; tracked caps for kickers (+0.2–0.4 em),
+  // tight display tracking; lines close enough to read as one group. The base look is the
+  // HEADLINE, so the Inspector's font, size and colour act on it; the other lines override.
+  {
+    id: 'kicker-headline',
+    label: 'Kicker + headline',
+    category: 'combos',
+    sampleText: 'EPISODE 04\nTHE LONG WAY HOME',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Bebas Neue',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 13,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.01,
+        lineHeight: 0.9,
+        shadow: SOFT_DROP,
+        lines: [
+          {
+            fontFamily: 'Montserrat',
+            fontWeight: 600,
+            scale: 0.26,
+            letterSpacing: 0.3,
+            lineHeight: 1.2,
+            color: YELLOW,
+          },
+          { spaceBefore: -0.3 },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'doc-title',
+    label: 'Documentary',
+    category: 'combos',
+    sampleText: 'The Last Glacier\nA FILM BY MAYA ROSS',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Instrument Serif',
+      fontWeight: 400,
+      color: OFF_WHITE,
+      fontSizePercent: 11,
+      typography: {
+        letterSpacing: -0.015,
+        lineHeight: 1.0,
+        shadow: LIFT,
+        lines: [
+          {},
+          {
+            fontFamily: 'Inter',
+            fontWeight: 500,
+            scale: 0.24,
+            textTransform: 'uppercase',
+            letterSpacing: 0.32,
+            lineHeight: 1.2,
+            color: MUTED_WARM,
+            spaceBefore: 0.12,
+          },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'script-over-caps',
+    label: 'Script + caps',
+    category: 'combos',
+    sampleText: 'welcome to\nBALI',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Anton',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 17,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.02,
+        lineHeight: 0.9,
+        shadow: SOFT_DROP,
+        lines: [
+          {
+            fontFamily: 'Great Vibes',
+            fontWeight: 400,
+            scale: 0.62,
+            textTransform: 'none',
+            letterSpacing: 0,
+            color: YELLOW,
+            shadow: LIFT,
+          },
+          { spaceBefore: -1.0 },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'fashion',
+    label: 'Fashion',
+    category: 'combos',
+    sampleText: 'ISSUE NO. 12\nThe New Minimal',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Bodoni Moda',
+      fontWeight: 500,
+      color: WHITE,
+      fontSizePercent: 11,
+      typography: {
+        fontStyle: 'italic',
+        letterSpacing: -0.015,
+        lineHeight: 1.0,
+        shadow: LIFT,
+        lines: [
+          {
+            fontFamily: 'Raleway',
+            fontWeight: 500,
+            fontStyle: 'normal',
+            scale: 0.24,
+            textTransform: 'uppercase',
+            letterSpacing: 0.4,
+            lineHeight: 1.2,
+          },
+          { spaceBefore: -0.2 },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'minimal-luxe',
+    label: 'Serif + wide',
+    category: 'combos',
+    sampleText: 'Golden hour\nLISBON — PORTUGAL',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Instrument Serif',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 12,
+      typography: {
+        letterSpacing: -0.02,
+        lineHeight: 1.0,
+        shadow: LIFT,
+        lines: [
+          {},
+          {
+            fontFamily: 'Unbounded',
+            fontWeight: 500,
+            scale: 0.21,
+            textTransform: 'uppercase',
+            letterSpacing: 0.35,
+            lineHeight: 1.2,
+            spaceBefore: 0.1,
+          },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'wedding',
+    label: 'Wedding',
+    category: 'combos',
+    sampleText: 'THE WEDDING OF\nAnna & Luca\n12 · 09 · 2026',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Great Vibes',
+      fontWeight: 400,
+      color: CHAMPAGNE,
+      fontSizePercent: 13,
+      typography: {
+        lineHeight: 1.0,
+        shadow: LIFT,
+        lines: [
+          {
+            fontFamily: 'Cinzel',
+            fontWeight: 400,
+            scale: 0.2,
+            textTransform: 'uppercase',
+            letterSpacing: 0.35,
+            lineHeight: 1.2,
+            color: WHITE,
+          },
+          { spaceBefore: -0.2 },
+          {
+            fontFamily: 'Cinzel',
+            fontWeight: 400,
+            scale: 0.19,
+            letterSpacing: 0.3,
+            lineHeight: 1.2,
+            color: MUTED,
+            spaceBefore: 0.1,
+          },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'chapter',
+    label: 'Chapter title',
+    category: 'combos',
+    sampleText: 'CHAPTER 03\nWhere it all began',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Fraunces',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 9.5,
+      typography: {
+        letterSpacing: -0.01,
+        lineHeight: 1.05,
+        shadow: LIFT,
+        lines: [
+          {
+            fontFamily: 'Space Mono',
+            fontWeight: 400,
+            scale: 0.3,
+            textTransform: 'uppercase',
+            letterSpacing: 0.25,
+            lineHeight: 1.2,
+            color: YELLOW,
+          },
+          { spaceBefore: -0.1 },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'creator-title',
+    label: 'Creator',
+    category: 'combos',
+    sampleText: 'LESSON 1\nStart before you’re ready\n(seriously)',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Inter',
+      fontWeight: 700,
+      color: WHITE,
+      fontSizePercent: 7.5,
+      typography: {
+        letterSpacing: -0.02,
+        lineHeight: 1.05,
+        shadow: SOFT_DROP,
+        lines: [
+          {
+            fontWeight: 600,
+            scale: 0.36,
+            textTransform: 'uppercase',
+            letterSpacing: 0.2,
+            lineHeight: 1.2,
+            color: YELLOW,
+          },
+          { spaceBefore: -0.2 },
+          {
+            fontFamily: 'Caveat',
+            fontWeight: 600,
+            scale: 0.7,
+            letterSpacing: 0,
+            color: YELLOW,
+            spaceBefore: -0.2,
+          },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'explainer',
+    label: 'Explainer',
+    category: 'combos',
+    sampleText: 'THE STRAIT OF HORMUZ\n20% of the world’s oil',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Archivo Black',
+      fontWeight: 400,
+      color: '#161513',
+      fontSizePercent: 6.5,
+      background: HIGHLIGHTER,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: -0.01,
+        lineHeight: 0.98,
+        background: { radius: 0.04, paddingX: 0.3, paddingY: 0.12 },
+        lines: [
+          {},
+          {
+            fontFamily: 'Caveat',
+            fontWeight: 700,
+            scale: 0.9,
+            textTransform: 'none',
+            letterSpacing: 0,
+            color: PAPER,
+            background: null,
+            shadow: SOFT_DROP,
+            spaceBefore: -0.1,
+          },
+        ],
+      },
+    }),
+  },
   {
     id: 'heading',
     label: 'Heading',
@@ -468,14 +803,83 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'cinematic',
     label: 'Cinematic',
     category: 'headlines',
-    sampleText: 'The long road',
+    sampleText: 'The Long Road\nA JOURNEY NORTH',
     look: look({
       ...CENTRE,
       fontFamily: 'Cinzel',
-      fontWeight: 600,
+      fontWeight: 500,
       color: OFF_WHITE,
-      fontSizePercent: 6,
-      typography: { textTransform: 'uppercase', letterSpacing: 0.22, shadow: HALO },
+      fontSizePercent: 6.5,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.28,
+        shadow: LIFT,
+        lines: [
+          {},
+          {
+            fontFamily: 'Raleway',
+            fontWeight: 400,
+            scale: 0.4,
+            letterSpacing: 0.5,
+            color: MUTED_WARM,
+            spaceBefore: 0.35,
+          },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'sport',
+    label: 'Sport',
+    category: 'headlines',
+    sampleText: 'MATCH DAY\nFINAL WHISTLE',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Big Shoulders',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 14,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.01,
+        lineHeight: 0.9,
+        shadow: SOFT_DROP,
+        background: { radius: 0, paddingX: 0.45, paddingY: 0.15 },
+        lines: [
+          {
+            fontFamily: 'Barlow Condensed',
+            fontWeight: 600,
+            scale: 0.28,
+            letterSpacing: 0.14,
+            lineHeight: 1.1,
+            background: RED,
+            shadow: null,
+          },
+          { spaceBefore: -0.05 },
+        ],
+      },
+    }),
+  },
+  {
+    id: 'shout',
+    label: 'Shout',
+    category: 'headlines',
+    sampleText: 'DAY 7\nI SURVIVED',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Luckiest Guy',
+      fontWeight: 400,
+      color: WHITE,
+      fontSizePercent: 13,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.02,
+        lineHeight: 0.95,
+        outlineColor: INK,
+        outlineWidth: 1.6,
+        shadow: HARD_DROP,
+        lines: [{ scale: 0.45, color: YELLOW }, { spaceBefore: -0.25 }],
+      },
     }),
   },
   {
@@ -528,14 +932,31 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'editorial',
     label: 'Editorial',
     category: 'headlines',
-    sampleText: 'Slow mornings',
+    sampleText: 'Slow mornings\nTHE SPRING EDIT',
     look: look({
       ...CENTRE,
       fontFamily: 'Instrument Serif',
       fontWeight: 400,
       color: WHITE,
       fontSizePercent: 10,
-      typography: { fontStyle: 'italic', lineHeight: 1.05, shadow: HALO },
+      typography: {
+        fontStyle: 'italic',
+        lineHeight: 1.05,
+        shadow: HALO,
+        lines: [
+          {},
+          {
+            fontFamily: 'Montserrat',
+            fontWeight: 500,
+            fontStyle: 'normal',
+            scale: 0.26,
+            textTransform: 'uppercase',
+            letterSpacing: 0.35,
+            lineHeight: 1.2,
+            spaceBefore: -0.1,
+          },
+        ],
+      },
     }),
   },
   {
@@ -558,33 +979,51 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'name-tag',
     label: 'Name tag',
     category: 'lower-thirds',
-    sampleText: 'Alex Rivera',
+    sampleText: 'Alex Rivera\nPRODUCT LEAD',
     look: look({
-      ...LOWER_THIRD,
+      ...LOWER_THIRD_LOCKUP,
       fontFamily: 'Inter',
       fontWeight: 700,
       color: WHITE,
-      fontSizePercent: 3.6,
+      fontSizePercent: 4.2,
       background: '#0b0b0fcc',
-      typography: { background: { radius: 0.15, paddingX: 0.6, paddingY: 0.32 } },
+      typography: {
+        letterSpacing: -0.005,
+        background: { radius: 0.1, paddingX: 0.55, paddingY: 0.28 },
+        lines: [
+          {},
+          { fontWeight: 500, scale: 0.6, letterSpacing: 0.12, color: MUTED, spaceBefore: -0.02 },
+        ],
+      },
     }),
   },
   {
     id: 'accent-bar',
     label: 'Accent bar',
     category: 'lower-thirds',
-    sampleText: 'Product lead',
+    sampleText: 'ALEX RIVERA\nProduct lead, Northwind',
     look: look({
-      ...LOWER_THIRD,
+      ...LOWER_THIRD_LOCKUP,
       fontFamily: 'Montserrat',
       fontWeight: 800,
       color: WHITE,
-      fontSizePercent: 3.2,
+      fontSizePercent: 3.6,
       background: BLUE,
       typography: {
         textTransform: 'uppercase',
         letterSpacing: 0.06,
-        background: { radius: 0.08, paddingX: 0.6, paddingY: 0.3 },
+        background: { radius: 0, paddingX: 0.6, paddingY: 0.3 },
+        lines: [
+          {},
+          {
+            fontWeight: 500,
+            scale: 0.72,
+            textTransform: 'none',
+            letterSpacing: 0,
+            color: INK,
+            background: WHITE,
+          },
+        ],
       },
     }),
   },
@@ -592,27 +1031,32 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'minimal-lower',
     label: 'Location',
     category: 'lower-thirds',
-    sampleText: 'Filmed in Lisbon',
+    sampleText: 'LISBON, PORTUGAL\n04 MAY 2026 — 06:12',
     look: look({
-      ...LOWER_THIRD,
-      fontFamily: 'DM Sans',
-      fontWeight: 600,
+      ...LOWER_THIRD_LOCKUP,
+      fontFamily: 'IBM Plex Mono',
+      fontWeight: 500,
       color: WHITE,
-      fontSizePercent: 3.2,
-      typography: { shadow: SOFT_DROP },
+      fontSizePercent: 3.4,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.06,
+        shadow: SOFT_DROP,
+        lines: [{}, { fontWeight: 400, scale: 0.8, color: MUTED, spaceBefore: -0.35 }],
+      },
     }),
   },
   {
     id: 'smoked-lower',
     label: 'Smoked',
     category: 'lower-thirds',
-    sampleText: 'Jordan Lee · Founder',
+    sampleText: 'Jordan Lee\nFounder, Northwind',
     look: look({
-      ...LOWER_THIRD,
+      ...LOWER_THIRD_LOCKUP,
       fontFamily: 'Plus Jakarta Sans',
-      fontWeight: 600,
+      fontWeight: 700,
       color: WHITE,
-      fontSizePercent: 3.2,
+      fontSizePercent: 3.8,
       background: '#0b0b0f99',
       typography: {
         background: {
@@ -623,6 +1067,7 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
           borderColor: '#ffffff2e',
           borderWidth: 1,
         },
+        lines: [{}, { fontWeight: 500, scale: 0.68, color: MUTED, spaceBefore: 0.08 }],
       },
     }),
   },
@@ -693,14 +1138,30 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'big-number',
     label: 'Big number',
     category: 'callouts',
-    sampleText: '3x faster',
+    sampleText: '3x\nFASTER EXPORTS',
     look: look({
       ...CENTRE,
       fontFamily: 'Bebas Neue',
       fontWeight: 400,
       color: YELLOW,
-      fontSizePercent: 15,
-      typography: { shadow: HARD_DROP },
+      fontSizePercent: 22,
+      typography: {
+        lineHeight: 0.9,
+        shadow: SOFT_DROP,
+        lines: [
+          {},
+          {
+            fontFamily: 'Inter',
+            fontWeight: 600,
+            scale: 0.13,
+            textTransform: 'uppercase',
+            letterSpacing: 0.16,
+            lineHeight: 1.2,
+            color: WHITE,
+            spaceBefore: -0.55,
+          },
+        ],
+      },
     }),
   },
   {
@@ -722,6 +1183,64 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     }),
   },
   // ----------------------------------------------------------------- social
+  {
+    id: 'hook-chips',
+    label: 'Hook chips',
+    category: 'social',
+    sampleText: 'Nobody tells you\nthis about Lisbon',
+    look: look({
+      ...UPPER,
+      fontFamily: 'Montserrat',
+      fontWeight: 800,
+      color: INK,
+      fontSizePercent: 5.5,
+      background: WHITE,
+      typography: {
+        letterSpacing: -0.01,
+        background: { radius: 0.25, paddingX: 0.4, paddingY: 0.18 },
+        lines: [{}, { background: YELLOW, spaceBefore: 0.06 }],
+      },
+    }),
+  },
+  {
+    id: 'end-card',
+    label: 'End card',
+    category: 'social',
+    sampleText: 'thanks for watching\n@yourchannel\nSUBSCRIBE',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Montserrat',
+      fontWeight: 800,
+      color: WHITE,
+      fontSizePercent: 7,
+      typography: {
+        letterSpacing: -0.01,
+        shadow: SOFT_DROP,
+        background: { radius: 0.6, paddingX: 0.9, paddingY: 0.35 },
+        lines: [
+          {
+            fontFamily: 'Caveat',
+            fontWeight: 600,
+            scale: 0.62,
+            letterSpacing: 0,
+            color: YELLOW,
+          },
+          { spaceBefore: -0.35 },
+          {
+            fontFamily: 'Inter',
+            fontWeight: 700,
+            scale: 0.36,
+            textTransform: 'uppercase',
+            letterSpacing: 0.2,
+            color: INK,
+            background: YELLOW,
+            shadow: null,
+            spaceBefore: 0.2,
+          },
+        ],
+      },
+    }),
+  },
   {
     id: 'subscribe',
     label: 'Subscribe',
@@ -992,18 +1511,28 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'news-bar',
     label: 'News bar',
     category: 'lower-thirds',
-    sampleText: 'Breaking news',
+    sampleText: 'LIVE\nMarkets rally after rate cut',
     look: look({
-      ...LOWER_THIRD,
-      fontFamily: 'Oswald',
-      fontWeight: 600,
-      color: WHITE,
-      fontSizePercent: 3.6,
-      background: RED,
+      ...LOWER_THIRD_LOCKUP,
+      fontFamily: 'Barlow',
+      fontWeight: 700,
+      color: INK,
+      fontSizePercent: 4.2,
+      background: WHITE,
       typography: {
-        textTransform: 'uppercase',
-        letterSpacing: 0.04,
-        background: { radius: 0, paddingX: 0.6, paddingY: 0.2 },
+        background: { radius: 0, paddingX: 0.45, paddingY: 0.22 },
+        lines: [
+          {
+            fontFamily: 'Barlow Condensed',
+            fontWeight: 700,
+            scale: 0.62,
+            textTransform: 'uppercase',
+            letterSpacing: 0.08,
+            color: WHITE,
+            background: RED,
+          },
+          {},
+        ],
       },
     }),
   },
@@ -1119,14 +1648,31 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     id: 'testimonial',
     label: 'Testimonial',
     category: 'quotes',
-    sampleText: '“It changed how we work.”',
+    sampleText: '“It changed how we work.”\n— SAM CARTER, NORTHWIND',
     look: look({
       ...CENTRE,
       fontFamily: 'DM Serif Display',
       fontWeight: 400,
       color: WHITE,
       fontSizePercent: 6,
-      typography: { fontStyle: 'italic', lineHeight: 1.15, shadow: HALO },
+      typography: {
+        fontStyle: 'italic',
+        lineHeight: 1.15,
+        shadow: HALO,
+        lines: [
+          {},
+          {
+            fontFamily: 'Inter',
+            fontWeight: 600,
+            fontStyle: 'normal',
+            scale: 0.4,
+            letterSpacing: 0.15,
+            lineHeight: 1.2,
+            color: MUTED,
+            spaceBefore: 0.1,
+          },
+        ],
+      },
     }),
   },
   {
@@ -1144,6 +1690,36 @@ const HAND_MADE: readonly TextOverlayStyle[] = [
     }),
   },
   // --------------------------------------------------------------- script
+  {
+    id: 'vlog-script',
+    label: 'Vlog',
+    category: 'script',
+    sampleText: 'summer\nROAD TRIP',
+    look: look({
+      ...CENTRE,
+      fontFamily: 'Poppins',
+      fontWeight: 700,
+      color: WHITE,
+      fontSizePercent: 11,
+      typography: {
+        textTransform: 'uppercase',
+        letterSpacing: 0.02,
+        lineHeight: 0.95,
+        shadow: SOFT_DROP,
+        lines: [
+          {
+            fontFamily: 'Yellowtail',
+            fontWeight: 400,
+            scale: 0.85,
+            textTransform: 'none',
+            letterSpacing: 0,
+            color: PINK,
+          },
+          { spaceBefore: -0.8 },
+        ],
+      },
+    }),
+  },
   {
     id: 'signature',
     label: 'Signature',

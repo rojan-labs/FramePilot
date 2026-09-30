@@ -401,6 +401,9 @@ def _lockup_line_fields(
     for key in (*TEXT_OVERLAY_TYPOGRAPHY_FIELDS, "fontFamily"):
         if key in line:
             fields[key] = line[key]
+    if "shadow" in line and line["shadow"] is None:
+        # ``null`` draws this line with no shadow even when the overlay has one.
+        fields.pop("shadow", None)
     if "fontWeight" in line:
         fields["fontWeight"] = int(min(max(float(line["fontWeight"]), _MIN_WEIGHT), _MAX_WEIGHT))
     scale = float(line.get("scale", 1.0))

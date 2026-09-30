@@ -22,6 +22,8 @@ import {
   parseTextOverlayTypography,
   textOverlayCaptionStyle,
   textOverlayLineLayouts,
+  type TextOverlayLine,
+  type TextOverlayLook,
   type TextOverlayStyleParams,
 } from './text-overlay-styles.js';
 
@@ -108,6 +110,72 @@ describe('TEXT_OVERLAY_STYLE_CATALOG', () => {
         expect(value, id).toBeGreaterThan(0);
         expect(value, id).toBeLessThanOrEqual(100);
       }
+    }
+  });
+});
+
+describe('lockups in the catalog (typography.lines)', () => {
+  const lockups = TEXT_OVERLAY_STYLE_CATALOG.filter(
+    (style) => (style.look.typography.lines?.length ?? 0) > 0,
+  );
+  /** The face a lockup line is drawn in: its own family, else the style's. */
+  const lineFamily = (look: TextOverlayLook, line: TextOverlayLine): string =>
+    line.fontFamily ?? look.fontFamily;
+
+  it('offers a real set of multi-font lockups, and every Combo mixes families', () => {
+    expect(lockups.length).toBeGreaterThanOrEqual(15);
+    for (const style of TEXT_OVERLAY_STYLE_CATALOG.filter((s) => s.category === 'combos')) {
+      const families = new Set(
+        (style.look.typography.lines ?? []).map((line) => lineFamily(style.look, line)),
+      );
+      families.add(style.look.fontFamily);
+      expect(families.size, style.id).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('draws every line in a bundled face, at a weight and in a style the family ships', () => {
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        const font = getCaptionFont(lineFamily(look, line));
+        expect(font, `${id}: ${lineFamily(look, line)}`).toBeDefined();
+        const weight = line.fontWeight ?? look.fontWeight;
+        expect(weight, id).toBeGreaterThanOrEqual(font!.minWeight);
+        expect(weight, id).toBeLessThanOrEqual(font!.maxWeight);
+        if ((line.fontStyle ?? look.typography.fontStyle) === 'italic') {
+          expect(font!.italicFile, `${id} asks ${font!.family} for an italic`).toBeDefined();
+        }
+        for (const colour of [line.color, line.background, line.outlineColor]) {
+          if (typeof colour === 'string') expect(colour, id).toMatch(HEX);
+        }
+      }
+    }
+  });
+
+  it('keeps every line legible: at least 2.4 % of the frame height', () => {
+    // Research (docs/guides/text-overlays.md): a kicker or role line below ~28 px at 1080p
+    // does not survive a streaming encode.
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        expect(look.fontSizePercent * (line.scale ?? 1), id).toBeGreaterThanOrEqual(2.4);
+      }
+    }
+  });
+
+  it('never tracks or capitalises a script, which breaks its joins', () => {
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        if (getCaptionFont(lineFamily(look, line))?.category !== 'handwritten') continue;
+        expect(line.letterSpacing ?? look.typography.letterSpacing ?? 0, id).toBeLessThanOrEqual(0);
+        expect(line.textTransform ?? look.typography.textTransform, id).not.toBe('uppercase');
+      }
+    }
+  });
+
+  it('shows every styled line in its sample text', () => {
+    for (const { id, sampleText, look } of lockups) {
+      expect(sampleText.split('\n').length, id).toBeGreaterThanOrEqual(
+        look.typography.lines!.length,
+      );
     }
   });
 });

@@ -2,6 +2,10 @@
   "defaultStyleId": "heading",
   "categories": [
     {
+      "id": "combos",
+      "label": "Combos"
+    },
+    {
       "id": "basic",
       "label": "Basic"
     },
@@ -35,6 +39,399 @@
     }
   ],
   "styles": [
+    {
+      "id": "kicker-headline",
+      "label": "Kicker + headline",
+      "category": "combos",
+      "sampleText": "EPISODE 04\nTHE LONG WAY HOME",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.01,
+          "lineHeight": 0.9,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "lines": [
+            {
+              "fontFamily": "Montserrat",
+              "fontWeight": 600,
+              "scale": 0.26,
+              "letterSpacing": 0.3,
+              "lineHeight": 1.2,
+              "color": "#ffd60a"
+            },
+            {
+              "spaceBefore": -0.3
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bebas Neue",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 13
+      }
+    },
+    {
+      "id": "doc-title",
+      "label": "Documentary",
+      "category": "combos",
+      "sampleText": "The Last Glacier\nA FILM BY MAYA ROSS",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.015,
+          "lineHeight": 1,
+          "shadow": {
+            "color": "#00000080",
+            "blur": 0.3,
+            "offsetX": 0,
+            "offsetY": 0.03
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Inter",
+              "fontWeight": 500,
+              "scale": 0.24,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.32,
+              "lineHeight": 1.2,
+              "color": "#f4f1eabf",
+              "spaceBefore": 0.12
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Instrument Serif",
+        "fontWeight": 400,
+        "color": "#f4f1ea",
+        "fontSizePercent": 11
+      }
+    },
+    {
+      "id": "script-over-caps",
+      "label": "Script + caps",
+      "category": "combos",
+      "sampleText": "welcome to\nBALI",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.02,
+          "lineHeight": 0.9,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "lines": [
+            {
+              "fontFamily": "Great Vibes",
+              "fontWeight": 400,
+              "scale": 0.62,
+              "textTransform": "none",
+              "letterSpacing": 0,
+              "color": "#ffd60a",
+              "shadow": {
+                "color": "#00000080",
+                "blur": 0.3,
+                "offsetX": 0,
+                "offsetY": 0.03
+              }
+            },
+            {
+              "spaceBefore": -1
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Anton",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 17
+      }
+    },
+    {
+      "id": "fashion",
+      "label": "Fashion",
+      "category": "combos",
+      "sampleText": "ISSUE NO. 12\nThe New Minimal",
+      "look": {
+        "background": null,
+        "typography": {
+          "fontStyle": "italic",
+          "letterSpacing": -0.015,
+          "lineHeight": 1,
+          "shadow": {
+            "color": "#00000080",
+            "blur": 0.3,
+            "offsetX": 0,
+            "offsetY": 0.03
+          },
+          "lines": [
+            {
+              "fontFamily": "Raleway",
+              "fontWeight": 500,
+              "fontStyle": "normal",
+              "scale": 0.24,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.4,
+              "lineHeight": 1.2
+            },
+            {
+              "spaceBefore": -0.2
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Bodoni Moda",
+        "fontWeight": 500,
+        "color": "#ffffff",
+        "fontSizePercent": 11
+      }
+    },
+    {
+      "id": "minimal-luxe",
+      "label": "Serif + wide",
+      "category": "combos",
+      "sampleText": "Golden hour\nLISBON — PORTUGAL",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.02,
+          "lineHeight": 1,
+          "shadow": {
+            "color": "#00000080",
+            "blur": 0.3,
+            "offsetX": 0,
+            "offsetY": 0.03
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Unbounded",
+              "fontWeight": 500,
+              "scale": 0.21,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.35,
+              "lineHeight": 1.2,
+              "spaceBefore": 0.1
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Instrument Serif",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 12
+      }
+    },
+    {
+      "id": "wedding",
+      "label": "Wedding",
+      "category": "combos",
+      "sampleText": "THE WEDDING OF\nAnna & Luca\n12 · 09 · 2026",
+      "look": {
+        "background": null,
+        "typography": {
+          "lineHeight": 1,
+          "shadow": {
+            "color": "#00000080",
+            "blur": 0.3,
+            "offsetX": 0,
+            "offsetY": 0.03
+          },
+          "lines": [
+            {
+              "fontFamily": "Cinzel",
+              "fontWeight": 400,
+              "scale": 0.2,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.35,
+              "lineHeight": 1.2,
+              "color": "#ffffff"
+            },
+            {
+              "spaceBefore": -0.2
+            },
+            {
+              "fontFamily": "Cinzel",
+              "fontWeight": 400,
+              "scale": 0.19,
+              "letterSpacing": 0.3,
+              "lineHeight": 1.2,
+              "color": "#ffffffbf",
+              "spaceBefore": 0.1
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Great Vibes",
+        "fontWeight": 400,
+        "color": "#f3dfb4",
+        "fontSizePercent": 13
+      }
+    },
+    {
+      "id": "chapter",
+      "label": "Chapter title",
+      "category": "combos",
+      "sampleText": "CHAPTER 03\nWhere it all began",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.01,
+          "lineHeight": 1.05,
+          "shadow": {
+            "color": "#00000080",
+            "blur": 0.3,
+            "offsetX": 0,
+            "offsetY": 0.03
+          },
+          "lines": [
+            {
+              "fontFamily": "Space Mono",
+              "fontWeight": 400,
+              "scale": 0.3,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.25,
+              "lineHeight": 1.2,
+              "color": "#ffd60a"
+            },
+            {
+              "spaceBefore": -0.1
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Fraunces",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 9.5
+      }
+    },
+    {
+      "id": "creator-title",
+      "label": "Creator",
+      "category": "combos",
+      "sampleText": "LESSON 1\nStart before you’re ready\n(seriously)",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.02,
+          "lineHeight": 1.05,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "lines": [
+            {
+              "fontWeight": 600,
+              "scale": 0.36,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.2,
+              "lineHeight": 1.2,
+              "color": "#ffd60a"
+            },
+            {
+              "spaceBefore": -0.2
+            },
+            {
+              "fontFamily": "Caveat",
+              "fontWeight": 600,
+              "scale": 0.7,
+              "letterSpacing": 0,
+              "color": "#ffd60a",
+              "spaceBefore": -0.2
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Inter",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 7.5
+      }
+    },
+    {
+      "id": "explainer",
+      "label": "Explainer",
+      "category": "combos",
+      "sampleText": "THE STRAIT OF HORMUZ\n20% of the world’s oil",
+      "look": {
+        "background": "#ffd200",
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": -0.01,
+          "lineHeight": 0.98,
+          "background": {
+            "radius": 0.04,
+            "paddingX": 0.3,
+            "paddingY": 0.12
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Caveat",
+              "fontWeight": 700,
+              "scale": 0.9,
+              "textTransform": "none",
+              "letterSpacing": 0,
+              "color": "#f2ecdf",
+              "background": null,
+              "shadow": {
+                "color": "#000000b3",
+                "blur": 0.2,
+                "offsetX": 0,
+                "offsetY": 0.06
+              },
+              "spaceBefore": -0.1
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Archivo Black",
+        "fontWeight": 400,
+        "color": "#161513",
+        "fontSizePercent": 6.5
+      }
+    },
     {
       "id": "heading",
       "label": "Heading",
@@ -214,27 +611,124 @@
       "id": "cinematic",
       "label": "Cinematic",
       "category": "headlines",
-      "sampleText": "The long road",
+      "sampleText": "The Long Road\nA JOURNEY NORTH",
       "look": {
         "background": null,
         "typography": {
           "textTransform": "uppercase",
-          "letterSpacing": 0.22,
+          "letterSpacing": 0.28,
           "shadow": {
-            "color": "#000000d9",
-            "blur": 0.26,
+            "color": "#00000080",
+            "blur": 0.3,
             "offsetX": 0,
-            "offsetY": 0.02
-          }
+            "offsetY": 0.03
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Raleway",
+              "fontWeight": 400,
+              "scale": 0.4,
+              "letterSpacing": 0.5,
+              "color": "#f4f1eabf",
+              "spaceBefore": 0.35
+            }
+          ]
         },
         "align": "center",
         "boxWidthPercent": 80,
         "xPercent": 50,
         "yPercent": 50,
         "fontFamily": "Cinzel",
-        "fontWeight": 600,
+        "fontWeight": 500,
         "color": "#f4f1ea",
-        "fontSizePercent": 6
+        "fontSizePercent": 6.5
+      }
+    },
+    {
+      "id": "sport",
+      "label": "Sport",
+      "category": "headlines",
+      "sampleText": "MATCH DAY\nFINAL WHISTLE",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.01,
+          "lineHeight": 0.9,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "background": {
+            "radius": 0,
+            "paddingX": 0.45,
+            "paddingY": 0.15
+          },
+          "lines": [
+            {
+              "fontFamily": "Barlow Condensed",
+              "fontWeight": 600,
+              "scale": 0.28,
+              "letterSpacing": 0.14,
+              "lineHeight": 1.1,
+              "background": "#ff2e4d",
+              "shadow": null
+            },
+            {
+              "spaceBefore": -0.05
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Big Shoulders",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 14
+      }
+    },
+    {
+      "id": "shout",
+      "label": "Shout",
+      "category": "headlines",
+      "sampleText": "DAY 7\nI SURVIVED",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.02,
+          "lineHeight": 0.95,
+          "outlineColor": "#0b0b0f",
+          "outlineWidth": 1.6,
+          "shadow": {
+            "color": "#000000",
+            "blur": 0,
+            "offsetX": 0.05,
+            "offsetY": 0.07
+          },
+          "lines": [
+            {
+              "scale": 0.45,
+              "color": "#ffd60a"
+            },
+            {
+              "spaceBefore": -0.25
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Luckiest Guy",
+        "fontWeight": 400,
+        "color": "#ffffff",
+        "fontSizePercent": 13
       }
     },
     {
@@ -318,7 +812,7 @@
       "id": "editorial",
       "label": "Editorial",
       "category": "headlines",
-      "sampleText": "Slow mornings",
+      "sampleText": "Slow mornings\nTHE SPRING EDIT",
       "look": {
         "background": null,
         "typography": {
@@ -329,7 +823,20 @@
             "blur": 0.26,
             "offsetX": 0,
             "offsetY": 0.02
-          }
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Montserrat",
+              "fontWeight": 500,
+              "fontStyle": "normal",
+              "scale": 0.26,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.35,
+              "lineHeight": 1.2,
+              "spaceBefore": -0.1
+            }
+          ]
         },
         "align": "center",
         "boxWidthPercent": 80,
@@ -369,82 +876,115 @@
       "id": "name-tag",
       "label": "Name tag",
       "category": "lower-thirds",
-      "sampleText": "Alex Rivera",
+      "sampleText": "Alex Rivera\nPRODUCT LEAD",
       "look": {
         "background": "#0b0b0fcc",
         "typography": {
+          "letterSpacing": -0.005,
           "background": {
-            "radius": 0.15,
-            "paddingX": 0.6,
-            "paddingY": 0.32
-          }
+            "radius": 0.1,
+            "paddingX": 0.55,
+            "paddingY": 0.28
+          },
+          "lines": [
+            {},
+            {
+              "fontWeight": 500,
+              "scale": 0.6,
+              "letterSpacing": 0.12,
+              "color": "#ffffffbf",
+              "spaceBefore": -0.02
+            }
+          ]
         },
         "align": "left",
-        "boxWidthPercent": 76,
-        "xPercent": 42,
-        "yPercent": 76,
+        "boxWidthPercent": 70,
+        "xPercent": 26,
+        "yPercent": 78,
         "fontFamily": "Inter",
         "fontWeight": 700,
         "color": "#ffffff",
-        "fontSizePercent": 3.6
+        "fontSizePercent": 4.2
       }
     },
     {
       "id": "accent-bar",
       "label": "Accent bar",
       "category": "lower-thirds",
-      "sampleText": "Product lead",
+      "sampleText": "ALEX RIVERA\nProduct lead, Northwind",
       "look": {
         "background": "#2f6bff",
         "typography": {
           "textTransform": "uppercase",
           "letterSpacing": 0.06,
           "background": {
-            "radius": 0.08,
+            "radius": 0,
             "paddingX": 0.6,
             "paddingY": 0.3
-          }
+          },
+          "lines": [
+            {},
+            {
+              "fontWeight": 500,
+              "scale": 0.72,
+              "textTransform": "none",
+              "letterSpacing": 0,
+              "color": "#0b0b0f",
+              "background": "#ffffff"
+            }
+          ]
         },
         "align": "left",
-        "boxWidthPercent": 76,
-        "xPercent": 42,
-        "yPercent": 76,
+        "boxWidthPercent": 70,
+        "xPercent": 26,
+        "yPercent": 78,
         "fontFamily": "Montserrat",
         "fontWeight": 800,
         "color": "#ffffff",
-        "fontSizePercent": 3.2
+        "fontSizePercent": 3.6
       }
     },
     {
       "id": "minimal-lower",
       "label": "Location",
       "category": "lower-thirds",
-      "sampleText": "Filmed in Lisbon",
+      "sampleText": "LISBON, PORTUGAL\n04 MAY 2026 — 06:12",
       "look": {
         "background": null,
         "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.06,
           "shadow": {
             "color": "#000000b3",
             "blur": 0.2,
             "offsetX": 0,
             "offsetY": 0.06
-          }
+          },
+          "lines": [
+            {},
+            {
+              "fontWeight": 400,
+              "scale": 0.8,
+              "color": "#ffffffbf",
+              "spaceBefore": -0.35
+            }
+          ]
         },
         "align": "left",
-        "boxWidthPercent": 76,
-        "xPercent": 42,
-        "yPercent": 76,
-        "fontFamily": "DM Sans",
-        "fontWeight": 600,
+        "boxWidthPercent": 70,
+        "xPercent": 26,
+        "yPercent": 78,
+        "fontFamily": "IBM Plex Mono",
+        "fontWeight": 500,
         "color": "#ffffff",
-        "fontSizePercent": 3.2
+        "fontSizePercent": 3.4
       }
     },
     {
       "id": "smoked-lower",
       "label": "Smoked",
       "category": "lower-thirds",
-      "sampleText": "Jordan Lee · Founder",
+      "sampleText": "Jordan Lee\nFounder, Northwind",
       "look": {
         "background": "#0b0b0f99",
         "typography": {
@@ -455,16 +995,25 @@
             "blur": 0.4,
             "borderColor": "#ffffff2e",
             "borderWidth": 1
-          }
+          },
+          "lines": [
+            {},
+            {
+              "fontWeight": 500,
+              "scale": 0.68,
+              "color": "#ffffffbf",
+              "spaceBefore": 0.08
+            }
+          ]
         },
         "align": "left",
-        "boxWidthPercent": 76,
-        "xPercent": 42,
-        "yPercent": 76,
+        "boxWidthPercent": 70,
+        "xPercent": 26,
+        "yPercent": 78,
         "fontFamily": "Plus Jakarta Sans",
-        "fontWeight": 600,
+        "fontWeight": 700,
         "color": "#ffffff",
-        "fontSizePercent": 3.2
+        "fontSizePercent": 3.8
       }
     },
     {
@@ -575,16 +1124,30 @@
       "id": "big-number",
       "label": "Big number",
       "category": "callouts",
-      "sampleText": "3x faster",
+      "sampleText": "3x\nFASTER EXPORTS",
       "look": {
         "background": null,
         "typography": {
+          "lineHeight": 0.9,
           "shadow": {
-            "color": "#000000",
-            "blur": 0,
-            "offsetX": 0.05,
-            "offsetY": 0.07
-          }
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Inter",
+              "fontWeight": 600,
+              "scale": 0.13,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.16,
+              "lineHeight": 1.2,
+              "color": "#ffffff",
+              "spaceBefore": -0.55
+            }
+          ]
         },
         "align": "center",
         "boxWidthPercent": 80,
@@ -593,7 +1156,7 @@
         "fontFamily": "Bebas Neue",
         "fontWeight": 400,
         "color": "#ffd60a",
-        "fontSizePercent": 15
+        "fontSizePercent": 22
       }
     },
     {
@@ -619,6 +1182,92 @@
         "fontWeight": 700,
         "color": "#0b0b0f",
         "fontSizePercent": 4.5
+      }
+    },
+    {
+      "id": "hook-chips",
+      "label": "Hook chips",
+      "category": "social",
+      "sampleText": "Nobody tells you\nthis about Lisbon",
+      "look": {
+        "background": "#ffffff",
+        "typography": {
+          "letterSpacing": -0.01,
+          "background": {
+            "radius": 0.25,
+            "paddingX": 0.4,
+            "paddingY": 0.18
+          },
+          "lines": [
+            {},
+            {
+              "background": "#ffd60a",
+              "spaceBefore": 0.06
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 84,
+        "xPercent": 50,
+        "yPercent": 22,
+        "fontFamily": "Montserrat",
+        "fontWeight": 800,
+        "color": "#0b0b0f",
+        "fontSizePercent": 5.5
+      }
+    },
+    {
+      "id": "end-card",
+      "label": "End card",
+      "category": "social",
+      "sampleText": "thanks for watching\n@yourchannel\nSUBSCRIBE",
+      "look": {
+        "background": null,
+        "typography": {
+          "letterSpacing": -0.01,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "background": {
+            "radius": 0.6,
+            "paddingX": 0.9,
+            "paddingY": 0.35
+          },
+          "lines": [
+            {
+              "fontFamily": "Caveat",
+              "fontWeight": 600,
+              "scale": 0.62,
+              "letterSpacing": 0,
+              "color": "#ffd60a"
+            },
+            {
+              "spaceBefore": -0.35
+            },
+            {
+              "fontFamily": "Inter",
+              "fontWeight": 700,
+              "scale": 0.36,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.2,
+              "color": "#0b0b0f",
+              "background": "#ffd60a",
+              "shadow": null,
+              "spaceBefore": 0.2
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Montserrat",
+        "fontWeight": 800,
+        "color": "#ffffff",
+        "fontSizePercent": 7
       }
     },
     {
@@ -1046,26 +1695,36 @@
       "id": "news-bar",
       "label": "News bar",
       "category": "lower-thirds",
-      "sampleText": "Breaking news",
+      "sampleText": "LIVE\nMarkets rally after rate cut",
       "look": {
-        "background": "#ff2e4d",
+        "background": "#ffffff",
         "typography": {
-          "textTransform": "uppercase",
-          "letterSpacing": 0.04,
           "background": {
             "radius": 0,
-            "paddingX": 0.6,
-            "paddingY": 0.2
-          }
+            "paddingX": 0.45,
+            "paddingY": 0.22
+          },
+          "lines": [
+            {
+              "fontFamily": "Barlow Condensed",
+              "fontWeight": 700,
+              "scale": 0.62,
+              "textTransform": "uppercase",
+              "letterSpacing": 0.08,
+              "color": "#ffffff",
+              "background": "#ff2e4d"
+            },
+            {}
+          ]
         },
         "align": "left",
-        "boxWidthPercent": 76,
-        "xPercent": 42,
-        "yPercent": 76,
-        "fontFamily": "Oswald",
-        "fontWeight": 600,
-        "color": "#ffffff",
-        "fontSizePercent": 3.6
+        "boxWidthPercent": 70,
+        "xPercent": 26,
+        "yPercent": 78,
+        "fontFamily": "Barlow",
+        "fontWeight": 700,
+        "color": "#0b0b0f",
+        "fontSizePercent": 4.2
       }
     },
     {
@@ -1241,7 +1900,7 @@
       "id": "testimonial",
       "label": "Testimonial",
       "category": "quotes",
-      "sampleText": "“It changed how we work.”",
+      "sampleText": "“It changed how we work.”\n— SAM CARTER, NORTHWIND",
       "look": {
         "background": null,
         "typography": {
@@ -1252,7 +1911,20 @@
             "blur": 0.26,
             "offsetX": 0,
             "offsetY": 0.02
-          }
+          },
+          "lines": [
+            {},
+            {
+              "fontFamily": "Inter",
+              "fontWeight": 600,
+              "fontStyle": "normal",
+              "scale": 0.4,
+              "letterSpacing": 0.15,
+              "lineHeight": 1.2,
+              "color": "#ffffffbf",
+              "spaceBefore": 0.1
+            }
+          ]
         },
         "align": "center",
         "boxWidthPercent": 80,
@@ -1289,6 +1961,47 @@
         "fontWeight": 800,
         "color": "#ffffff",
         "fontSizePercent": 7
+      }
+    },
+    {
+      "id": "vlog-script",
+      "label": "Vlog",
+      "category": "script",
+      "sampleText": "summer\nROAD TRIP",
+      "look": {
+        "background": null,
+        "typography": {
+          "textTransform": "uppercase",
+          "letterSpacing": 0.02,
+          "lineHeight": 0.95,
+          "shadow": {
+            "color": "#000000b3",
+            "blur": 0.2,
+            "offsetX": 0,
+            "offsetY": 0.06
+          },
+          "lines": [
+            {
+              "fontFamily": "Yellowtail",
+              "fontWeight": 400,
+              "scale": 0.85,
+              "textTransform": "none",
+              "letterSpacing": 0,
+              "color": "#ff4fa3"
+            },
+            {
+              "spaceBefore": -0.8
+            }
+          ]
+        },
+        "align": "center",
+        "boxWidthPercent": 80,
+        "xPercent": 50,
+        "yPercent": 50,
+        "fontFamily": "Poppins",
+        "fontWeight": 700,
+        "color": "#ffffff",
+        "fontSizePercent": 11
       }
     },
     {
