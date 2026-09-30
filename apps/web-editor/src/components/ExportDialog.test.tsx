@@ -579,9 +579,9 @@ describe('ExportDialog', () => {
       result: { ok: true, outputPath: '/sandbox/exports/proj123.mp4', state: 'completed' },
     });
 
-    await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toContain('/Users/me/Downloads/proj123.mp4'),
-    );
+    // The file leads, the folder sits under it; the whole path is on hover.
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('proj123.mp4'));
+    expect(screen.getByRole('status').textContent).toContain('Saved to /Users/me/Downloads');
     expect(exportSaveAs).toHaveBeenCalledWith({
       sourcePath: '/sandbox/exports/proj123.mp4',
       suggestedName: 'proj123.mp4',
@@ -621,9 +621,97 @@ describe('ExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save As…' }));
 
     await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toContain('/Users/me/Movies/proj123.mp4'),
+      expect(screen.getByRole('status').textContent).toContain('Saved to /Users/me/Movies'),
     );
     expect(exportSaveAs).toHaveBeenCalledTimes(2);
+  });
+
+  describe('after the dialog closes', () => {
+    function renderDialog(): void {
+      render(
+        <ExportDialog
+          frame={FRAME}
+          durationSeconds={30}
+          assets={[]}
+          ensureSaved={async () => '/p/project.fp.json'}
+          onReveal={vi.fn()}
+        />,
+      );
+    }
+    const trigger = (): HTMLElement => screen.getByRole('button', { name: 'Export video' });
+    const closeDialog = (): void => {
+      // The header's ✕ (the footer has a "Close" too).
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]!);
+    };
+
+    it('shows the render on the Export button while it runs', async () => {
+      const { emit } = installBridge();
+      renderDialog();
+      openExportMenu();
+      fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      closeDialog();
+
+      emit({ requestId: DEFAULT_REQUEST_ID, status: 'queued' });
+      await waitFor(() => expect(trigger().textContent).toBe('Queued…'));
+
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'running',
+        stage: 'rendering_frames',
+        progress: 0.42,
+      });
+      await waitFor(() => expect(trigger().textContent).toBe('Exporting 42%'));
+      expect(trigger().style.getPropertyValue('--export-progress')).toBe('42%');
+      // The name stays put (every test and e2e addresses it); the progress is its description.
+      expect(trigger().getAttribute('aria-label')).toBe('Export video');
+      const description = document.getElementById(trigger().getAttribute('aria-describedby')!);
+      expect(description?.textContent).toBe('Exporting 42%');
+    });
+
+    it('says Exported when the render finishes with the dialog closed', async () => {
+      const { emit } = installBridge({
+        exportSaveAs: vi.fn(async () => ({ ok: true as const, path: '/Users/me/out.mp4' })),
+      });
+      renderDialog();
+      openExportMenu();
+      fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      closeDialog();
+
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'completed',
+        result: { ok: true, outputPath: '/sandbox/exports/out.mp4', state: 'completed' },
+      });
+
+      await waitFor(() => expect(trigger().textContent).toBe('Exported'));
+      // Opening it shows the result the user has not seen yet.
+      openExportMenu();
+      expect(screen.getByRole('status').textContent).toContain('Export complete');
+    });
+
+    it('Done returns the dialog to its settings, not the last result', async () => {
+      const { emit } = installBridge({
+        exportSaveAs: vi.fn(async () => ({ ok: true as const, path: '/Users/me/out.mp4' })),
+      });
+      renderDialog();
+      openExportMenu();
+      fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+      emit({
+        requestId: DEFAULT_REQUEST_ID,
+        status: 'completed',
+        result: { ok: true, outputPath: '/sandbox/exports/out.mp4', state: 'completed' },
+      });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Done' })).toBeDefined());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      expect(screen.queryByRole('dialog', { name: 'Export video' })).toBeNull();
+      expect(trigger().textContent).toBe('Export');
+      openExportMenu();
+      expect(screen.queryByRole('button', { name: 'Reveal in folder' })).toBeNull();
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Export' })).toBeDefined();
+    });
   });
 
   it('forwards the chosen master-audio options', async () => {

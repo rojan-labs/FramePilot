@@ -5968,6 +5968,13 @@ getting them wrong would have meant redoing the shaders and the AI tools.
       re-measures and anchoring. Now only user input (wheel/touch/scroll keys/scrollbar grab,
       400 ms window) can stop the follow; reaching the bottom resumes it; `.ai-stream` is no
       longer smooth. 4 new tests in `AiSidebar.test.tsx` (the key one fails on the old logic).
+      Also: Export popover — progress on the topbar Export button when the popover is closed
+      (`data-export-state` + engine-reported `--export-progress` fill, sheen when unknown,
+      Exported / Export failed; name stays "Export video", progress via aria-describedby); a
+      dismissed finished export resets to idle (history keeps Reveal); Recent exports moved INTO
+      the scrolling body (it sat between body and footer, unpadded, over Credits); two-line rows;
+      compact "Export complete" result instead of a wrapped monospace path; 420px width.
+      3 new tests in `ExportDialog.test.tsx`; stub-bridge browser probe of every state.
 - [~] **Professional program-monitor selection (reported bug, 2026-08-02):** mirror timeline
   text-object selection into the WebCodecs preview, use standard white selection chrome,
   and resolve preview interaction as single-click background / double-click object with

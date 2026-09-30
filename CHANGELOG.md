@@ -93,6 +93,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
   top while the tracks scroll under them. The timeline also no longer draws a focus box around the
   playhead handle or whatever you clicked last.
+- **Export shows its progress on the Export button, and Done starts fresh.** If you close the
+  export panel during a render, the Export button now shows how far it has got ("Exporting 42%",
+  with a bar filling the button). It says "Exported" when the render finishes and "Export failed"
+  if it doesn't. When a render finishes, the panel shows "Export complete" with the file name and
+  the folder it was saved to. Pressing Done, or closing the panel, returns it to the export
+  settings; the file stays under Recent exports with its own Reveal button. The panel is also
+  tidier: Recent exports sits inside the panel with its padding and no longer overlaps Credits,
+  each export's name and details fit on their own lines, and every section heading matches.
 - **The AI panel keeps up with the latest message.** During a run, the panel sometimes stopped
   following the conversation and stayed on an older message until you pressed "Jump to latest".
   Moves you didn't make, such as a message changing size as it loaded, were taken as you scrolling

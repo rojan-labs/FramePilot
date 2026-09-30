@@ -699,6 +699,60 @@ input[type='checkbox']:focus-visible {
   border-radius: var(--radius-lg);
 }
 
+/* The render, on the button, while the dialog is closed (or open). The fill is the
+   engine's reported progress — never a timer (no-fake-progress invariant) — drawn as a
+   background so it needs no extra element inside the Button primitive. */
+/* Each state also names its :hover form: the primary variant's hover rule is more
+   specific and uses the `background` shorthand, which would wipe the fill on hover. */
+.export-btn[data-export-state='running'],
+.export-btn[data-export-state='running']:hover:not(:disabled) {
+  background-image: linear-gradient(
+    to right,
+    rgb(255 255 255 / 0.24) var(--export-progress, 0%),
+    transparent var(--export-progress, 0%)
+  );
+}
+
+/* Queued, cancelling, or running with no figure yet: something is happening, how much
+   is unknown — a moving sheen, not a bar that pretends to know. */
+.export-btn[data-export-state='queued'],
+.export-btn[data-export-state='queued']:hover:not(:disabled),
+.export-btn[data-export-state='cancelling'],
+.export-btn[data-export-state='cancelling']:hover:not(:disabled),
+.export-btn[data-export-state='running']:not([style*='--export-progress']),
+.export-btn[data-export-state='running']:not([style*='--export-progress']):hover:not(:disabled) {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.22) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: export-btn-sheen 1.4s linear infinite;
+}
+
+@keyframes export-btn-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A changing percentage must not change the button's width. */
+.export-btn[data-export-state='running'] .export-btn-label {
+  min-width: 9ch;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.export-btn[data-export-state='error'],
+.export-btn[data-export-state='error']:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 .theme-toggle-btn {
   border-radius: var(--radius-md);
 }
@@ -9186,8 +9240,10 @@ details.inspector-panel[open] > .inspector-section-head::before {
   z-index: var(--z-menu);
   display: flex;
   flex-direction: column;
-  width: min(380px, 92vw);
-  max-height: min(620px, 78vh);
+  /* 420 fits a 1080p summary line, a recent export's name + date and the footer's
+     two buttons without wrapping; the 16px each side keeps it off the window edge. */
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(640px, 80vh);
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
@@ -9359,29 +9415,45 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
 }
 
+/* Name over details, Reveal on the right. One line each: the old single row put the
+   name, "1080p · MP4 · 9/30/2026, 11:32:04 AM" and Reveal side by side, which left the
+   name three letters wide. */
 .export-history-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
-  font-size: 0.8rem;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.export-history-row + .export-history-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.export-history-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .export-history-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.82rem;
   color: var(--text-primary);
 }
 
 .export-history-meta {
-  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .export-field {
@@ -9432,6 +9504,60 @@ details.inspector-panel[open] > .inspector-section-head::before {
 .export-status--ok code,
 .export-status code {
   word-break: break-all;
+}
+
+/* A finished export: check, "Export complete", the file, then where it went. The path
+   used to be one green monospace string broken at any character across the footer;
+   now the name leads and the folder sits under it on one line, the whole path on hover. */
+.export-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+}
+
+.export-result-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+  color: var(--good);
+}
+
+.export-result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.export-result-text p {
+  margin: 0;
+}
+
+.export-result-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.export-result-file,
+.export-result-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-result-file {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.export-result-folder {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
 }
 .export-status--error {
   color: var(--danger);
@@ -9652,11 +9778,15 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
+/* Same voice as every other section head in the popover (FORMAT, AUDIO, RECENT
+   EXPORTS); a bold title-case "Credits" read as a different dialog's heading. */
 .export-credits h3 {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  color: var(--text);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 .export-credits-note,
 .export-credits-empty {

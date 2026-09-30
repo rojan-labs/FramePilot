@@ -25,7 +25,7 @@
  * popover is open — closing it (outside click / Escape) never loses an
  * in-progress export; reopening the dropdown shows it mid-flight.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
@@ -45,7 +45,7 @@ import { Checkbox } from './Checkbox.js';
 import { CreditsSection } from './CreditsSection.js';
 import { Select } from './Select.js';
 import { Tooltip } from './Tooltip.js';
-import { Download, ICON_SIZE, X } from './icons.js';
+import { AlertTriangle, Check, Download, ICON_SIZE, X } from './icons.js';
 import { currentMatteIssues, matteAssetIds, uncheckedMattes } from '../editor/matteReview.js';
 import { useOpenedMatteIssues } from '../editor/openedMattes.js';
 import { maskToolStore } from './inspector/masks/useMaskTools.js';
@@ -280,6 +280,41 @@ function suggestedFileName(outputPath: string): string {
   return outputPath.split(/[/\\]/).pop() || 'export.mp4';
 }
 
+/** The folder part of a saved path, for the "Saved to …" line under the file name. */
+function folderOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut > 0 ? path.slice(0, cut) : path;
+}
+
+/** A remembered export's time, short enough to sit on one line under its name. */
+function formatExportedAt(at: string): string {
+  return new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * What the topbar Export button says for each phase. The dialog is a popover the user can
+ * close mid-render, and until now the button then read a plain "Export" for the whole run,
+ * so nothing on screen said a render was still going — or that it had finished.
+ */
+function exportButtonLabel(phase: Phase): string {
+  switch (phase.kind) {
+    case 'queued':
+      return 'Queued…';
+    case 'running':
+      return phase.progress !== undefined
+        ? `Exporting ${Math.round(phase.progress * 100)}%`
+        : 'Exporting…';
+    case 'cancelling':
+      return 'Cancelling…';
+    case 'done':
+      return 'Exported';
+    case 'error':
+      return 'Export failed';
+    default:
+      return 'Export';
+  }
+}
+
 /** One finished export, remembered per project (P7.6): where it went and what it was. */
 export interface ExportHistoryEntry {
   readonly at: string;
@@ -351,6 +386,7 @@ export function ExportDialog({
   // this always-mounted component rather than through a gate + content pair.
   const popoverRef = useModalFocusTrap<HTMLDivElement>(open);
   const onClose = useCallback(() => setOpen(false), []);
+  const buttonStatusId = useId();
 
   // Background removal before the render (BR6.6). The count comes from the project, so it is
   // exact and free; STALE and BROKEN come from main, which is the only side that can hash media.
@@ -627,6 +663,19 @@ export function ExportDialog({
 
   const exporting =
     phase.kind === 'queued' || phase.kind === 'running' || phase.kind === 'cancelling';
+
+  // Seeing the result is the end of it. Once a finished export has been on screen and the
+  // dialog closes — Done, the close button, Esc or a click away — the next open starts from
+  // the settings again rather than from the last result; the file stays under Recent exports
+  // with its own Reveal. A render that finishes while the dialog is closed stays "done" (the
+  // button says Exported) until the user opens the dialog and has seen it.
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      setPhase((current) => (current.kind === 'done' ? { kind: 'idle' } : current));
+    }
+    wasOpenRef.current = open;
+  }, [open]);
   const desktop = isDesktop();
 
   // How many audio processors are engaged. The Audio section is collapsed by
@@ -666,9 +715,20 @@ export function ExportDialog({
       </p>
     ) : phase.kind === 'done' ? (
       phase.savedPath ? (
-        <p className="export-status export-status--ok" role="status">
-          Saved to <code>{phase.savedPath}</code>.
-        </p>
+        <div className="export-result" role="status">
+          <span className="export-result-icon" aria-hidden="true">
+            <Check size={ICON_SIZE.sm} />
+          </span>
+          <div className="export-result-text">
+            <p className="export-result-title">Export complete</p>
+            <p className="export-result-file" title={phase.savedPath}>
+              {suggestedFileName(phase.savedPath)}
+            </p>
+            <p className="export-result-folder" title={phase.savedPath}>
+              Saved to {folderOf(phase.savedPath)}
+            </p>
+          </div>
+        </div>
       ) : (
         <p className="export-status export-status--ok" role="status">
           Exported. Choose &ldquo;Save As&hellip;&rdquo; to save the video.
@@ -698,12 +758,32 @@ export function ExportDialog({
           aria-label="Export video"
           aria-haspopup="dialog"
           aria-expanded={open}
+          aria-describedby={phase.kind === 'idle' ? undefined : buttonStatusId}
+          data-export-state={phase.kind}
+          {...(phase.kind === 'running' && phase.progress !== undefined
+            ? {
+                style: {
+                  ['--export-progress' as string]: `${Math.round(phase.progress * 100)}%`,
+                },
+              }
+            : {})}
           onClick={() => setOpen((o) => !o)}
         >
-          <Download size={ICON_SIZE.sm} aria-hidden="true" />
-          <span className="export-btn-label">Export</span>
+          {phase.kind === 'done' ? (
+            <Check size={ICON_SIZE.sm} aria-hidden="true" />
+          ) : phase.kind === 'error' ? (
+            <AlertTriangle size={ICON_SIZE.sm} aria-hidden="true" />
+          ) : (
+            <Download size={ICON_SIZE.sm} aria-hidden="true" />
+          )}
+          <span className="export-btn-label">{exportButtonLabel(phase)}</span>
         </Button>
       </Tooltip>
+      {/* The button's accessible name stays "Export video"; what it is doing is its
+          description, so a screen reader hears the progress the button shows. */}
+      <span id={buttonStatusId} className="sr-only">
+        {phase.kind === 'idle' ? '' : exportButtonLabel(phase)}
+      </span>
       {open && (
         <div
           ref={popoverRef}
@@ -966,36 +1046,38 @@ export function ExportDialog({
             </details>
 
             <CreditsSection assets={assets} />
+            {history.length > 0 && (
+              <section className="export-section export-history" aria-label="Recent exports">
+                <h3 className="export-section-head">Recent exports</h3>
+                <ul className="export-history-list">
+                  {history.map((entry) => {
+                    const name = suggestedFileName(entry.path);
+                    return (
+                      <li key={`${entry.at}:${entry.path}`} className="export-history-row">
+                        <div className="export-history-text">
+                          <span className="export-history-name" title={entry.path}>
+                            {name}
+                          </span>
+                          <span className="export-history-meta">
+                            {entry.label} · {formatExportedAt(entry.at)}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          aria-label={`Reveal ${name} in folder`}
+                          onClick={() => onReveal(entry.path)}
+                        >
+                          Reveal
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
           </div>
 
-          {history.length > 0 && (
-            <section className="export-section export-history" aria-label="Recent exports">
-              <h3 className="export-section-head">Recent exports</h3>
-              <ul className="export-history-list">
-                {history.map((entry) => {
-                  const name = suggestedFileName(entry.path);
-                  return (
-                    <li key={`${entry.at}:${entry.path}`} className="export-history-row">
-                      <span className="export-history-name" title={entry.path}>
-                        {name}
-                      </span>
-                      <span className="export-history-meta">
-                        {entry.label} · {new Date(entry.at).toLocaleString()}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        type="button"
-                        aria-label={`Reveal ${name} in folder`}
-                        onClick={() => onReveal(entry.path)}
-                      >
-                        Reveal
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
           {/* Pinned. Carries the live status too, so progress is legible without
               scrolling back down through the options. */}
           <footer className="export-foot">
