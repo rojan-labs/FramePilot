@@ -32,6 +32,7 @@ import { formatTime } from '../editor/selectors.js';
 import { listEditPoints, nextEditPoint, prevEditPoint } from '../editor/edit-points.js';
 import { useSettings } from '../editor/useSettings.js';
 import { PreviewScrubBar } from './PreviewScrubBar.js';
+import { ExitFullscreenButton } from './MonitorFullscreenControls.js';
 import { Tooltip } from './Tooltip.js';
 import {
   ChevronFirst,
@@ -55,12 +56,19 @@ export interface PreviewTransportProps {
    * an unloadable source still contributes its duration as a gap. */
   readonly durationSec: number;
   readonly fps: number;
+  /** Set while the monitor is fullscreen: the transport then carries the way out. */
+  readonly onExitFullscreen?: () => void;
 }
 
 /** Volume slider granularity — 20 steps over the range is plenty for monitoring. */
 const VOLUME_STEP = 0.05;
 
-export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportProps): JSX.Element {
+export function PreviewTransport({
+  editor,
+  durationSec,
+  fps,
+  onExitFullscreen,
+}: PreviewTransportProps): JSX.Element {
   // Frame-quantized for the READOUT (a timecode that changes per display refresh
   // is unreadable), raw for the scrub handle (which should track smoothly).
   const displayTimeSec = useFramePlayhead(editor, fps);
@@ -241,6 +249,7 @@ export function PreviewTransport({ editor, durationSec, fps }: PreviewTransportP
             update({ previewVolume: next, previewMuted: next <= 0 });
           }}
         />
+        {onExitFullscreen && <ExitFullscreenButton onExit={onExitFullscreen} />}
       </div>
     </div>
   );

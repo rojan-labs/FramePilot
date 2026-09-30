@@ -68,8 +68,10 @@
    jump-to-latest) and contain overscroll so a nested pane never chains into —
    and yanks — its parent. The timeline lane scroller is deliberately excluded:
    auto-follow writes scrollLeft every frame, and `smooth` there would make the
-   playhead follow rubber-band. Reduced-motion zeroes smooth scrolling above. */
-.ai-stream,
+   playhead follow rubber-band. The AI stream is excluded for the same reason: it
+   follows a streaming reply, and a smooth follow is still animating when the next
+   token lands, so the view trails the latest line instead of sitting on it.
+   Reduced-motion zeroes smooth scrolling above. */
 .settings-panel,
 .transcript,
 .inspector,
@@ -78,6 +80,7 @@
   scroll-behavior: smooth;
   overscroll-behavior: contain;
 }
+.ai-stream,
 .lane-scroll,
 .timeline-vscroll {
   overscroll-behavior: contain; /* no scroll chaining; NEVER smooth (see above) */
@@ -694,6 +697,60 @@ input[type='checkbox']:focus-visible {
 
 .export-btn {
   border-radius: var(--radius-lg);
+}
+
+/* The render, on the button, while the dialog is closed (or open). The fill is the
+   engine's reported progress — never a timer (no-fake-progress invariant) — drawn as a
+   background so it needs no extra element inside the Button primitive. */
+/* Each state also names its :hover form: the primary variant's hover rule is more
+   specific and uses the `background` shorthand, which would wipe the fill on hover. */
+.export-btn[data-export-state='running'],
+.export-btn[data-export-state='running']:hover:not(:disabled) {
+  background-image: linear-gradient(
+    to right,
+    rgb(255 255 255 / 0.24) var(--export-progress, 0%),
+    transparent var(--export-progress, 0%)
+  );
+}
+
+/* Queued, cancelling, or running with no figure yet: something is happening, how much
+   is unknown — a moving sheen, not a bar that pretends to know. */
+.export-btn[data-export-state='queued'],
+.export-btn[data-export-state='queued']:hover:not(:disabled),
+.export-btn[data-export-state='cancelling'],
+.export-btn[data-export-state='cancelling']:hover:not(:disabled),
+.export-btn[data-export-state='running']:not([style*='--export-progress']),
+.export-btn[data-export-state='running']:not([style*='--export-progress']):hover:not(:disabled) {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.22) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: export-btn-sheen 1.4s linear infinite;
+}
+
+@keyframes export-btn-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A changing percentage must not change the button's width. */
+.export-btn[data-export-state='running'] .export-btn-label {
+  min-width: 9ch;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.export-btn[data-export-state='error'],
+.export-btn[data-export-state='error']:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
 }
 
 .theme-toggle-btn {
@@ -3883,6 +3940,71 @@ g.mask-canvas-draft circle {
   overflow: hidden;
 }
 
+/* Fullscreen is for watching the cut, so it looks like a player, not the editor
+   blown up: the picture edge to edge on black, no stage inset or rounded surround,
+   and the transport as the one band of chrome (it carries the exit control — see
+   ExitFullscreenButton). Without a background here the UA's black backdrop showed
+   through wherever the stage had none of its own. */
+.stage-monitor:fullscreen {
+  background: #000;
+}
+
+.stage-monitor:fullscreen .preview,
+.stage-monitor:fullscreen .preview-stage {
+  background: #000;
+}
+
+.stage-monitor:fullscreen .preview-stage {
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Editing chrome stays in the editor: a selected clip's bounding box over a
+   fullscreen playback is a box drawn across the film. */
+.stage-monitor:fullscreen .transform-chrome {
+  display: none;
+}
+
+/* The frame's hairline and scrim tell the frame from the editor's stage surround;
+   fullscreen has no surround to tell it from, only black. */
+.stage-monitor:fullscreen .preview-frame {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* "Press Esc to exit full screen" — up for a moment on entry (FullscreenEscHint),
+   then gone; the transport keeps the permanent way out. */
+.fullscreen-esc-hint {
+  position: absolute;
+  top: var(--space-4);
+  left: 50%;
+  z-index: var(--z-menu);
+  transform: translateX(-50%);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+  animation: fullscreen-esc-hint-in var(--dur-fast) var(--ease) both;
+}
+
+.fullscreen-esc-hint kbd {
+  margin: 0 2px;
+  padding: 0 5px;
+  border: 1px solid rgb(255 255 255 / 0.4);
+  border-radius: var(--radius-xs);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+}
+
+@keyframes fullscreen-esc-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+}
+
 /* THE PICTURE IS THE HERO (revamp Phase 1). Chrome around the canvas used to eat
    ~121px of fixed vertical space before the frame got a single pixel — a 44px tab
    header, 16px of stage padding top AND bottom, an 11px transport margin and a
@@ -4777,7 +4899,10 @@ g.mask-canvas-draft circle {
 }
 
 /* Loop + volume, right-aligned opposite the timecode. Playback-adjacent controls
-   belong with play — not with the grid and the safe-area guides. */
+   belong with play — not with the grid and the safe-area guides. The bare
+   `.transport` arm is the legacy monitor's one-row band, where this group holds
+   only the fullscreen exit. */
+.transport .transport-playback-opts,
 .preview-transport .transport-playback-opts {
   grid-column: 3;
   justify-self: end;
@@ -5520,10 +5645,19 @@ g.mask-canvas-draft circle {
   color: var(--text-secondary);
 }
 
-.timeline-vscroll .ruler-spacer,
-.timeline-vscroll .ruler {
+/* The header gutter's top cell sticks to `.timeline-vscroll`. The ruler cannot:
+   it lives inside `.lane-scroll`, whose `overflow-x: auto` makes it the ruler's
+   nearest scroll container on both axes, so `sticky` there pinned it to a box that
+   never scrolls vertically. `pinToVerticalScroll` holds it (and the playhead's
+   head) at the top instead; this only gives it the surface the lanes pass under. */
+.timeline-vscroll .ruler-spacer {
   position: sticky;
   top: 0;
+  z-index: 5;
+  background: var(--bg-panel);
+}
+
+.timeline-vscroll .ruler {
   z-index: 5;
   background: var(--bg-panel);
 }
@@ -5654,11 +5788,6 @@ g.mask-canvas-draft circle {
   background: var(--accent-hover);
 }
 
-.playhead-head:focus-visible::after {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 /* Live time bubble beside the head — revealed while hovering/scrubbing the knob.
    Offset from the button's CENTRE (where the marker is), not its left edge, which
    is now 12px further out than the marker it holds. */
@@ -5681,6 +5810,21 @@ g.mask-canvas-draft circle {
 .playhead-head:hover .playhead-bubble,
 .playhead-head:active .playhead-bubble {
   opacity: 1;
+}
+
+/* No focus rings anywhere in the timeline (maintainer call, 2026-09-30). The ring
+   landed on whatever was last clicked — the playhead's head, a clip, a lane
+   control — and stayed there as soon as a key was pressed, framing the playhead in
+   a box it does not have. The timeline shows where the user is with its own state
+   instead: the selected clip's ring, the playhead, the hovered lane header. The
+   `section` raises this above every `.x:focus-visible` rule in the timeline. */
+section.timeline :focus-visible,
+section.timeline :focus-visible::after {
+  outline: none;
+}
+
+section.timeline .timeline-tool:focus-visible {
+  box-shadow: none;
 }
 
 /* Snap + razor guides — crisp, single-purpose lines shown only mid-gesture. */
@@ -5825,6 +5969,11 @@ g.mask-canvas-draft circle {
   padding: 0;
   /* Anchor the ephemeral marquee rectangle, which is positioned relative to it. */
   position: relative;
+  /* One stacking context for everything on the lanes. Clip parts carry their own
+     z-indexes (a transition pill is 6, a dragged clip higher still); without this
+     they competed with the ruler and the playhead head pinned over the lanes, and
+     a clip scrolled up under the ruler drew through it. */
+  z-index: 0;
 }
 
 /* Empty timeline: names the thing and both ways to make one. */
@@ -5928,6 +6077,13 @@ g.mask-canvas-draft circle {
      sit BELOW the clips instead of over their waveforms; it is 0 on every track
      with nothing expanded, so clips are unchanged in the common case. */
   bottom: calc(1px + var(--kf-lanes-h, 0px));
+  /* The clip is a <button>, and the UA gives buttons 6px of side padding. With
+     `border-box`, a box cannot be narrower than its padding plus border, so every
+     clip shorter than ~13px on screen was drawn 13px wide: zoomed out, a run of
+     short clips overlapped, each hid the cut hairline of the one before it, and
+     forty clips read as one block. Every child is absolutely positioned, so the
+     padding never laid anything out — it only set that floor. */
+  padding: 0;
   overflow: hidden;
   /* Horizontal culling (H6): clips scrolled out of the lane viewport skip
      layout/paint of their internals (filmstrip images, waveform canvas), so a
@@ -9084,8 +9240,10 @@ details.inspector-panel[open] > .inspector-section-head::before {
   z-index: var(--z-menu);
   display: flex;
   flex-direction: column;
-  width: min(380px, 92vw);
-  max-height: min(620px, 78vh);
+  /* 420 fits a 1080p summary line, a recent export's name + date and the footer's
+     two buttons without wrapping; the 16px each side keeps it off the window edge. */
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(640px, 80vh);
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
@@ -9257,29 +9415,45 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
 }
 
+/* Name over details, Reveal on the right. One line each: the old single row put the
+   name, "1080p · MP4 · 9/30/2026, 11:32:04 AM" and Reveal side by side, which left the
+   name three letters wide. */
 .export-history-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
-  font-size: 0.8rem;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+
+.export-history-row + .export-history-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.export-history-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .export-history-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.82rem;
   color: var(--text-primary);
 }
 
 .export-history-meta {
-  font-size: 0.74rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .export-field {
@@ -9330,6 +9504,60 @@ details.inspector-panel[open] > .inspector-section-head::before {
 .export-status--ok code,
 .export-status code {
   word-break: break-all;
+}
+
+/* A finished export: check, "Export complete", the file, then where it went. The path
+   used to be one green monospace string broken at any character across the footer;
+   now the name leads and the folder sits under it on one line, the whole path on hover. */
+.export-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+}
+
+.export-result-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+  color: var(--good);
+}
+
+.export-result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.export-result-text p {
+  margin: 0;
+}
+
+.export-result-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.export-result-file,
+.export-result-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-result-file {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.export-result-folder {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
 }
 .export-status--error {
   color: var(--danger);
@@ -9550,11 +9778,15 @@ details.inspector-panel[open] > .inspector-section-head::before {
   padding-top: var(--space-3);
   border-top: 1px solid var(--line);
 }
+/* Same voice as every other section head in the popover (FORMAT, AUDIO, RECENT
+   EXPORTS); a bold title-case "Credits" read as a different dialog's heading. */
 .export-credits h3 {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  color: var(--text);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 .export-credits-note,
 .export-credits-empty {

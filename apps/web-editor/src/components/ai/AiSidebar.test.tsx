@@ -5,7 +5,7 @@
  */
 import { createRef } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTurnEmitter, type AiEvent, type EditResult } from '@framepilot/ai-sdk';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { createConversation } from '../../ai/conversation.js';
@@ -2407,6 +2407,8 @@ describe('AiSidebar — persisted conversation UI state (D2)', () => {
         // (3) Scroll the stream away from the top.
         const stream = document.querySelector('.ai-stream') as HTMLElement;
         stream.scrollTop = 260;
+        // A user scroll: the wheel, then the scroll it causes.
+        fireEvent.wheel(stream, { deltaY: -100 });
         fireEvent.scroll(stream);
 
         // Let the debounced autosave actually write the conversation — including
@@ -2517,6 +2519,92 @@ describe('AiSidebar — persisted conversation UI state (D2)', () => {
     }
   });
 
+  describe('following the stream', () => {
+    let restoreGeometry: () => void = () => undefined;
+    beforeEach(() => {
+      const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+      const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+      Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+        configurable: true,
+        get: () => 1000,
+      });
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+        configurable: true,
+        get: () => 200,
+      });
+      restoreGeometry = () => {
+        if (scrollHeight)
+          Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeight);
+        if (clientHeight)
+          Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight);
+      };
+    });
+    afterEach(() => restoreGeometry());
+
+    /** A sidebar with one run in it, its stream pinned to the bottom. */
+    async function followingStream(): Promise<HTMLElement> {
+      render(<AiSidebar project={project} session={new ToolSummarySession()} />);
+      fireEvent.change(screen.getByLabelText('Message FramePilot'), {
+        target: { value: 'Trim the intro' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Send'));
+      });
+      await waitFor(() => expect(screen.getByText('Find silence')).toBeTruthy());
+      const stream = document.querySelector('.ai-stream') as HTMLElement;
+      stream.scrollTop = 800;
+      fireEvent.scroll(stream);
+      return stream;
+    }
+
+    it('keeps following when a scroll nobody made lands short of the bottom', async () => {
+      // The reported bug: a row the virtualizer re-measures (or scroll anchoring, or a
+      // smooth follow still animating) moves the view up for one `scroll` event. That used
+      // to read as the user scrolling up, switch the follow off, and strand the stream on
+      // an old message until "Jump to latest".
+      const stream = await followingStream();
+
+      stream.scrollTop = 520;
+      fireEvent.scroll(stream);
+
+      expect(screen.queryByRole('button', { name: /Jump to latest/ })).toBeNull();
+    });
+
+    it('stops following when the user wheels up', async () => {
+      const stream = await followingStream();
+
+      fireEvent.wheel(stream, { deltaY: -120 });
+      stream.scrollTop = 520;
+      fireEvent.scroll(stream);
+
+      expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeTruthy();
+    });
+
+    it('stops following when the user pages up with the keyboard', async () => {
+      const stream = await followingStream();
+
+      fireEvent.keyDown(stream, { key: 'PageUp' });
+      stream.scrollTop = 600;
+      fireEvent.scroll(stream);
+
+      expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeTruthy();
+    });
+
+    it('resumes following when the user scrolls back to the bottom', async () => {
+      const stream = await followingStream();
+      fireEvent.wheel(stream, { deltaY: -120 });
+      stream.scrollTop = 400;
+      fireEvent.scroll(stream);
+      expect(screen.getByRole('button', { name: /Jump to latest/ })).toBeTruthy();
+
+      fireEvent.wheel(stream, { deltaY: 120 });
+      stream.scrollTop = 790;
+      fireEvent.scroll(stream);
+
+      expect(screen.queryByRole('button', { name: /Jump to latest/ })).toBeNull();
+    });
+  });
+
   it('holds a scrolled-up reader in place across that same remount', async () => {
     const originalScrollHeight = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
@@ -2551,6 +2639,7 @@ describe('AiSidebar — persisted conversation UI state (D2)', () => {
       // Reading back through the thread — the opposite of following.
       const stream = document.querySelector('.ai-stream') as HTMLElement;
       stream.scrollTop = 120;
+      fireEvent.wheel(stream, { deltaY: -100 });
       fireEvent.scroll(stream);
 
       unmount();

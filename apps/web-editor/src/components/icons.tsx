@@ -55,6 +55,7 @@ export {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Minimize2,
   Undo2,
   Redo2,
   Download,

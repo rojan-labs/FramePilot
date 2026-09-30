@@ -5945,6 +5945,36 @@ getting them wrong would have meant redoing the shaders and the AI tools.
 
 ### 9.4 Remaining editor UI/UX polish — from Phase 3.4
 
+- [x] **Timeline playhead pinned + no focus rings; monitor fullscreen exit (reported, 2026-09-30):**
+      the ruler and playhead head rode away with the tracks as the stack grew — `position: sticky`
+      pinned them to `.lane-scroll` (a scroll container on both axes because of its
+      `overflow-x: auto`), not the vertical `.timeline-vscroll`; `pinToVerticalScroll` now writes the
+      offset from `scrollTop`, and `.tracks` is one stacking context so clips pass under the ruler.
+      Focus rings are off across `section.timeline` (maintainer call). Fullscreen: the monitor's
+      button lives in the hoisted app-bar controls, outside the fullscreen element, so nothing led
+      back out — `ExitFullscreenButton` sits in the transport (player-style) with a transient Esc hint,
+      the fullscreen stage is edge-to-edge black with no frame chrome or bounding box, tooltips portal
+      into the fullscreen element; Esc exits via a
+      capture-phase handler (`useMonitorFullscreen`) because `select.clear` preventDefault()ed Esc,
+      which in Electron blocks the HTML-fullscreen exit — the clip was deselected and the window
+      stayed stuck. Unit tests: `pin-to-vertical-scroll.test.ts`, `useMonitorFullscreen.test.tsx`.
+      Also: zoomed out, a run of short clips drew as ONE block — `.clip-block` is a `<button>` that
+      kept the UA's 6px side padding, and `border-box` floors a box at padding+border (~13px), so
+      clips overlapped and each hid the previous cut's hairline. `padding: 0` (children are all
+      absolute). Browser probe, 40 clips: widths 13px (clamped) → 1.6–4.1px (true), every cut shown.
+      Also: the AI stream's auto-follow switched itself off mid-run. `onScroll` treated ANY
+      `scroll` short of the bottom as the user leaving, and most were not theirs — the stream was
+      `scroll-behavior: smooth` (so our own follow emitted mid-animation events), plus virtualizer
+      re-measures and anchoring. Now only user input (wheel/touch/scroll keys/scrollbar grab,
+      400 ms window) can stop the follow; reaching the bottom resumes it; `.ai-stream` is no
+      longer smooth. 4 new tests in `AiSidebar.test.tsx` (the key one fails on the old logic).
+      Also: Export popover — progress on the topbar Export button when the popover is closed
+      (`data-export-state` + engine-reported `--export-progress` fill, sheen when unknown,
+      Exported / Export failed; name stays "Export video", progress via aria-describedby); a
+      dismissed finished export resets to idle (history keeps Reveal); Recent exports moved INTO
+      the scrolling body (it sat between body and footer, unpadded, over Credits); two-line rows;
+      compact "Export complete" result instead of a wrapped monospace path; 420px width.
+      3 new tests in `ExportDialog.test.tsx`; stub-bridge browser probe of every state.
 - [~] **Professional program-monitor selection (reported bug, 2026-08-02):** mirror timeline
   text-object selection into the WebCodecs preview, use standard white selection chrome,
   and resolve preview interaction as single-click background / double-click object with

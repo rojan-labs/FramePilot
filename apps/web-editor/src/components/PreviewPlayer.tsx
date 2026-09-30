@@ -77,6 +77,8 @@ import { clipMix } from '../preview/audio/mix-envelope.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { TransformBox } from './transform-box/TransformBox.js';
+import { useMonitorFullscreen } from './useMonitorFullscreen.js';
+import { ExitFullscreenButton, FullscreenEscHint } from './MonitorFullscreenControls.js';
 import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import { rotationToCssDegrees } from '../preview/picture-transform.js';
 import {
@@ -293,21 +295,8 @@ export function PreviewPlayer({
   // Preview zoom (reference: the "Fit" dropdown) — scales the letterboxed frame
   // within the stage; the stage scrolls when the frame is scaled past its bounds.
   const [previewZoom, setPreviewZoom] = useState<PreviewZoom>('fit');
-  /**
-   * Fullscreen target: the WHOLE monitor, picture plus transport — not the stage
-   * alone. Fullscreening just the stage left the user in a bare picture with no
-   * play button, no timecode, and no scrub (the timeline dock is hidden too), so
-   * fullscreen was a dead end you could only leave by guessing at Escape.
-   */
   const previewRef = useRef<HTMLElement>(null);
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      const monitor = previewRef.current?.closest<HTMLElement>('.stage-monitor');
-      void (monitor ?? previewRef.current)?.requestFullscreen();
-    }
-  };
+  const { isFullscreen, toggleFullscreen, exitFullscreen } = useMonitorFullscreen(previewRef);
   // Image-transition gate (H3): when cutting video → still image, the departed
   // video frame is held until the <img> has actually decoded — an unloaded image
   // painted immediately reads as a white/black flash at the cut.
@@ -1026,6 +1015,7 @@ export function PreviewPlayer({
       data-preview-engine="streaming"
       ref={previewRef}
     >
+      {isFullscreen && <FullscreenEscHint />}
       {/* Audio-only tracks (music/VO/SFX) have no picture element to ride, so a
           hidden mixer plays them in sync — the monitor's <video> only carries
           its own footage audio. The transport's volume/mute governs BOTH: the
@@ -1459,6 +1449,11 @@ export function PreviewPlayer({
             {formatTime(duration, fps, settings.timeDisplay)}
           </span>
         </span>
+        {isFullscreen && (
+          <div className="transport-playback-opts">
+            <ExitFullscreenButton onExit={exitFullscreen} />
+          </div>
+        )}
         <MonitorHeaderPortal host={headerControlsHost}>
           <PreviewViewControls
             {...(resolution ? { resolution } : {})}

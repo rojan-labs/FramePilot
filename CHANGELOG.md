@@ -89,6 +89,37 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The playhead stays at the top of the timeline.** With more tracks than fit, scrolling down
+  took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
+  top while the tracks scroll under them. The timeline also no longer draws a focus box around the
+  playhead handle or whatever you clicked last.
+- **Export shows its progress on the Export button, and Done starts fresh.** If you close the
+  export panel during a render, the Export button now shows how far it has got ("Exporting 42%",
+  with a bar filling the button). It says "Exported" when the render finishes and "Export failed"
+  if it doesn't. When a render finishes, the panel shows "Export complete" with the file name and
+  the folder it was saved to. Pressing Done, or closing the panel, returns it to the export
+  settings; the file stays under Recent exports with its own Reveal button. The panel is also
+  tidier: Recent exports sits inside the panel with its padding and no longer overlaps Credits,
+  each export's name and details fit on their own lines, and every section heading matches.
+- **The AI panel keeps up with the latest message.** During a run, the panel sometimes stopped
+  following the conversation and stayed on an older message until you pressed "Jump to latest".
+  Moves you didn't make, such as a message changing size as it loaded, were taken as you scrolling
+  up. Now only your own scrolling (wheel, trackpad, keys, the scrollbar) stops the panel following,
+  and scrolling back to the bottom starts it again. Following is also instant instead of animated,
+  so it no longer trails behind a reply as it streams in.
+- **Short clips stay separate when you zoom out.** A run of short back-to-back clips, such as
+  word-by-word captions, merged into one long block when the timeline was zoomed out or narrow.
+  Every clip was drawn at least 13 pixels wide, so short clips overlapped and hid the cut lines
+  between them. The block also ran past where the clips actually end. Clips are now drawn at their
+  true length at every zoom, and every cut keeps its line.
+- **Fullscreen preview looks and works like a video player.** The fullscreen button sits in the
+  top bar, which fullscreen hides, so nothing on screen said how to leave. Now the picture fills
+  the screen on black, without the editor's frame border and padding, and a selected clip's
+  bounding box is hidden. The exit button sits at the end of the playback controls, next to the
+  volume. A "Press Esc to exit full screen" note shows for a moment on entry, and tooltips now
+  show in fullscreen. In the desktop app, Esc with a clip selected used to deselect the clip and
+  leave the window stuck fullscreen and blank. Esc now always leaves fullscreen and keeps your
+  selection.
 - **The assistant's plan no longer drops items when it updates part of it.** When the assistant
   updated its plan with only the items it had just worked on, every other item disappeared,
   including ones it had marked blocked. The run then ended and its "Not done" list left them

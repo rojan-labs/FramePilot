@@ -242,7 +242,9 @@ export function Tooltip({
             <span className="tooltip-label">{label}</span>
             {shortcut && <kbd className="tooltip-kbd">{shortcut}</kbd>}
           </span>,
-          document.body,
+          // Fullscreen renders only the fullscreen element's subtree: a bubble in
+          // `body` would exist but never show over a fullscreen monitor.
+          document.fullscreenElement ?? document.body,
         )}
     </span>
   );

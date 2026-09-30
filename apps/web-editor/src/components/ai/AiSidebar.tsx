@@ -20,6 +20,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -187,6 +189,13 @@ function isAbortError(error: unknown): boolean {
 }
 /** Treat the list as "at bottom" within this many px (avoids jitter). */
 const BOTTOM_THRESHOLD_PX = 48;
+/**
+ * How long after the user's own input (wheel, touch, a scroll key, a scrollbar grab) a
+ * `scroll` event still counts as theirs. Wheel momentum and key-repeat keep renewing it.
+ */
+const USER_SCROLL_WINDOW_MS = 400;
+/** Keys that move a focused scroller. */
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 /**
  * Virtualize only once a conversation is large. Short conversations render plainly
  * (cheaper, and DOM-measurement-free); the virtualized path carries the 20k-event
@@ -1112,11 +1121,53 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   const activeEventsRef = useRef<readonly AiEvent[]>([]);
   activeEventsRef.current = active?.events ?? [];
 
+  // When the user last moved the stream themselves, and whether they are holding it
+  // (a scrollbar drag). Only the user can stop the follow — see `onScroll`.
+  const userScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
+  const userHoldingRef = useRef(false);
+  const markUserScroll = useCallback((): void => {
+    userScrollAtRef.current = performance.now();
+  }, []);
+  const onStreamWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>): void => {
+      markUserScroll();
+      // Stop following on the wheel itself, not on the scroll it causes: a streamed token
+      // landing between the two would otherwise snap the view back down under the wheel.
+      if (event.deltaY < 0 && event.currentTarget.scrollTop > 0) stickRef.current = false;
+    },
+    [markUserScroll],
+  );
+  const onStreamKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+      if (SCROLL_KEYS.has(event.key)) markUserScroll();
+    },
+    [markUserScroll],
+  );
+  const onStreamPointerDown = useCallback((): void => {
+    userHoldingRef.current = true;
+    markUserScroll();
+    const release = (): void => {
+      userHoldingRef.current = false;
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+  }, [markUserScroll]);
+
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
     if (!element) return;
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    const stick = distance <= BOTTOM_THRESHOLD_PX;
+    // Reaching the bottom always resumes the follow. LEAVING it is the user's call alone.
+    // `scroll` also fires for moves nobody asked for — the virtualizer correcting a row it
+    // had only estimated, scroll anchoring, our own write racing a growing message — and
+    // each of those can land the view short of the bottom for one event. Reading that as
+    // "the user scrolled up" switched the follow off mid-run and left the stream stuck on
+    // an old message until "Jump to latest".
+    const byUser =
+      userHoldingRef.current || performance.now() - userScrollAtRef.current < USER_SCROLL_WINDOW_MS;
+    const stick = distance <= BOTTOM_THRESHOLD_PX || (byUser ? false : stickRef.current);
     stickRef.current = stick;
     setAtBottom(stick);
     setScrollOffset(element.scrollTop);
@@ -2440,7 +2491,15 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           <div className="sr-only" role="status" aria-live="polite">
             {latestAssistantText}
           </div>
-          <div className="ai-stream" ref={streamNode} onScroll={onScroll}>
+          <div
+            className="ai-stream"
+            ref={streamNode}
+            onScroll={onScroll}
+            onWheel={onStreamWheel}
+            onTouchMove={markUserScroll}
+            onKeyDown={onStreamKeyDown}
+            onPointerDown={onStreamPointerDown}
+          >
             {activityNodes.length === 0 ? (
               <div className="ai-empty">
                 <span className="ai-empty-badge" aria-hidden="true">
