@@ -11220,7 +11220,34 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   sat inside the top edge and turned the clip (-76°), and at 200% zoom the chrome stayed
   1.5 px / 8 px.
 
-**Last updated:** 2026-09-28
+## Text lockups — multi-font text overlay styles — `[~]` in progress (2026-09-30)
+
+Maintainer (2026-09-30): "the styles that you give are very naive … the background of the styles
+is also not looking good … research the text overlays used by professional video editors and
+motion designers … they prefer using multiple font combinations … for the background pull some
+nice image". Branch `feat/text-lockups-2026-09-30`.
+
+Scope gate. **Outcome:** a creator adds a designed multi-font text overlay (kicker over headline,
+script accent over caps, name + role lower third, big number + label) in one click, and the export
+draws what the tile showed. **Gap:** every style is one font at one size, so none of the
+lockups title designers use can be made; the tiles are judged against a flat grey gradient.
+**Slice:** per-line styles on ONE text overlay (`typography.lines`, a line = one `\n` paragraph
+of the overlay's text) drawn by the caption rasterizer per line and stacked, mirrored in the
+preview CSS; a researched set of lockup styles; photo tile backgrounds. **Reuse:** the text
+overlay typography path (ADR 0194), `render_caption_raster`, the caption CSS, the catalog, the
+Text panel. **Deferred:** per-line editing in the Inspector (the lines keep their look; the
+Inspector edits the base), per-word styling inside a line, lockup-aware `title_metrics` (#146).
+**Evidence:** engine raster tests (a lined overlay stacks lines in their own faces, an unlined
+overlay is byte-identical), preview CSS tests, catalog invariants, an engine contact sheet of the
+lockups next to the panel tiles.
+
+- [~] **TL1** `typography.lines`: schema, engine stacking (export + desktop monitor), preview CSS.
+- [ ] **TL2** Researched lockup styles in the catalog (Combos category) + revised naive styles.
+- [ ] **TL3** Photo tile backgrounds in the Text panel.
+- [ ] **TL4** AI surface (`add_text_layer` writes lines; discovery says which styles are lockups),
+  docs (ADR, guide, CHANGELOG, website changelog).
+
+**Last updated:** 2026-09-30
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

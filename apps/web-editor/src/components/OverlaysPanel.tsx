@@ -41,12 +41,13 @@ import {
   textOverlayLookParams,
   type TextOverlayParams,
 } from '../editor/patch-builders.js';
-import { textOverlayTypographyCss } from '../editor/textOverlay.js';
+import { textOverlayLineBlocks, textOverlayTypographyCss } from '../editor/textOverlay.js';
 import { useSettings } from '../editor/useSettings.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
 import { textOverlayFontParams } from '../editor/textOverlayFonts.js';
 import { useTileGrid } from './elements/useTileGrid.js';
 import { TextFontsTab } from './TextFontsTab.js';
+import { TextOverlayContent } from './TextOverlayContent.js';
 import { Check, ICON_SIZE, Trash2 } from './icons.js';
 
 export interface OverlaysPanelProps {
@@ -101,29 +102,53 @@ const coerceRecent = (raw: unknown): readonly string[] | undefined =>
       )
     : undefined;
 
+/** Where the renderer ships the tile photographs (`public/text-styles`), relative to its page. */
+const TILE_PHOTO_BASE = 'text-styles/';
+/** Evens out the photographs, so a style reads against each as it would over graded footage. */
+const TILE_SCRIM = 'linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.42))';
+
+/**
+ * The photograph behind a category's tiles. A style is judged against a picture, as it will be
+ * used, so every tile draws its sample over a photograph (Unsplash, credited in
+ * `public/text-styles/LICENSE-unsplash.txt`) chosen for the category's use: a person for lower
+ * thirds, a street for headlines, a dark sea under callouts.
+ */
+export function tilePhotoUrl(category: TextOverlayStyleCategory): string {
+  return `${TILE_PHOTO_BASE}${category}.webp`;
+}
+
+interface TileLook {
+  readonly params: TextOverlayParams;
+  readonly style: CSSProperties;
+  readonly backdrop: CSSProperties;
+}
+
 /**
  * A tile's sample text, drawn by the same caption CSS the text overlay will be, scaled to the tile. The
  * size keeps the template's proportion (a big number reads bigger than a lower third) inside a
- * legible range. Built once per template: the catalog is static.
+ * legible range. A lockup's lines draw themselves (`TextOverlayContent`), in ems of this size.
+ * Built once per template: the catalog is static.
  */
-const TILE_STYLES: ReadonlyMap<string, CSSProperties> = new Map(
+const TILE_LOOKS: ReadonlyMap<string, TileLook> = new Map(
   TEXT_OVERLAY_STYLE_CATALOG.map((template) => {
     const params: TextOverlayParams = {
       ...DEFAULT_TEXT_PARAMS,
       ...textOverlayLookParams(template.look, template.id),
       text: template.sampleText,
     };
-    const css = textOverlayTypographyCss(params) ?? {};
-    return [
-      template.id,
-      {
-        ...css,
-        textAlign: 'center',
-        maxWidth: '92%',
-        fontSize: `clamp(9px, ${(template.look.fontSizePercent * 1.6).toFixed(2)}cqh, 24px)`,
-        overflowWrap: 'break-word',
-      } satisfies CSSProperties,
-    ];
+    const lockup = textOverlayLineBlocks(params) !== null;
+    const css = lockup ? {} : (textOverlayTypographyCss(params) ?? {});
+    const style: CSSProperties = {
+      ...css,
+      textAlign: template.look.align,
+      maxWidth: '92%',
+      fontSize: `clamp(8px, ${(template.look.fontSizePercent * 1.5).toFixed(2)}cqh, 26px)`,
+      overflowWrap: 'break-word',
+    };
+    const backdrop: CSSProperties = {
+      backgroundImage: `${TILE_SCRIM}, url(${tilePhotoUrl(template.category)})`,
+    };
+    return [template.id, { params, style, backdrop }];
   }),
 );
 
@@ -548,6 +573,7 @@ const TemplateTile = memo(function TemplateTile({
   readonly onAdd: (templateId: string) => void;
   readonly onApply: (templateId: string) => void;
 }): JSX.Element {
+  const look = TILE_LOOKS.get(template.id);
   return (
     <li className={`text-tile${applied ? ' is-applied' : ''}`}>
       <button
@@ -564,9 +590,9 @@ const TemplateTile = memo(function TemplateTile({
         onFocus={() => onFocus(index)}
         onClick={() => onAdd(template.id)}
       >
-        <span className="text-tile-preview" aria-hidden="true">
-          <span className="text-tile-sample" style={TILE_STYLES.get(template.id)}>
-            {template.sampleText}
+        <span className="text-tile-preview" aria-hidden="true" style={look?.backdrop}>
+          <span className="text-tile-sample" style={look?.style}>
+            {look ? <TextOverlayContent params={look.params} /> : template.sampleText}
           </span>
         </span>
         <span className="text-tile-name">

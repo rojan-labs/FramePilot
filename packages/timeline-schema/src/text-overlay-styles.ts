@@ -50,6 +50,44 @@ export const TEXT_OVERLAY_TYPOGRAPHY_FIELDS = [
  */
 export const TextOverlayChipSchema = CaptionBackgroundSchema.omit({ color: true });
 
+/** Most lines a lockup styles; a longer text draws its remaining lines in the overlay's own look. */
+export const MAX_TEXT_OVERLAY_LINES = 6;
+
+/**
+ * One line of a LOCKUP: a text overlay whose lines are set in different faces, sizes and colours
+ * (a tracked kicker over a heavy headline, a script word over caps, a name over a role). A line
+ * is one `\n`-separated paragraph of the overlay's text; `typography.lines[i]` styles paragraph
+ * `i`, and a paragraph with no entry keeps the overlay's own look.
+ *
+ * Every field is an OVERRIDE of the overlay's own look, so a lockup still answers to the
+ * Inspector: a new size scales every line, a new colour recolours the lines that name none.
+ *
+ * - `scale` multiplies the overlay's `fontSizePercent` (a kicker at 0.3, a headline at 1).
+ * - `color` is the line's letter colour; `background` its chip colour (`null`: no chip on this
+ *   line even when the overlay has one); `chip` its chip shape.
+ * - `spaceBefore` moves the line down (+) or up (−) from where it would stack, in ems of the
+ *   OVERLAY's size. Lines stack box on box, and a box keeps the caption renderer's padding round
+ *   its letters, so a tight lockup names a negative space here.
+ */
+export const TextOverlayLineSchema = CaptionStyleSchema.pick({
+  fontFamily: true,
+  fontWeight: true,
+  fontStyle: true,
+  textTransform: true,
+  letterSpacing: true,
+  lineHeight: true,
+  textOpacity: true,
+  outlineColor: true,
+  outlineWidth: true,
+  shadow: true,
+}).extend({
+  scale: z.number().positive().max(8).optional(),
+  color: z.string().min(1).optional(),
+  background: z.string().min(1).nullable().optional(),
+  chip: TextOverlayChipSchema.optional(),
+  spaceBefore: z.number().min(-3).max(3).optional(),
+});
+
 /** A text overlay's caption typography (see the module doc). */
 export const TextOverlayTypographySchema = CaptionStyleSchema.pick({
   fontStyle: true,
@@ -60,9 +98,13 @@ export const TextOverlayTypographySchema = CaptionStyleSchema.pick({
   outlineColor: true,
   outlineWidth: true,
   shadow: true,
-}).extend({ background: TextOverlayChipSchema.optional() });
+}).extend({
+  background: TextOverlayChipSchema.optional(),
+  lines: z.array(TextOverlayLineSchema).max(MAX_TEXT_OVERLAY_LINES).optional(),
+});
 
 export type TextOverlayChip = z.infer<typeof TextOverlayChipSchema>;
+export type TextOverlayLine = z.infer<typeof TextOverlayLineSchema>;
 export type TextOverlayTypography = z.infer<typeof TextOverlayTypographySchema>;
 
 /**
@@ -133,7 +175,7 @@ const MIN_BOX_WIDTH_PERCENT = 5;
 export function textOverlayCaptionStyle(params: TextOverlayStyleParams): CaptionStyle | undefined {
   const typography = params.typography;
   if (typography === undefined) return undefined;
-  const { background: chip, ...line } = typography;
+  const { background: chip, lines: _lines, ...line } = typography;
   const style: CaptionStyle = {
     ...line,
     display: 'phrase',
@@ -148,6 +190,70 @@ export function textOverlayCaptionStyle(params: TextOverlayStyleParams): Caption
     style.background = { ...chip, color: params.background };
   }
   return style;
+}
+
+/** One paragraph of a lockup, resolved: its words, its caption style and where it stacks. */
+export interface TextOverlayLineLayout {
+  /** The paragraph's index in the overlay's text (its `typography.lines` slot). */
+  readonly index: number;
+  readonly text: string;
+  readonly style: CaptionStyle;
+  /** The line's size relative to the overlay's `fontSizePercent`. */
+  readonly scale: number;
+  /** Extra space above the line, in ems of the OVERLAY's size (see {@link TextOverlayLineSchema}). */
+  readonly spaceBefore: number;
+}
+
+/** The caption style of one lockup line: the overlay's style with the line's overrides. */
+function lockupLineStyle(
+  base: CaptionStyle,
+  params: TextOverlayStyleParams,
+  line: TextOverlayLine,
+): CaptionStyle {
+  const { scale = 1, color, background, chip, spaceBefore: _space, ...typography } = line;
+  const style: CaptionStyle = { ...base, ...typography, fontScale: (base.fontScale ?? 1) * scale };
+  if (line.fontWeight !== undefined) {
+    style.fontWeight = Math.round(Math.min(900, Math.max(100, line.fontWeight)));
+  }
+  if (color !== undefined) style.textColor = color;
+  const chipColor = background === undefined ? base.background?.color : background;
+  if (chipColor === null || chipColor === undefined || chipColor.trim() === '') {
+    delete style.background;
+  } else {
+    style.background = { ...params.typography?.background, ...chip, color: chipColor };
+  }
+  return style;
+}
+
+/**
+ * A lockup's lines — the overlay's text split at its line breaks, each with the caption style it
+ * is drawn in — or `undefined` for a text overlay that is not a lockup (no `typography.lines`),
+ * which is drawn as one block. Empty paragraphs are left out: they draw nothing and take no
+ * room, in the export as in the preview.
+ *
+ * The engine's twin is `render/text_overlay.py#text_overlay_line_layouts`; both stack the lines
+ * box on box, aligned by the overlay's `align`, `spaceBefore` apart.
+ */
+export function textOverlayLineLayouts(
+  params: TextOverlayStyleParams & { readonly text: string },
+): readonly TextOverlayLineLayout[] | undefined {
+  const lines = params.typography?.lines;
+  if (lines === undefined || lines.length === 0) return undefined;
+  const base = textOverlayCaptionStyle(params);
+  if (base === undefined) return undefined;
+  return params.text.split('\n').flatMap((text, index) => {
+    if (text.trim() === '') return [];
+    const line = lines[index] ?? {};
+    return [
+      {
+        index,
+        text,
+        style: lockupLineStyle(base, params, line),
+        scale: line.scale ?? 1,
+        spaceBefore: line.spaceBefore ?? 0,
+      },
+    ];
+  });
 }
 
 /**
