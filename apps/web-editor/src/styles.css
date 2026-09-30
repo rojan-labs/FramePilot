@@ -2889,7 +2889,10 @@ g.mask-canvas-draft circle {
   border: 1px solid var(--accent);
   border-radius: var(--radius-xs);
   color: var(--text-primary);
+  font: inherit;
   font-size: 0.8rem;
+  line-height: 1.3;
+  resize: none;
 }
 
 .ov-row-del {

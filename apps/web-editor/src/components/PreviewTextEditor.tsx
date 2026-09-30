@@ -69,6 +69,20 @@ const transformChanged = (a: PictureBaseTransform, b: PictureBaseTransform): boo
   a.y !== b.y ||
   a.rotation !== b.rotation;
 
+/** Insert a "\n" text node at the caret (the box is `white-space: pre-wrap`, so it breaks). */
+function insertLineBreakAtCaret(): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const lineBreak = document.createTextNode('\n');
+  range.insertNode(lineBreak);
+  range.setStartAfter(lineBreak);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function PreviewTextEditor({
   params,
   timeInClip,
@@ -217,7 +231,13 @@ export function PreviewTextEditor({
           aria-label="text overlay content"
           onBlur={commitText}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+            if (event.key === 'Enter' && event.shiftKey) {
+              // A line break as a "\n" character, which `textContent` keeps: left to itself
+              // the browser inserts a <br> element that reads back as nothing, and a lockup's
+              // lines ARE its line breaks.
+              event.preventDefault();
+              insertLineBreakAtCaret();
+            } else if (event.key === 'Enter') {
               event.preventDefault();
               commitText();
             } else if (event.key === 'Escape') {

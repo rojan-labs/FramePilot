@@ -644,17 +644,20 @@ function OverlayRow({
         {clip.start.toFixed(1)}–{clip.end.toFixed(1)}s
       </span>
       {editing ? (
-        <input
+        // A textarea, not a text input: an input drops line breaks, and a lockup's lines ARE
+        // its line breaks. Enter commits; Shift+Enter starts a new line, as on the monitor.
+        <textarea
           className="ov-row-input"
-          type="text"
+          rows={Math.min(4, params.text.split('\n').length)}
           defaultValue={params.text}
           autoFocus
           aria-label={`edit overlay ${clip.id}`}
           onFocus={(event) => event.target.select()}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
               settled.current = true;
-              onCommit((event.target as HTMLInputElement).value);
+              onCommit((event.target as HTMLTextAreaElement).value);
             } else if (event.key === 'Escape') {
               settled.current = true;
               onCancel();

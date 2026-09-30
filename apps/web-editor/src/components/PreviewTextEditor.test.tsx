@@ -133,6 +133,49 @@ describe('PreviewTextEditor', () => {
     expect(screen.getByLabelText('text overlay content').textContent).toBe('Hello');
   });
 
+  it('starts a new line on Shift+Enter, as a line break the words keep', () => {
+    const onCommit = renderEditor();
+    fireEvent.doubleClick(screen.getByRole('group', { name: 'edit text overlay' }));
+    const content = screen.getByLabelText('text overlay content');
+    // The caret at the end of the words.
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    range.collapse(false);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent.keyDown(content, { key: 'Enter', shiftKey: true });
+    content.appendChild(document.createTextNode('World'));
+    fireEvent.keyDown(content, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith({ params: { text: 'Hello\nWorld' } });
+  });
+
+  it("draws a lockup's lines each in its own face, and types them as plain lines", () => {
+    render(
+      <PreviewTextEditor
+        params={{
+          ...params,
+          text: 'KICKER\nHeadline',
+          fontFamily: 'Anton',
+          typography: { lines: [{ fontFamily: 'Montserrat', scale: 0.3 }, {}] },
+        }}
+        timeInClip={1}
+        duration={5}
+        resolution={RESOLUTION}
+        onCommit={vi.fn()}
+      />,
+    );
+    const content = screen.getByLabelText('text overlay content');
+    const lines = content.querySelectorAll<HTMLElement>('.text-overlay-line');
+    expect(Array.from(lines, (line) => line.textContent)).toEqual(['KICKER', 'Headline']);
+    expect(lines[0]!.style.fontFamily).toContain('Montserrat');
+    expect(lines[1]!.style.fontFamily).toContain('Anton');
+
+    fireEvent.doubleClick(screen.getByRole('group', { name: 'edit text overlay' }));
+    const typing = screen.getByLabelText('text overlay content');
+    expect(typing.querySelectorAll('.text-overlay-line')).toHaveLength(0);
+    expect(typing.textContent).toBe('KICKER\nHeadline');
+  });
+
   it('does not commit unchanged words', () => {
     const onCommit = renderEditor();
     fireEvent.doubleClick(screen.getByRole('group', { name: 'edit text overlay' }));

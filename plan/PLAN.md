@@ -11220,7 +11220,7 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   sat inside the top edge and turned the clip (-76°), and at 200% zoom the chrome stayed
   1.5 px / 8 px.
 
-## Text lockups — multi-font text overlay styles — `[~]` in progress (2026-09-30)
+## Text lockups — multi-font text overlay styles — `[x]` done (2026-09-30)
 
 Maintainer (2026-09-30): "the styles that you give are very naive … the background of the styles
 is also not looking good … research the text overlays used by professional video editors and
@@ -11241,11 +11241,26 @@ Inspector edits the base), per-word styling inside a line, lockup-aware `title_m
 overlay is byte-identical), preview CSS tests, catalog invariants, an engine contact sheet of the
 lockups next to the panel tiles.
 
-- [~] **TL1** `typography.lines`: schema, engine stacking (export + desktop monitor), preview CSS.
-- [ ] **TL2** Researched lockup styles in the catalog (Combos category) + revised naive styles.
-- [ ] **TL3** Photo tile backgrounds in the Text panel.
-- [ ] **TL4** AI surface (`add_text_layer` writes lines; discovery says which styles are lockups),
-  docs (ADR, guide, CHANGELOG, website changelog).
+- [x] **TL1** `typography.lines`: schema, engine stacking (export + desktop monitor), preview CSS
+  (each line's CSS line box = the engine's row height from the generated face metrics, so a
+  script or a tight condensed face stacks where the export stacks it). Engine tests
+  `test_text_overlay_lockups.py`; TS mapping/CSS tests.
+- [x] **TL2** 14 researched lockups (new Combos category + Sport, Shout, Hook chips, End card,
+  Vlog) and 9 naive styles rebuilt as lockups (ids kept, headline first). Catalog tests hold the
+  research numbers (line ≥ 2.4 % of the frame, scripts never tracked/capitalised, Combos mix
+  families, wrap box in frame).
+- [x] **TL3** Photo tile backgrounds, one Unsplash photo per category (`public/text-styles`).
+- [x] **TL4** AI: discovery describes each lockup line and says to write one line per part;
+  `add_text_layer`'s description says the same. Default-request goldens unchanged. Docs: ADR
+  0197, guide "Lockups", CHANGELOG, website changelog.
+- [x] **TL5** Discovered: on-monitor Shift+Enter was dropped on commit (a `<br>` that
+  `textContent` does not read) and the panel's row edit (an `<input>`) flattened line breaks;
+  both now keep `\n`.
+- Evidence: engine contact sheets of every lockup at 1920×1080 over its category photo; the
+  Text panel and an added lockup checked in the browser preview (Vite + Playwright), which found
+  the CSS/engine line-box mismatch fixed in TL1.
+- Deferred: per-line editing in the Inspector, per-word colour, rotated script accents,
+  left-edge anchoring for lower thirds, lockup-aware `title_metrics` (#146).
 
 **Last updated:** 2026-09-30
 
