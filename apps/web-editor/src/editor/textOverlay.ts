@@ -15,6 +15,7 @@
  * Pure + deterministic — unit-tested; the component is a thin consumer.
  */
 import type { CSSProperties } from 'react';
+import { titleFaceLines } from '@framepilot/ai-sdk';
 import { titleEnvelopeFromParams } from '@framepilot/editor-core';
 import type { CaptionStyle } from '@framepilot/timeline-schema';
 import {
@@ -129,6 +130,30 @@ const LINE_PAINT_RESET = {
   boxShadow: 'none',
 } as const satisfies CSSProperties;
 
+/**
+ * The height, in ems, the engine gives one row of `style`: the face's ascent plus descent, and
+ * the outline's width above and below (`captions.py#_layout_styled_caption`). A CSS line box of
+ * this height puts the row's box, and its baseline, where the export's is, whatever the face:
+ * a script's tall ascenders or a condensed face at a tight line height stack alike in both.
+ *
+ * Rows that wrap inside one line are pitched by this alone, where the engine adds a gap between
+ * them (`lineHeight - 1` of the size when above 1, a sixth of it when no line height is set).
+ * CSS cannot add space between rows only without also growing the line's chip, so a lockup line
+ * that wraps is drawn slightly tighter here than in the export; lockup lines are short.
+ */
+function engineRowHeightEm(style: CaptionStyle): number {
+  const [ascent, descent] = titleFaceLines(
+    style.fontFamily ?? DEFAULT_TYPED_FAMILY,
+    style.fontStyle === 'italic',
+  );
+  const strokeEm =
+    style.outlineColor !== undefined ? (style.outlineWidth ?? 0) / OUTLINE_WIDTH_UNITS_PER_EM : 0;
+  return (ascent + descent) / 1000 + 2 * strokeEm;
+}
+
+/** The family a typed overlay with none is drawn in (the engine's `_with_editor_defaults`). */
+const DEFAULT_TYPED_FAMILY = 'Inter';
+
 const LINE_ALIGN: Readonly<Record<TextOverlayParams['align'], CSSProperties>> = {
   left: { marginLeft: 0, marginRight: 'auto' },
   center: { marginLeft: 'auto', marginRight: 'auto' },
@@ -160,6 +185,7 @@ export function textOverlayLineBlocks(
     css: {
       ...LINE_PAINT_RESET,
       ...captionBlockCss(line.style),
+      lineHeight: engineRowHeightEm(line.style),
       fontSize: `${line.scale}em`,
       // `spaceBefore` is in ems of the OVERLAY's size; this line's em is `scale` of it.
       marginTop: position === 0 ? 0 : `${line.spaceBefore / line.scale}em`,

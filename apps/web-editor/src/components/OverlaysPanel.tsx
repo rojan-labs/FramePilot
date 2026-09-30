@@ -142,7 +142,7 @@ const TILE_LOOKS: ReadonlyMap<string, TileLook> = new Map(
       ...css,
       textAlign: template.look.align,
       maxWidth: '92%',
-      fontSize: `clamp(8px, ${(template.look.fontSizePercent * 1.5).toFixed(2)}cqh, 26px)`,
+      fontSize: `clamp(8px, ${(template.look.fontSizePercent * 1.3).toFixed(2)}cqh, 22px)`,
       overflowWrap: 'break-word',
     };
     const backdrop: CSSProperties = {
