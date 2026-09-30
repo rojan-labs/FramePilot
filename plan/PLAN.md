@@ -5952,7 +5952,9 @@ getting them wrong would have meant redoing the shaders and the AI tools.
       offset from `scrollTop`, and `.tracks` is one stacking context so clips pass under the ruler.
       Focus rings are off across `section.timeline` (maintainer call). Fullscreen: the monitor's
       button lives in the hoisted app-bar controls, outside the fullscreen element, so nothing led
-      back out — `MonitorFullscreenExit` draws inside the monitor while fullscreen; Esc exits via a
+      back out — `ExitFullscreenButton` sits in the transport (player-style) with a transient Esc hint,
+      the fullscreen stage is edge-to-edge black with no frame chrome or bounding box, tooltips portal
+      into the fullscreen element; Esc exits via a
       capture-phase handler (`useMonitorFullscreen`) because `select.clear` preventDefault()ed Esc,
       which in Electron blocks the HTML-fullscreen exit — the clip was deselected and the window
       stayed stuck. Unit tests: `pin-to-vertical-scroll.test.ts`, `useMonitorFullscreen.test.tsx`.

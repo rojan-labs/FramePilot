@@ -6,7 +6,7 @@
  * controls, and volume/mute is real persisted monitor state rather than a dead
  * control. The scrub bar's own behaviour lives in `PreviewScrubBar.test.tsx`.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
@@ -36,9 +36,11 @@ const gappedTimeline: Timeline = {
 function Host({
   timeline = gappedTimeline,
   durationSec = 9,
+  onExitFullscreen,
 }: {
   readonly timeline?: Timeline;
   readonly durationSec?: number;
+  readonly onExitFullscreen?: () => void;
 } = {}): JSX.Element {
   const editor = useEditor(timeline, ['a']);
   return (
@@ -49,7 +51,12 @@ function Host({
       <button type="button" onClick={() => editor.seek(0)}>
         seek 0
       </button>
-      <PreviewTransport editor={editor} durationSec={durationSec} fps={30} />
+      <PreviewTransport
+        editor={editor}
+        durationSec={durationSec}
+        fps={30}
+        {...(onExitFullscreen ? { onExitFullscreen } : {})}
+      />
     </SettingsProvider>
   );
 }
@@ -75,6 +82,18 @@ describe('PreviewTransport — the full control set (F3)', () => {
     }
     // And the scrub bar it never had at all.
     expect(screen.getByRole('slider', { name: 'Scrub' })).toBeTruthy();
+  });
+
+  it('carries the fullscreen exit only while the monitor is fullscreen', () => {
+    const { unmount } = render(<Host />);
+    expect(screen.queryByRole('button', { name: 'exit fullscreen' })).toBeNull();
+    unmount();
+
+    const onExitFullscreen = vi.fn();
+    render(<Host onExitFullscreen={onExitFullscreen} />);
+    fireEvent.click(screen.getByRole('button', { name: 'exit fullscreen' }));
+
+    expect(onExitFullscreen).toHaveBeenCalledTimes(1);
   });
 
   it('navigates to the next edit point, stopping at BOTH edges of a gap', () => {

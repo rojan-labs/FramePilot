@@ -3886,45 +3886,69 @@ g.mask-canvas-draft circle {
   overflow: hidden;
 }
 
-/* Fullscreen paints the monitor on its own surface, not the UA's black backdrop
-   showing through wherever the stage has no background of its own. */
+/* Fullscreen is for watching the cut, so it looks like a player, not the editor
+   blown up: the picture edge to edge on black, no stage inset or rounded surround,
+   and the transport as the one band of chrome (it carries the exit control — see
+   ExitFullscreenButton). Without a background here the UA's black backdrop showed
+   through wherever the stage had none of its own. */
 .stage-monitor:fullscreen {
-  background: var(--bg);
+  background: #000;
 }
 
-/* The way out of a fullscreen monitor (MonitorFullscreenExit). The monitor's own
-   fullscreen button is hoisted into the application bar, which fullscreen hides. */
-.monitor-fullscreen-exit {
+.stage-monitor:fullscreen .preview,
+.stage-monitor:fullscreen .preview-stage {
+  background: #000;
+}
+
+.stage-monitor:fullscreen .preview-stage {
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Editing chrome stays in the editor: a selected clip's bounding box over a
+   fullscreen playback is a box drawn across the film. */
+.stage-monitor:fullscreen .transform-chrome {
+  display: none;
+}
+
+/* The frame's hairline and scrim tell the frame from the editor's stage surround;
+   fullscreen has no surround to tell it from, only black. */
+.stage-monitor:fullscreen .preview-frame {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* "Press Esc to exit full screen" — up for a moment on entry (FullscreenEscHint),
+   then gone; the transport keeps the permanent way out. */
+.fullscreen-esc-hint {
   position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  top: var(--space-4);
+  left: 50%;
   z-index: var(--z-menu);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--line);
+  transform: translateX(-50%);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  color: var(--text);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease);
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+  animation: fullscreen-esc-hint-in var(--dur-fast) var(--ease) both;
 }
 
-.monitor-fullscreen-exit:hover {
-  background: var(--panel);
-}
-
-.monitor-fullscreen-exit-key {
-  padding: 0 4px;
-  border: 1px solid var(--line);
+.fullscreen-esc-hint kbd {
+  margin: 0 2px;
+  padding: 0 5px;
+  border: 1px solid rgb(255 255 255 / 0.4);
   border-radius: var(--radius-xs);
-  color: var(--text-secondary);
   font-family: inherit;
   font-size: var(--font-size-xs);
-  line-height: 1.4;
+}
+
+@keyframes fullscreen-esc-hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
 }
 
 /* THE PICTURE IS THE HERO (revamp Phase 1). Chrome around the canvas used to eat
@@ -4821,7 +4845,10 @@ g.mask-canvas-draft circle {
 }
 
 /* Loop + volume, right-aligned opposite the timecode. Playback-adjacent controls
-   belong with play — not with the grid and the safe-area guides. */
+   belong with play — not with the grid and the safe-area guides. The bare
+   `.transport` arm is the legacy monitor's one-row band, where this group holds
+   only the fullscreen exit. */
+.transport .transport-playback-opts,
 .preview-transport .transport-playback-opts {
   grid-column: 3;
   justify-self: end;

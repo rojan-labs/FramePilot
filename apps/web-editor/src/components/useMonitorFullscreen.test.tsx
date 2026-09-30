@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useRef } from 'react';
 import { useMonitorFullscreen } from './useMonitorFullscreen.js';
-import { MonitorFullscreenExit } from './MonitorFullscreenExit.js';
+import { ExitFullscreenButton, FullscreenEscHint } from './MonitorFullscreenControls.js';
 
 /** A player inside the editor's monitor, wired the way both preview engines wire it. */
 function Player(): JSX.Element {
@@ -11,7 +11,8 @@ function Player(): JSX.Element {
   return (
     <div className="stage-monitor" data-testid="monitor">
       <section ref={ref}>
-        {isFullscreen && <MonitorFullscreenExit onExit={exitFullscreen} />}
+        {isFullscreen && <FullscreenEscHint />}
+        {isFullscreen && <ExitFullscreenButton onExit={exitFullscreen} />}
         <button type="button" onClick={toggleFullscreen}>
           fullscreen preview
         </button>
@@ -63,7 +64,23 @@ describe('useMonitorFullscreen', () => {
     expect(requestFullscreen.mock.contexts[0]).toBe(screen.getByTestId('monitor'));
     const exit = screen.getByRole('button', { name: 'exit fullscreen' });
     expect(screen.getByTestId('monitor').contains(exit)).toBe(true);
-    expect(exit.textContent).toContain('Esc');
+  });
+
+  it('says how to leave on entry, then gets out of the way', () => {
+    vi.useFakeTimers();
+    try {
+      render(<Player />);
+      fireEvent.click(screen.getByRole('button', { name: 'fullscreen preview' }));
+
+      expect(screen.getByRole('status').textContent).toBe('Press Esc to exit full screen');
+      act(() => vi.advanceTimersByTime(3000));
+
+      expect(screen.queryByRole('status')).toBeNull();
+      // The permanent way out stays.
+      expect(screen.getByRole('button', { name: 'exit fullscreen' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('leaves fullscreen from the in-monitor button', () => {

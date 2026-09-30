@@ -78,7 +78,7 @@ import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewViewControls, type PreviewZoom } from './PreviewViewControls.js';
 import { TransformBox } from './transform-box/TransformBox.js';
 import { useMonitorFullscreen } from './useMonitorFullscreen.js';
-import { MonitorFullscreenExit } from './MonitorFullscreenExit.js';
+import { ExitFullscreenButton, FullscreenEscHint } from './MonitorFullscreenControls.js';
 import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import { rotationToCssDegrees } from '../preview/picture-transform.js';
 import {
@@ -1015,7 +1015,7 @@ export function PreviewPlayer({
       data-preview-engine="streaming"
       ref={previewRef}
     >
-      {isFullscreen && <MonitorFullscreenExit onExit={exitFullscreen} />}
+      {isFullscreen && <FullscreenEscHint />}
       {/* Audio-only tracks (music/VO/SFX) have no picture element to ride, so a
           hidden mixer plays them in sync — the monitor's <video> only carries
           its own footage audio. The transport's volume/mute governs BOTH: the
@@ -1449,6 +1449,11 @@ export function PreviewPlayer({
             {formatTime(duration, fps, settings.timeDisplay)}
           </span>
         </span>
+        {isFullscreen && (
+          <div className="transport-playback-opts">
+            <ExitFullscreenButton onExit={exitFullscreen} />
+          </div>
+        )}
         <MonitorHeaderPortal host={headerControlsHost}>
           <PreviewViewControls
             {...(resolution ? { resolution } : {})}

@@ -81,7 +81,7 @@ import {
 } from './elements/element-dnd.js';
 import { TransformBox } from './transform-box/TransformBox.js';
 import { useMonitorFullscreen } from './useMonitorFullscreen.js';
-import { MonitorFullscreenExit } from './MonitorFullscreenExit.js';
+import { FullscreenEscHint } from './MonitorFullscreenControls.js';
 import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import {
   pictureTransformAfter,
@@ -1102,7 +1102,7 @@ export function WebCodecsPreviewPlayer({
       data-preview-engine="webcodecs"
       ref={previewRef}
     >
-      {isFullscreen && <MonitorFullscreenExit onExit={exitFullscreen} />}
+      {isFullscreen && <FullscreenEscHint />}
       {/* The layer compositor plays every clip's sound itself, on the clock the picture follows,
           with the export's mix (`preview/audio/program-audio.ts`). The flat-EDL engine only plays
           footage, so audio clips there ride the hidden element mixer. Either way the monitor
@@ -1415,7 +1415,12 @@ export function WebCodecsPreviewPlayer({
           />
         </TransformChromeContext.Provider>
       </div>
-      <PreviewTransport editor={editor} durationSec={durationSec} fps={fps} />
+      <PreviewTransport
+        editor={editor}
+        durationSec={durationSec}
+        fps={fps}
+        {...(isFullscreen ? { onExitFullscreen: exitFullscreen } : {})}
+      />
       <MonitorHeaderPortal host={headerControlsHost}>
         {layered && maskViewClipId !== null && (
           <MaskViewToggle value={maskView} onChange={setMaskView} />

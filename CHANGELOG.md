@@ -104,11 +104,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Every clip was drawn at least 13 pixels wide, so short clips overlapped and hid the cut lines
   between them. The block also ran past where the clips actually end. Clips are now drawn at their
   true length at every zoom, and every cut keeps its line.
-- **Fullscreen preview has a way out.** The fullscreen button sits in the top bar, which
-  fullscreen hides, so nothing on screen said how to leave. An "Exit fullscreen (Esc)" button now
-  shows in the corner of the fullscreen monitor. In the desktop app, Esc with a clip selected used
-  to deselect the clip and leave the window stuck fullscreen and blank. Esc now always leaves
-  fullscreen and keeps your selection.
+- **Fullscreen preview looks and works like a video player.** The fullscreen button sits in the
+  top bar, which fullscreen hides, so nothing on screen said how to leave. Now the picture fills
+  the screen on black, without the editor's frame border and padding, and a selected clip's
+  bounding box is hidden. The exit button sits at the end of the playback controls, next to the
+  volume. A "Press Esc to exit full screen" note shows for a moment on entry, and tooltips now
+  show in fullscreen. In the desktop app, Esc with a clip selected used to deselect the clip and
+  leave the window stuck fullscreen and blank. Esc now always leaves fullscreen and keeps your
+  selection.
 - **The assistant's plan no longer drops items when it updates part of it.** When the assistant
   updated its plan with only the items it had just worked on, every other item disappeared,
   including ones it had marked blocked. The run then ended and its "Not done" list left them
