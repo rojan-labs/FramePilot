@@ -850,7 +850,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'landed. Style it here. `style` applies a designed text overlay style whole — ' +
         'typeface, size, colour, outline/shadow/chip and placement (ids and what each ' +
         'looks like: discover_text_overlay_styles); any other styling arg you also pass ' +
-        'overrides just that field of the style. sizePercent is the glyph ' +
+        'overrides just that field of the style. A LOCKUP style sets each line of `text` in ' +
+        'its own face (a small kicker over a headline, a name over a role): write one line ' +
+        'per part, joined by \\n, in the order its look lists. sizePercent is the glyph ' +
         'height as a percentage of the frame (8 is a caption, 18+ is a headline that ' +
         'dominates the frame), xPercent/yPercent place the box centre (50/50 is the ' +
         'middle, y 15 is near the top), fontFamily (a bundled family) and fontWeight set ' +

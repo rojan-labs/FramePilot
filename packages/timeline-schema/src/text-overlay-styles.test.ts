@@ -110,6 +110,9 @@ describe('TEXT_OVERLAY_STYLE_CATALOG', () => {
         expect(value, id).toBeGreaterThan(0);
         expect(value, id).toBeLessThanOrEqual(100);
       }
+      // The wrap box, centred on x, stays in frame: the assistant's fit would move it otherwise.
+      expect(look.xPercent - look.boxWidthPercent / 2, id).toBeGreaterThanOrEqual(0);
+      expect(look.xPercent + look.boxWidthPercent / 2, id).toBeLessThanOrEqual(100);
     }
   });
 });

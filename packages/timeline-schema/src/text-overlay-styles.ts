@@ -372,13 +372,14 @@ const UPPER = { align: 'center', boxWidthPercent: 84, xPercent: 50, yPercent: 22
 const LOWER_THIRD = { align: 'left', boxWidthPercent: 76, xPercent: 42, yPercent: 76 } as const;
 /**
  * A two-line lower third (name over role). The box is centred on x/y and hugs its lines, so a
- * lockup sits nearer the left edge than a one-line tag to start where lower thirds start
- * (research: text from ~7 % of the width) and stays above the caption band.
+ * lockup sits nearer the left edge than a one-line tag, toward where lower thirds start
+ * (research: text from ~7 % of the width), and stays above the caption band. Its wrap box
+ * still fits in the frame (x ± box / 2), the rule the assistant's fit keeps.
  */
 const LOWER_THIRD_LOCKUP = {
   align: 'left',
-  boxWidthPercent: 70,
-  xPercent: 26,
+  boxWidthPercent: 60,
+  xPercent: 30,
   yPercent: 78,
 } as const;
 

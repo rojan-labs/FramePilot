@@ -8,7 +8,10 @@
  * line FROM the catalog data, so a style added or revised in `text-overlay-styles.ts` is
  * described correctly without anyone writing prose for it.
  */
-import type { TextOverlayLook } from '@framepilot/timeline-schema/text-overlay-styles';
+import type {
+  TextOverlayLine,
+  TextOverlayLook,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 
 /** A box centre above this share of the frame height reads as "top". */
 const TOP_BAND_MAX_PERCENT = 34;
@@ -69,10 +72,47 @@ function treatment(look: TextOverlayLook): string[] {
  *   and how the letters stand off the picture.
  */
 export function describeTextOverlayLook(look: TextOverlayLook): string {
-  return [
+  const whole = [
     [`${look.fontFamily} ${String(look.fontWeight)}`, ...treatment(look), look.color].join(' '),
     `${String(look.fontSizePercent)}% high`,
     placement(look),
     ...separation(look),
   ].join(', ');
+  const lines = look.typography.lines ?? [];
+  if (lines.length === 0) return whole;
+  // A lockup draws each line of the text in its own face, so the model must write one line
+  // per part, in this order, or the parts land in the wrong faces.
+  const parts = lines.map((line, index) => `${String(index + 1)}) ${describeLine(look, line)}`);
+  return `${whole}; LOCKUP, write ${String(lines.length)} lines joined by \\n: ${parts.join('; ')}`;
+}
+
+/** One lockup line in a few words: its face and treatment, relative to the style's own look. */
+function describeLine(look: TextOverlayLook, line: TextOverlayLine): string {
+  const overrides = Object.keys(line).filter((key) => key !== 'spaceBefore');
+  if (overrides.length === 0) return 'the headline, in the look above';
+  const lineLook: TextOverlayLook = {
+    ...look,
+    fontFamily: line.fontFamily ?? look.fontFamily,
+    fontWeight: line.fontWeight ?? look.fontWeight,
+    color: line.color ?? look.color,
+    typography: {
+      ...look.typography,
+      ...(line.fontStyle === undefined ? {} : { fontStyle: line.fontStyle }),
+      ...(line.textTransform === undefined ? {} : { textTransform: line.textTransform }),
+      ...(line.letterSpacing === undefined ? {} : { letterSpacing: line.letterSpacing }),
+    },
+  };
+  const chip =
+    line.background === undefined
+      ? []
+      : line.background === null
+        ? []
+        : [`${line.background} chip`];
+  return [
+    `${lineLook.fontFamily} ${String(lineLook.fontWeight)}`,
+    ...treatment(lineLook),
+    lineLook.color,
+    `${String(Math.round((line.scale ?? 1) * 100))}% of the headline`,
+    ...chip,
+  ].join(' ');
 }
