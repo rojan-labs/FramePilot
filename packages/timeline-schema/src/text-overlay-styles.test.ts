@@ -21,6 +21,7 @@ import {
   getTextOverlayStyle,
   parseTextOverlayTypography,
   textOverlayCaptionStyle,
+  textOverlayLineLayouts,
   type TextOverlayStyleParams,
 } from './text-overlay-styles.js';
 
@@ -154,6 +155,81 @@ describe('textOverlayCaptionStyle', () => {
         typography: { background: { radius: 0.4 } },
       })!.background,
     ).toEqual({ color: '#ffd60a', radius: 0.4 });
+  });
+});
+
+describe('textOverlayLineLayouts (lockups)', () => {
+  const lockup = {
+    fontFamily: 'Anton',
+    fontWeight: 400,
+    color: '#ffffff',
+    fontSizePercent: 12,
+    align: 'center',
+    boxWidthPercent: 80,
+    background: '#101010',
+    text: 'CHAPTER ONE\nTHE ROAD NORTH',
+    typography: {
+      textTransform: 'uppercase',
+      background: { radius: 0, paddingX: 0.4 },
+      lines: [
+        {
+          fontFamily: 'Montserrat',
+          fontWeight: 650,
+          scale: 0.3,
+          letterSpacing: 0.3,
+          color: '#ffd60a',
+          background: null,
+        },
+        { spaceBefore: -0.2, chip: { radius: 0.2 } },
+      ],
+    },
+  } as const satisfies TextOverlayStyleParams & { text: string };
+
+  it('is undefined for a text overlay with no lines, which draws as one block', () => {
+    const { lines: _lines, ...typography } = lockup.typography;
+    expect(textOverlayLineLayouts({ ...lockup, typography })).toBeUndefined();
+    expect(textOverlayLineLayouts({ ...lockup, typography: undefined })).toBeUndefined();
+  });
+
+  it("styles each paragraph with its line's overrides of the overlay's look", () => {
+    const [kicker, headline] = textOverlayLineLayouts(lockup)!;
+    expect(CaptionStyleSchema.safeParse(kicker!.style).success).toBe(true);
+    expect(kicker).toMatchObject({ index: 0, text: 'CHAPTER ONE', scale: 0.3, spaceBefore: 0 });
+    expect(kicker!.style).toMatchObject({
+      fontFamily: 'Montserrat',
+      fontWeight: 650,
+      letterSpacing: 0.3,
+      textColor: '#ffd60a',
+      textTransform: 'uppercase',
+    });
+    expect(kicker!.style.background).toBeUndefined();
+    expect(kicker!.style.fontScale! * CAPTION_FONT_HEIGHT_PERCENT).toBeCloseTo(12 * 0.3);
+    expect(headline).toMatchObject({
+      index: 1,
+      text: 'THE ROAD NORTH',
+      scale: 1,
+      spaceBefore: -0.2,
+    });
+    expect(headline!.style).toMatchObject({ fontFamily: 'Anton', textColor: '#ffffff' });
+    expect(headline!.style.background).toEqual({ color: '#101010', radius: 0.2, paddingX: 0.4 });
+  });
+
+  it('draws extra paragraphs in the overlay look and leaves empty ones out', () => {
+    const layouts = textOverlayLineLayouts({ ...lockup, text: 'A\n\nB\nC' })!;
+    expect(layouts.map((line) => [line.index, line.style.fontFamily])).toEqual([
+      [0, 'Montserrat'],
+      [2, 'Anton'],
+      [3, 'Anton'],
+    ]);
+  });
+
+  it('refuses lines the engine refuses', () => {
+    for (const line of [{ scale: 0 }, { spaceBefore: 4 }, { fontWeight: 650.5 }, { color: '' }]) {
+      expect(parseTextOverlayTypography({ lines: [line] }), JSON.stringify(line)).toBeUndefined();
+    }
+    expect(parseTextOverlayTypography({ lines: Array.from({ length: 7 }, () => ({})) })).toBe(
+      undefined,
+    );
   });
 });
 

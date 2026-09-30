@@ -175,7 +175,6 @@ export function textOverlayLineBlocks(
   }));
 }
 
-
 /** `params` drawn as one block in the overlay's own look: a lockup without its lines. */
 export function withoutLockupLines(params: TextOverlayParams): TextOverlayParams {
   if (params.typography?.lines === undefined) return params;

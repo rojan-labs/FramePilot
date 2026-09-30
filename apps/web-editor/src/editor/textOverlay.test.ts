@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { animationProgress, textOverlayAnimationState, textOverlayStyle } from './textOverlay.js';
+import {
+  animationProgress,
+  textOverlayAnimationState,
+  textOverlayLineBlocks,
+  textOverlayStyle,
+  withoutLockupLines,
+} from './textOverlay.js';
 import { DEFAULT_TEXT_PARAMS } from './patch-builders.js';
 
 describe('animationProgress', () => {
@@ -58,5 +64,61 @@ describe('textOverlayStyle', () => {
     expect(boxed.backgroundColor).toBe('#000');
     // Never the shorthand, which the hit target could not reliably override.
     expect(boxed.background).toBeUndefined();
+  });
+});
+
+describe('lockups (typography.lines)', () => {
+  const lockup = {
+    ...DEFAULT_TEXT_PARAMS,
+    text: 'CHAPTER ONE\nTHE ROAD NORTH',
+    fontFamily: 'Anton',
+    fontWeight: 400,
+    fontSizePercent: 12,
+    align: 'left' as const,
+    background: null,
+    typography: {
+      shadow: { color: '#00000099', blur: 0.2, offsetX: 0, offsetY: 0.04 },
+      lines: [
+        { fontFamily: 'Montserrat', fontWeight: 600, scale: 0.3, letterSpacing: 0.3 },
+        { spaceBefore: -0.3, outlineColor: '#000000', outlineWidth: 0 },
+      ],
+    },
+  };
+
+  it('draws one caption block per line, sized in ems of the overlay and stacked', () => {
+    const blocks = textOverlayLineBlocks(lockup)!;
+    expect(blocks.map((b) => b.text)).toEqual(['CHAPTER ONE', 'THE ROAD NORTH']);
+    const [kicker, headline] = blocks;
+    expect(kicker!.css).toMatchObject({
+      fontFamily: 'Montserrat',
+      fontWeight: 600,
+      fontSize: '0.3em',
+      letterSpacing: '0.3em',
+      marginTop: 0,
+      display: 'block',
+      marginRight: 'auto',
+    });
+    // spaceBefore is in ems of the OVERLAY's size; the headline's em is the overlay's.
+    expect(headline!.css).toMatchObject({
+      fontFamily: 'Anton',
+      fontSize: '1em',
+      marginTop: '-0.3em',
+    });
+    // A line paints only what its own style says: no ring inherited from anywhere.
+    expect(headline!.css.WebkitTextStroke).toBe('0');
+    expect(headline!.css.textShadow).toContain('#00000099');
+  });
+
+  it('gives the box no paint of its own, so only the lines draw', () => {
+    const style = textOverlayStyle(lockup, 2, 5);
+    expect(style.width).toBe('max-content');
+    expect(style.fontFamily).toBeUndefined();
+    expect(style.textShadow).toBeUndefined();
+    expect(style.padding).toBeUndefined();
+  });
+
+  it('is one block again without lines', () => {
+    expect(textOverlayLineBlocks(withoutLockupLines(lockup))).toBeNull();
+    expect(textOverlayLineBlocks(DEFAULT_TEXT_PARAMS)).toBeNull();
   });
 });
