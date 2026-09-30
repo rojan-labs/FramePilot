@@ -5960,6 +5960,12 @@ getting them wrong would have meant redoing the shaders and the AI tools.
       kept the UA's 6px side padding, and `border-box` floors a box at padding+border (~13px), so
       clips overlapped and each hid the previous cut's hairline. `padding: 0` (children are all
       absolute). Browser probe, 40 clips: widths 13px (clamped) → 1.6–4.1px (true), every cut shown.
+      Also: the AI stream's auto-follow switched itself off mid-run. `onScroll` treated ANY
+      `scroll` short of the bottom as the user leaving, and most were not theirs — the stream was
+      `scroll-behavior: smooth` (so our own follow emitted mid-animation events), plus virtualizer
+      re-measures and anchoring. Now only user input (wheel/touch/scroll keys/scrollbar grab,
+      400 ms window) can stop the follow; reaching the bottom resumes it; `.ai-stream` is no
+      longer smooth. 4 new tests in `AiSidebar.test.tsx` (the key one fails on the old logic).
 - [~] **Professional program-monitor selection (reported bug, 2026-08-02):** mirror timeline
   text-object selection into the WebCodecs preview, use standard white selection chrome,
   and resolve preview interaction as single-click background / double-click object with

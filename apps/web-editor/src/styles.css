@@ -68,8 +68,10 @@
    jump-to-latest) and contain overscroll so a nested pane never chains into —
    and yanks — its parent. The timeline lane scroller is deliberately excluded:
    auto-follow writes scrollLeft every frame, and `smooth` there would make the
-   playhead follow rubber-band. Reduced-motion zeroes smooth scrolling above. */
-.ai-stream,
+   playhead follow rubber-band. The AI stream is excluded for the same reason: it
+   follows a streaming reply, and a smooth follow is still animating when the next
+   token lands, so the view trails the latest line instead of sitting on it.
+   Reduced-motion zeroes smooth scrolling above. */
 .settings-panel,
 .transcript,
 .inspector,
@@ -78,6 +80,7 @@
   scroll-behavior: smooth;
   overscroll-behavior: contain;
 }
+.ai-stream,
 .lane-scroll,
 .timeline-vscroll {
   overscroll-behavior: contain; /* no scroll chaining; NEVER smooth (see above) */

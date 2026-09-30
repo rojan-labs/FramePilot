@@ -93,6 +93,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
   top while the tracks scroll under them. The timeline also no longer draws a focus box around the
   playhead handle or whatever you clicked last.
+- **The AI panel keeps up with the latest message.** During a run, the panel sometimes stopped
+  following the conversation and stayed on an older message until you pressed "Jump to latest".
+  Moves you didn't make, such as a message changing size as it loaded, were taken as you scrolling
+  up. Now only your own scrolling (wheel, trackpad, keys, the scrollbar) stops the panel following,
+  and scrolling back to the bottom starts it again. Following is also instant instead of animated,
+  so it no longer trails behind a reply as it streams in.
 - **Short clips stay separate when you zoom out.** A run of short back-to-back clips, such as
   word-by-word captions, merged into one long block when the timeline was zoomed out or narrow.
   Every clip was drawn at least 13 pixels wide, so short clips overlapped and hid the cut lines
