@@ -82,6 +82,7 @@ import { ClipFilmstrip, filmstripSlots } from './ClipFilmstrip.js';
 import { ClipProcessingBand } from './ClipProcessingBand.js';
 import { TimelineMinimap } from './TimelineMinimap.js';
 import { laneNames } from './timeline/lane-names.js';
+import { pinToVerticalScroll } from './timeline/pin-to-vertical-scroll.js';
 import { useSettings } from '../editor/useSettings.js';
 import {
   TRACK_HEIGHT_BOUNDS,
@@ -1422,6 +1423,17 @@ export function TimelineView({
   /** The vertical scroll viewport (wraps both the header column and the lanes) —
    *  the element the lane virtualizer measures so many tracks window vertically. */
   const vScrollRef = useRef<HTMLDivElement>(null);
+  // Keep the ruler and the playhead's grab head at the top of the stack while it
+  // scrolls vertically — see `pinToVerticalScroll`.
+  useLayoutEffect(() => {
+    const scroller = vScrollRef.current;
+    const lanes = lanesRef.current;
+    if (!scroller || !lanes) return undefined;
+    const pin = (): void => pinToVerticalScroll(scroller, lanes);
+    pin();
+    scroller.addEventListener('scroll', pin, { passive: true });
+    return () => scroller.removeEventListener('scroll', pin);
+  }, []);
   // The editor object's identity changes every render; a ref lets the long-lived
   // wheel listener read the latest store state/actions without re-subscribing.
   const editorRef = useRef(editor);
@@ -3365,7 +3377,8 @@ export function TimelineView({
 
       {/* Vertical scroll viewport — the element the lane virtualizer measures.
           Both grid columns scroll together so windowed header rows and lanes stay
-          aligned; the ruler/header-tools row is sticky so it stays visible. */}
+          aligned; the header-tools cell is sticky, and the ruler and playhead head
+          are held at the top by `pinToVerticalScroll` (sticky cannot reach them). */}
       <div className="timeline-vscroll" ref={vScrollRef}>
         <div className="timeline-grid">
           {/* Header column — one row per track, aligned with the lanes. Track

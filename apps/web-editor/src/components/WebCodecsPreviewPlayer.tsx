@@ -80,6 +80,8 @@ import {
   dragCarriesElementKind,
 } from './elements/element-dnd.js';
 import { TransformBox } from './transform-box/TransformBox.js';
+import { useMonitorFullscreen } from './useMonitorFullscreen.js';
+import { MonitorFullscreenExit } from './MonitorFullscreenExit.js';
 import { TransformChromeContext, TransformChromeLayer } from './transform-box/TransformChrome.js';
 import {
   pictureTransformAfter,
@@ -211,14 +213,7 @@ export function WebCodecsPreviewPlayer({
   // user had, rather than jumping to unity — collapsed to one gain here.
   const monitorGain = settings.previewMuted ? 0 : settings.previewVolume;
 
-  const toggleFullscreen = (): void => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-      return;
-    }
-    const monitor = previewRef.current?.closest<HTMLElement>('.stage-monitor');
-    void (monitor ?? previewRef.current)?.requestFullscreen();
-  };
+  const { isFullscreen, toggleFullscreen, exitFullscreen } = useMonitorFullscreen(previewRef);
 
   // Held while their elements are the same objects: the editor copies both arrays into every
   // project it hands up, so one edit arrived here twice (new timeline, then new-but-equal
@@ -1107,6 +1102,7 @@ export function WebCodecsPreviewPlayer({
       data-preview-engine="webcodecs"
       ref={previewRef}
     >
+      {isFullscreen && <MonitorFullscreenExit onExit={exitFullscreen} />}
       {/* The layer compositor plays every clip's sound itself, on the clock the picture follows,
           with the export's mix (`preview/audio/program-audio.ts`). The flat-EDL engine only plays
           footage, so audio clips there ride the hidden element mixer. Either way the monitor

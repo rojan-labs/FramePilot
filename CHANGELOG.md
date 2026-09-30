@@ -89,6 +89,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The playhead stays at the top of the timeline.** With more tracks than fit, scrolling down
+  took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
+  top while the tracks scroll under them. The timeline also no longer draws a focus box around the
+  playhead handle or whatever you clicked last.
+- **Fullscreen preview has a way out.** The fullscreen button sits in the top bar, which
+  fullscreen hides, so nothing on screen said how to leave. An "Exit fullscreen (Esc)" button now
+  shows in the corner of the fullscreen monitor. In the desktop app, Esc with a clip selected used
+  to deselect the clip and leave the window stuck fullscreen and blank. Esc now always leaves
+  fullscreen and keeps your selection.
 - **The assistant's plan no longer drops items when it updates part of it.** When the assistant
   updated its plan with only the items it had just worked on, every other item disappeared,
   including ones it had marked blocked. The run then ended and its "Not done" list left them

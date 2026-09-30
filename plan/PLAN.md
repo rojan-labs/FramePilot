@@ -5945,6 +5945,17 @@ getting them wrong would have meant redoing the shaders and the AI tools.
 
 ### 9.4 Remaining editor UI/UX polish — from Phase 3.4
 
+- [x] **Timeline playhead pinned + no focus rings; monitor fullscreen exit (reported, 2026-09-30):**
+      the ruler and playhead head rode away with the tracks as the stack grew — `position: sticky`
+      pinned them to `.lane-scroll` (a scroll container on both axes because of its
+      `overflow-x: auto`), not the vertical `.timeline-vscroll`; `pinToVerticalScroll` now writes the
+      offset from `scrollTop`, and `.tracks` is one stacking context so clips pass under the ruler.
+      Focus rings are off across `section.timeline` (maintainer call). Fullscreen: the monitor's
+      button lives in the hoisted app-bar controls, outside the fullscreen element, so nothing led
+      back out — `MonitorFullscreenExit` draws inside the monitor while fullscreen; Esc exits via a
+      capture-phase handler (`useMonitorFullscreen`) because `select.clear` preventDefault()ed Esc,
+      which in Electron blocks the HTML-fullscreen exit — the clip was deselected and the window
+      stayed stuck. Unit tests: `pin-to-vertical-scroll.test.ts`, `useMonitorFullscreen.test.tsx`.
 - [~] **Professional program-monitor selection (reported bug, 2026-08-02):** mirror timeline
   text-object selection into the WebCodecs preview, use standard white selection chrome,
   and resolve preview interaction as single-click background / double-click object with
