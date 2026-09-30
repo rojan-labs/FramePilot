@@ -93,6 +93,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
   top while the tracks scroll under them. The timeline also no longer draws a focus box around the
   playhead handle or whatever you clicked last.
+- **Short clips stay separate when you zoom out.** A run of short back-to-back clips, such as
+  word-by-word captions, merged into one long block when the timeline was zoomed out or narrow.
+  Every clip was drawn at least 13 pixels wide, so short clips overlapped and hid the cut lines
+  between them. The block also ran past where the clips actually end. Clips are now drawn at their
+  true length at every zoom, and every cut keeps its line.
 - **Fullscreen preview has a way out.** The fullscreen button sits in the top bar, which
   fullscreen hides, so nothing on screen said how to leave. An "Exit fullscreen (Esc)" button now
   shows in the corner of the fullscreen monitor. In the desktop app, Esc with a clip selected used

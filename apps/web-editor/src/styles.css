@@ -5993,6 +5993,13 @@ section.timeline .timeline-tool:focus-visible {
      sit BELOW the clips instead of over their waveforms; it is 0 on every track
      with nothing expanded, so clips are unchanged in the common case. */
   bottom: calc(1px + var(--kf-lanes-h, 0px));
+  /* The clip is a <button>, and the UA gives buttons 6px of side padding. With
+     `border-box`, a box cannot be narrower than its padding plus border, so every
+     clip shorter than ~13px on screen was drawn 13px wide: zoomed out, a run of
+     short clips overlapped, each hid the cut hairline of the one before it, and
+     forty clips read as one block. Every child is absolutely positioned, so the
+     padding never laid anything out — it only set that floor. */
+  padding: 0;
   overflow: hidden;
   /* Horizontal culling (H6): clips scrolled out of the lane viewport skip
      layout/paint of their internals (filmstrip images, waveform canvas), so a

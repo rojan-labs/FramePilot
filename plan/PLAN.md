@@ -5956,6 +5956,10 @@ getting them wrong would have meant redoing the shaders and the AI tools.
       capture-phase handler (`useMonitorFullscreen`) because `select.clear` preventDefault()ed Esc,
       which in Electron blocks the HTML-fullscreen exit — the clip was deselected and the window
       stayed stuck. Unit tests: `pin-to-vertical-scroll.test.ts`, `useMonitorFullscreen.test.tsx`.
+      Also: zoomed out, a run of short clips drew as ONE block — `.clip-block` is a `<button>` that
+      kept the UA's 6px side padding, and `border-box` floors a box at padding+border (~13px), so
+      clips overlapped and each hid the previous cut's hairline. `padding: 0` (children are all
+      absolute). Browser probe, 40 clips: widths 13px (clamped) → 1.6–4.1px (true), every cut shown.
 - [~] **Professional program-monitor selection (reported bug, 2026-08-02):** mirror timeline
   text-object selection into the WebCodecs preview, use standard white selection chrome,
   and resolve preview interaction as single-click background / double-click object with
