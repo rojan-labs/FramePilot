@@ -15,8 +15,13 @@
  * Pure + deterministic — unit-tested; the component is a thin consumer.
  */
 import type { CSSProperties } from 'react';
+import { titleFaceLines } from '@framepilot/ai-sdk';
 import { titleEnvelopeFromParams } from '@framepilot/editor-core';
-import { textOverlayCaptionStyle } from '@framepilot/timeline-schema/text-overlay-styles';
+import type { CaptionStyle } from '@framepilot/timeline-schema';
+import {
+  textOverlayCaptionStyle,
+  textOverlayLineLayouts,
+} from '@framepilot/timeline-schema/text-overlay-styles';
 import {
   OUTLINE_WIDTH_UNITS_PER_EM,
   captionBoxCss,
@@ -81,7 +86,11 @@ const CAPTION_CHIP_PADDING = 0.35;
  */
 export function textOverlayTypographyCss(params: TextOverlayParams): CSSProperties | null {
   const style = textOverlayCaptionStyle(params);
-  if (style === undefined) return null;
+  return style === undefined ? null : captionBlockCss(style);
+}
+
+/** The caption CSS of one block of text in `style`: letters, chip and the renderer's padding. */
+function captionBlockCss(style: CaptionStyle): CSSProperties {
   const resolved = resolveCaptionStyle(style);
   const chip = resolved.background;
   const css: CSSProperties = {
@@ -108,6 +117,95 @@ export function textOverlayTypographyCss(params: TextOverlayParams): CSSProperti
     css.WebkitTextStroke = `1px ${resolved.textColor ?? '#ffffff'}`;
   }
   return css;
+}
+
+/**
+ * Paint a lockup line starts from, so it never inherits the overlay box's: a line whose own
+ * style draws no shadow, ring or chip must draw none, as the engine's per-line raster does.
+ */
+const LINE_PAINT_RESET = {
+  textShadow: 'none',
+  WebkitTextStroke: '0',
+  backgroundColor: 'transparent',
+  boxShadow: 'none',
+} as const satisfies CSSProperties;
+
+/**
+ * The height, in ems, the engine gives one row of `style`: the face's ascent plus descent, and
+ * the outline's width above and below (`captions.py#_layout_styled_caption`). A CSS line box of
+ * this height puts the row's box, and its baseline, where the export's is, whatever the face:
+ * a script's tall ascenders or a condensed face at a tight line height stack alike in both.
+ *
+ * Rows that wrap inside one line are pitched by this alone, where the engine adds a gap between
+ * them (`lineHeight - 1` of the size when above 1, a sixth of it when no line height is set).
+ * CSS cannot add space between rows only without also growing the line's chip, so a lockup line
+ * that wraps is drawn slightly tighter here than in the export; lockup lines are short.
+ */
+function engineRowHeightEm(style: CaptionStyle): number {
+  const [ascent, descent] = titleFaceLines(
+    style.fontFamily ?? DEFAULT_TYPED_FAMILY,
+    style.fontStyle === 'italic',
+  );
+  const strokeEm =
+    style.outlineColor !== undefined ? (style.outlineWidth ?? 0) / OUTLINE_WIDTH_UNITS_PER_EM : 0;
+  return (ascent + descent) / 1000 + 2 * strokeEm;
+}
+
+/** The family a typed overlay with none is drawn in (the engine's `_with_editor_defaults`). */
+const DEFAULT_TYPED_FAMILY = 'Inter';
+
+const LINE_ALIGN: Readonly<Record<TextOverlayParams['align'], CSSProperties>> = {
+  left: { marginLeft: 0, marginRight: 'auto' },
+  center: { marginLeft: 'auto', marginRight: 'auto' },
+  right: { marginLeft: 'auto', marginRight: 0 },
+};
+
+/** One line of a lockup as the DOM draws it. */
+export interface TextOverlayLineBlock {
+  /** The paragraph's index in the overlay's text: a stable React key. */
+  readonly index: number;
+  readonly text: string;
+  readonly css: CSSProperties;
+}
+
+/**
+ * A lockup's lines, each with the CSS it is drawn in, or `null` for a text overlay that is not a
+ * lockup (it draws its text as one block). The box they sit in is a column
+ * ({@link textOverlayStyle}); each line is its own caption block at its own size (`em` of the
+ * overlay's size), `spaceBefore` below the line above — the engine's `_stack_lockup`, in CSS.
+ */
+export function textOverlayLineBlocks(
+  params: TextOverlayParams,
+): readonly TextOverlayLineBlock[] | null {
+  const layouts = textOverlayLineLayouts(params);
+  if (layouts === undefined) return null;
+  return layouts.map((line, position) => ({
+    index: line.index,
+    text: line.text,
+    css: {
+      ...LINE_PAINT_RESET,
+      ...captionBlockCss(line.style),
+      lineHeight: engineRowHeightEm(line.style),
+      fontSize: `${line.scale}em`,
+      // `spaceBefore` is in ems of the OVERLAY's size; this line's em is `scale` of it.
+      marginTop: position === 0 ? 0 : `${line.spaceBefore / line.scale}em`,
+      // Each line aligns itself (a block as wide as its words), so it stacks the same wherever
+      // it is put: straight in the overlay's box, or inside the on-canvas editor's content node.
+      display: 'block',
+      ...LINE_ALIGN[params.align],
+      width: 'max-content',
+      maxWidth: '100%',
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'break-word',
+    },
+  }));
+}
+
+/** `params` drawn as one block in the overlay's own look: a lockup without its lines. */
+export function withoutLockupLines(params: TextOverlayParams): TextOverlayParams {
+  if (params.typography?.lines === undefined) return params;
+  const { lines: _lines, ...typography } = params.typography;
+  return { ...params, typography };
 }
 
 /**
@@ -167,6 +265,15 @@ export function textOverlayStyle(
     whiteSpace: 'pre-wrap',
     pointerEvents: 'none',
   };
+  if (params.typography?.lines !== undefined && textOverlayLineBlocks(params) !== null) {
+    // A lockup: the box holds a column of caption blocks that paint themselves
+    // (`textOverlayLineBlocks`); it draws no letters or chip of its own.
+    return {
+      ...box,
+      width: 'max-content',
+      maxWidth: `${Math.min(100, Math.max(5, params.boxWidthPercent))}%`,
+    };
+  }
   const typography = textOverlayTypographyCss(params);
   if (typography !== null) {
     // The engine draws a typed text overlay's raster tight around its lines and centres it on

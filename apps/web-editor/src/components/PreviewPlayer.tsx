@@ -102,6 +102,7 @@ import {
 } from '../editor/patch-builders.js';
 import { cropObjectPosition } from '../preview/crop-fill.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
+import { TextOverlayContent } from './TextOverlayContent.js';
 import {
   blurRadiusAt,
   offsetAt as transitionOffsetAt,
@@ -1356,7 +1357,7 @@ export function PreviewPlayer({
                       }
                     }}
                   >
-                    {o.text}
+                    <TextOverlayContent params={o.params} text={o.text} />
                   </p>
                 ),
               )}

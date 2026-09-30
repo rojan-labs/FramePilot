@@ -11220,7 +11220,49 @@ catalog tests (fonts bundled, weights in range, hex colours), panel/Inspector co
   sat inside the top edge and turned the clip (-76°), and at 200% zoom the chrome stayed
   1.5 px / 8 px.
 
-**Last updated:** 2026-09-28
+## Text lockups — multi-font text overlay styles — `[x]` done (2026-09-30)
+
+Maintainer (2026-09-30): "the styles that you give are very naive … the background of the styles
+is also not looking good … research the text overlays used by professional video editors and
+motion designers … they prefer using multiple font combinations … for the background pull some
+nice image". Branch `feat/text-lockups-2026-09-30`.
+
+Scope gate. **Outcome:** a creator adds a designed multi-font text overlay (kicker over headline,
+script accent over caps, name + role lower third, big number + label) in one click, and the export
+draws what the tile showed. **Gap:** every style is one font at one size, so none of the
+lockups title designers use can be made; the tiles are judged against a flat grey gradient.
+**Slice:** per-line styles on ONE text overlay (`typography.lines`, a line = one `\n` paragraph
+of the overlay's text) drawn by the caption rasterizer per line and stacked, mirrored in the
+preview CSS; a researched set of lockup styles; photo tile backgrounds. **Reuse:** the text
+overlay typography path (ADR 0194), `render_caption_raster`, the caption CSS, the catalog, the
+Text panel. **Deferred:** per-line editing in the Inspector (the lines keep their look; the
+Inspector edits the base), per-word styling inside a line, lockup-aware `title_metrics` (#146).
+**Evidence:** engine raster tests (a lined overlay stacks lines in their own faces, an unlined
+overlay is byte-identical), preview CSS tests, catalog invariants, an engine contact sheet of the
+lockups next to the panel tiles.
+
+- [x] **TL1** `typography.lines`: schema, engine stacking (export + desktop monitor), preview CSS
+  (each line's CSS line box = the engine's row height from the generated face metrics, so a
+  script or a tight condensed face stacks where the export stacks it). Engine tests
+  `test_text_overlay_lockups.py`; TS mapping/CSS tests.
+- [x] **TL2** 14 researched lockups (new Combos category + Sport, Shout, Hook chips, End card,
+  Vlog) and 9 naive styles rebuilt as lockups (ids kept, headline first). Catalog tests hold the
+  research numbers (line ≥ 2.4 % of the frame, scripts never tracked/capitalised, Combos mix
+  families, wrap box in frame).
+- [x] **TL3** Photo tile backgrounds, one Unsplash photo per category (`public/text-styles`).
+- [x] **TL4** AI: discovery describes each lockup line and says to write one line per part;
+  `add_text_layer`'s description says the same. Default-request goldens unchanged. Docs: ADR
+  0197, guide "Lockups", CHANGELOG, website changelog.
+- [x] **TL5** Discovered: on-monitor Shift+Enter was dropped on commit (a `<br>` that
+  `textContent` does not read) and the panel's row edit (an `<input>`) flattened line breaks;
+  both now keep `\n`.
+- Evidence: engine contact sheets of every lockup at 1920×1080 over its category photo; the
+  Text panel and an added lockup checked in the browser preview (Vite + Playwright), which found
+  the CSS/engine line-box mismatch fixed in TL1.
+- Deferred: per-line editing in the Inspector, per-word colour, rotated script accents,
+  left-edge anchoring for lower thirds, lockup-aware `title_metrics` (#146).
+
+**Last updated:** 2026-09-30
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

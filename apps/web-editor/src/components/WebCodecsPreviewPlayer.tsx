@@ -43,6 +43,7 @@ import {
 import { useSettings } from '../editor/useSettings.js';
 import { activeTimedItemsAt, buildTemporalIndex } from '../preview/temporal-index.js';
 import { textOverlayStyle } from '../editor/textOverlay.js';
+import { TextOverlayContent } from './TextOverlayContent.js';
 import {
   WebCodecsPreviewEngine,
   type EngineSegment,
@@ -1397,7 +1398,7 @@ export function WebCodecsPreviewPlayer({
                       editor.select(overlay.id);
                     }}
                   >
-                    {overlay.params.text}
+                    <TextOverlayContent params={overlay.params} hitTarget />
                   </p>
                 ),
               )}

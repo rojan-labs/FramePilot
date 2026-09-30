@@ -130,6 +130,11 @@ _TEXT_OVERLAY_CHIP_FIELDS: tuple[str, ...] = (
     "borderWidth",
 )
 _MIN_BOX_WIDTH_PERCENT = 5.0
+#: Most lines a lockup styles (``MAX_TEXT_OVERLAY_LINES`` in ``text-overlay-styles.ts``).
+_MAX_LOCKUP_LINES = 6
+#: ``TextOverlayLineSchema``'s ranges: a line's size multiplier and its extra space above.
+_LINE_SCALE_MAX = 8.0
+_SPACE_BEFORE_RANGE = (-3.0, 3.0)
 
 
 def _font_size_for(frame_height: int) -> int:
@@ -260,6 +265,24 @@ def text_overlay_caption_style(params: Mapping[str, Any], frame_height: int) -> 
     :param params: The ``text`` effect's params.
     :param frame_height: Height of the delivered frame, which the font size is relative to.
     """
+    fields = _caption_style_fields(params, frame_height)
+    if fields is None:
+        return None
+    return _validated_caption_style(fields)
+
+
+def _validated_caption_style(fields: Mapping[str, Any]) -> CaptionStyle | None:
+    try:
+        return CaptionStyle.model_validate(fields)
+    except ValidationError as exc:
+        log.warning(
+            "Text overlay typography is invalid; drawing the plain text overlay instead: %s", exc
+        )
+        return None
+
+
+def _caption_style_fields(params: Mapping[str, Any], frame_height: int) -> dict[str, Any] | None:
+    """The unvalidated :class:`CaptionStyle` fields of :func:`text_overlay_caption_style`."""
     typography = params.get("typography")
     if not isinstance(typography, Mapping):
         return None
@@ -277,9 +300,7 @@ def text_overlay_caption_style(params: Mapping[str, Any], frame_height: int) -> 
     }
     style.update(
         display="phrase",
-        # The caption renderer sizes its font as floor(height / 22 * fontScale). Half a pixel
-        # over the text overlay's size makes that floor land on exactly the size it resolved to.
-        fontScale=(layout.font_size + 0.5) / (frame_height * _CAPTION_FONT_HEIGHT_FRACTION),
+        fontScale=_font_scale(layout.font_size, frame_height),
         fontWeight=layout.font_weight,
         textColor=_hex_color(layout.color),
         textAlign=layout.align,
@@ -289,19 +310,178 @@ def text_overlay_caption_style(params: Mapping[str, Any], frame_height: int) -> 
         style["fontFamily"] = layout.font_family
     background = params.get("background")
     if isinstance(background, str) and background.strip():
-        chip = typography.get("background")
-        shape = chip if isinstance(chip, Mapping) else {}
-        style["background"] = {
-            "color": background,
-            **{key: shape[key] for key in _TEXT_OVERLAY_CHIP_FIELDS if key in shape},
-        }
-    try:
-        return CaptionStyle.model_validate(style)
-    except ValidationError as exc:
-        log.warning(
-            "Text overlay typography is invalid; drawing the plain text overlay instead: %s", exc
-        )
+        style["background"] = {"color": background, **_chip_shape(typography.get("background"))}
+    return style
+
+
+def _font_scale(font_size: int, frame_height: int) -> float:
+    """The caption ``fontScale`` that draws ``font_size`` pixels on a ``frame_height`` frame.
+
+    The caption renderer sizes its font as floor(height / 22 * fontScale). Half a pixel over the
+    size makes that floor land on exactly ``font_size``.
+    """
+    return (font_size + 0.5) / (frame_height * _CAPTION_FONT_HEIGHT_FRACTION)
+
+
+def _chip_shape(chip: Any) -> dict[str, Any]:
+    """The chip-shape fields of a ``typography.background`` or a lockup line's ``chip``."""
+    if not isinstance(chip, Mapping):
+        return {}
+    return {key: chip[key] for key in _TEXT_OVERLAY_CHIP_FIELDS if key in chip}
+
+
+# --------------------------------------------------------------------------- lockups
+
+
+@dataclass(frozen=True)
+class LockupLine:
+    """One paragraph of a lockup: its words, its caption style and where it stacks."""
+
+    #: The paragraph's index in the overlay's text (its ``typography.lines`` slot).
+    index: int
+    text: str
+    style: CaptionStyle
+    #: Extra space above the line in pixels (``spaceBefore`` times the overlay's font size).
+    space_before_px: int
+
+
+def text_overlay_line_layouts(
+    text: str, params: Mapping[str, Any], frame_height: int
+) -> list[LockupLine] | None:
+    """A LOCKUP's lines, each in its own caption style; ``None`` for a text overlay that is not one.
+
+    A lockup is a text overlay whose ``typography.lines`` styles its paragraphs (the
+    ``\\n``-separated lines of its text) in their own faces, sizes and colours — a tracked
+    kicker over a heavy headline, a script word over caps. Paragraph ``i`` takes the overlay's
+    caption style with ``lines[i]``'s overrides; a paragraph with no entry keeps the overlay's
+    own look, and an empty paragraph is left out (it draws nothing and takes no room).
+
+    The TypeScript twin is ``textOverlayLineLayouts`` (``text-overlay-styles.ts``), which the
+    preview stacks in CSS as :func:`_stack_lockup` stacks the rasters here.
+    """
+    base = _caption_style_fields(params, frame_height)
+    if base is None:
         return None
+    typography = params["typography"]
+    lines = typography.get("lines")
+    if not isinstance(lines, list) or not lines:
+        return None
+    base_font_size = text_overlay_layout(_with_editor_defaults(params), 1, frame_height).font_size
+    laid: list[LockupLine] = []
+    for index, paragraph in enumerate(text.split("\n")):
+        if not paragraph.strip():
+            continue
+        line = lines[index] if index < len(lines) else {}
+        style = _validated_caption_style(
+            _lockup_line_fields(base, typography, line, base_font_size, frame_height)
+        )
+        if style is None:
+            return None
+        space = line.get("spaceBefore", 0.0)
+        laid.append(
+            LockupLine(
+                index=index,
+                text=paragraph,
+                style=style,
+                space_before_px=round(float(space) * base_font_size),
+            )
+        )
+    return laid
+
+
+def _lockup_line_fields(
+    base: Mapping[str, Any],
+    typography: Mapping[str, Any],
+    line: Mapping[str, Any],
+    base_font_size: int,
+    frame_height: int,
+) -> dict[str, Any]:
+    """The overlay's caption fields with one lockup line's overrides (``TextOverlayLineSchema``)."""
+    fields = dict(base)
+    for key in (*TEXT_OVERLAY_TYPOGRAPHY_FIELDS, "fontFamily"):
+        if key in line:
+            fields[key] = line[key]
+    if "shadow" in line and line["shadow"] is None:
+        # ``null`` draws this line with no shadow even when the overlay has one.
+        fields.pop("shadow", None)
+    if "fontWeight" in line:
+        fields["fontWeight"] = int(min(max(float(line["fontWeight"]), _MIN_WEIGHT), _MAX_WEIGHT))
+    scale = float(line.get("scale", 1.0))
+    fields["fontScale"] = _font_scale(max(1, int(base_font_size * scale)), frame_height)
+    if "color" in line:
+        fields["textColor"] = _hex_color(_color_from_param(line["color"]))
+    base_chip = base.get("background")
+    chip_color = (
+        line["background"]
+        if "background" in line
+        else (base_chip["color"] if isinstance(base_chip, Mapping) else None)
+    )
+    if isinstance(chip_color, str) and chip_color.strip():
+        fields["background"] = {
+            "color": chip_color,
+            **_chip_shape(typography.get("background")),
+            **_chip_shape(line.get("chip")),
+        }
+    else:
+        fields.pop("background", None)
+    return fields
+
+
+def _stack_lockup(
+    lines: list[LockupLine], frame_width: int, frame_height: int, align: str
+) -> TextOverlayRaster:
+    """Draw each lockup line with the caption rasterizer and stack them into one raster.
+
+    Lines stack box on box (a caption raster's box is its canvas less ``margin`` on every side),
+    ``space_before_px`` apart, aligned left, centre or right by the overlay's ``align`` — as the
+    preview's flex column does. Later lines paint over earlier ones where a negative space makes
+    them overlap (a script word laid across caps). The stacked canvas keeps the widest margin
+    all round, so no line's shadow or glow is clipped.
+
+    A frosted line's backdrop coverage is stacked the same way. The raster carries one blur
+    width, so a lockup whose lines frost at different widths blurs at the widest.
+    """
+    rasters = [
+        render_caption_raster(line.text, frame_width, frame_height, style=line.style)
+        for line in lines
+    ]
+    boxes = [
+        (raster.image.shape[1] - 2 * raster.margin, raster.image.shape[0] - 2 * raster.margin)
+        for raster in rasters
+    ]
+    tops: list[int] = []
+    cursor = 0
+    for index, (line, (_, box_height)) in enumerate(zip(lines, boxes, strict=True)):
+        top = cursor + (line.space_before_px if index > 0 else 0)
+        tops.append(top)
+        cursor = top + box_height
+    stack_top = min(tops)
+    stack_bottom = max(top + height for top, (_, height) in zip(tops, boxes, strict=True))
+    stack_width = max(width for width, _ in boxes)
+    margin = max(raster.margin for raster in rasters)
+    canvas = Image.new(
+        "RGBA", (stack_width + 2 * margin, stack_bottom - stack_top + 2 * margin), (0, 0, 0, 0)
+    )
+    frosted = any(raster.backdrop is not None for raster in rasters)
+    backdrop = np.zeros((canvas.height, canvas.width), dtype=np.uint8) if frosted else None
+    for raster, (width, _), top in zip(rasters, boxes, tops, strict=True):
+        if align == "left":
+            x = 0
+        elif align == "right":
+            x = stack_width - width
+        else:
+            x = (stack_width - width) // 2
+        left = margin + x - raster.margin
+        upper = margin + top - stack_top - raster.margin
+        canvas.alpha_composite(Image.fromarray(raster.image, "RGBA"), dest=(left, upper))
+        if backdrop is not None and raster.backdrop is not None:
+            height, width_px = raster.backdrop.shape
+            region = backdrop[upper : upper + height, left : left + width_px]
+            np.maximum(region, raster.backdrop, out=region)
+    sigma = max((raster.backdrop_sigma_px for raster in rasters), default=0.0)
+    return TextOverlayRaster(
+        np.asarray(canvas, dtype=np.uint8), backdrop, sigma if frosted else 0.0
+    )
 
 
 #: The web editor's defaults for a text overlay (``DEFAULT_TEXT_PARAMS``): what the preview draws
@@ -343,66 +523,125 @@ def _typography_problem(typography: Mapping[str, Any]) -> str | None:
     the same values or the two disagree about which look a text overlay has. The pydantic
     ``CaptionStyle`` is looser (it bounds only the letter opacity), hence these checks.
     """
+    problem = _line_fields_problem(typography)
+    if problem is not None:
+        return problem
+    if typography.get("background") is not None and not _chip_ok(typography["background"]):
+        return "background"
+    lines = typography.get("lines")
+    if lines is None:
+        return None
+    if not isinstance(lines, list) or len(lines) > _MAX_LOCKUP_LINES:
+        return "lines"
+    for index, line in enumerate(lines):
+        line_problem = _lockup_line_problem(line)
+        if line_problem is not None:
+            return f"lines[{index}].{line_problem}"
+    return None
+
+
+def _line_fields_problem(fields: Mapping[str, Any]) -> str | None:
+    """The first caption line field (case, italic, spacing, opacity, outline, shadow) that fails."""
     checks: list[tuple[str, bool]] = [
         (
             "textTransform",
-            "textTransform" not in typography or typography["textTransform"] in _TEXT_TRANSFORMS,
+            "textTransform" not in fields or fields["textTransform"] in _TEXT_TRANSFORMS,
         ),
-        ("fontStyle", "fontStyle" not in typography or typography["fontStyle"] in _FONT_STYLES),
+        ("fontStyle", "fontStyle" not in fields or fields["fontStyle"] in _FONT_STYLES),
         (
             "letterSpacing",
-            "letterSpacing" not in typography or _is_number(typography["letterSpacing"]),
+            "letterSpacing" not in fields or _is_number(fields["letterSpacing"]),
         ),
         (
             "lineHeight",
-            "lineHeight" not in typography
+            "lineHeight" not in fields
             or (
-                _is_number(typography["lineHeight"])
-                and _LINE_HEIGHT_RANGE[0] <= typography["lineHeight"] <= _LINE_HEIGHT_RANGE[1]
+                _is_number(fields["lineHeight"])
+                and _LINE_HEIGHT_RANGE[0] <= fields["lineHeight"] <= _LINE_HEIGHT_RANGE[1]
             ),
         ),
         (
             "textOpacity",
-            "textOpacity" not in typography
-            or (_is_number(typography["textOpacity"]) and 0 <= typography["textOpacity"] <= 1),
+            "textOpacity" not in fields
+            or (_is_number(fields["textOpacity"]) and 0 <= fields["textOpacity"] <= 1),
         ),
-        (
-            "outlineColor",
-            "outlineColor" not in typography
-            or (isinstance(typography["outlineColor"], str) and bool(typography["outlineColor"])),
-        ),
+        ("outlineColor", "outlineColor" not in fields or _is_colour(fields["outlineColor"])),
         (
             "outlineWidth",
-            "outlineWidth" not in typography or _non_negative(typography["outlineWidth"]),
+            "outlineWidth" not in fields or _non_negative(fields["outlineWidth"]),
         ),
     ]
-    shadow = typography.get("shadow")
+    shadow = fields.get("shadow")
     if shadow is not None:
         checks.append(
             (
                 "shadow",
                 isinstance(shadow, Mapping)
-                and isinstance(shadow.get("color"), str)
-                and bool(shadow.get("color"))
+                and _is_colour(shadow.get("color"))
                 and _non_negative(shadow.get("blur"))
                 and _is_number(shadow.get("offsetX"))
                 and _is_number(shadow.get("offsetY")),
             )
         )
-    chip = typography.get("background")
-    if chip is not None:
-        shape_ok = isinstance(chip, Mapping) and all(
-            _non_negative(chip[key])
-            for key in ("radius", "paddingX", "paddingY", "blur", "borderWidth")
-            if key in chip
-        )
-        border = chip.get("borderColor") if isinstance(chip, Mapping) else None
-        checks.append(
-            (
-                "background",
-                shape_ok and (border is None or (isinstance(border, str) and border != "")),
-            )
-        )
+    for field, ok in checks:
+        if not ok:
+            return field
+    return None
+
+
+def _is_colour(value: Any) -> bool:
+    return isinstance(value, str) and value != ""
+
+
+def _chip_ok(chip: Any) -> bool:
+    """Whether ``chip`` is a valid chip shape (``TextOverlayChipSchema``)."""
+    if not isinstance(chip, Mapping):
+        return False
+    shape_ok = all(
+        _non_negative(chip[key])
+        for key in ("radius", "paddingX", "paddingY", "blur", "borderWidth")
+        if key in chip
+    )
+    border = chip.get("borderColor")
+    return shape_ok and (border is None or _is_colour(border))
+
+
+def _lockup_line_problem(line: Any) -> str | None:
+    """Why one ``typography.lines`` entry fails ``TextOverlayLineSchema`` (``None``: it passes)."""
+    if not isinstance(line, Mapping):
+        return "entry"
+    problem = _line_fields_problem(line)
+    if problem is not None:
+        return problem
+    weight = line.get("fontWeight")
+    scale = line.get("scale")
+    space = line.get("spaceBefore")
+    checks: list[tuple[str, bool]] = [
+        ("fontFamily", "fontFamily" not in line or _is_colour(line["fontFamily"])),
+        (
+            "fontWeight",
+            weight is None
+            or (
+                _is_number(weight)
+                and float(weight).is_integer()
+                and _MIN_WEIGHT <= weight <= _MAX_WEIGHT
+            ),
+        ),
+        ("scale", scale is None or (_is_number(scale) and 0 < scale <= _LINE_SCALE_MAX)),
+        ("color", "color" not in line or _is_colour(line["color"])),
+        (
+            "background",
+            "background" not in line
+            or line["background"] is None
+            or _is_colour(line["background"]),
+        ),
+        ("chip", "chip" not in line or _chip_ok(line["chip"])),
+        (
+            "spaceBefore",
+            space is None
+            or (_is_number(space) and _SPACE_BEFORE_RANGE[0] <= space <= _SPACE_BEFORE_RANGE[1]),
+        ),
+    ]
     for field, ok in checks:
         if not ok:
             return field
@@ -535,17 +774,29 @@ def rasterize_text_overlay_layers(
     The export's compiler and the desktop monitor's raster route both call this, so the coverage
     the monitor blurs through is the export's own.
     """
+    lockup = text_overlay_line_layouts(text, style_params, frame_height)
+    if lockup:
+        align = text_overlay_layout(style_params, frame_width, frame_height).align
+        return _rotated(_stack_lockup(lockup, frame_width, frame_height, align), rotates)
     styled = text_overlay_caption_style(style_params, frame_height)
     if styled is None:
         return TextOverlayRaster(
             rasterize_text_overlay(text, style_params, frame_width, frame_height, rotates=rotates)
         )
     raster = render_caption_raster(text, frame_width, frame_height, style=styled)
-    image = rotation_safe(raster.image) if rotates else raster.image
+    return _rotated(
+        TextOverlayRaster(raster.image, raster.backdrop, raster.backdrop_sigma_px), rotates
+    )
+
+
+def _rotated(raster: TextOverlayRaster, rotates: bool) -> TextOverlayRaster:
+    """``raster`` made rotation-safe (:func:`rotation_safe`) when the clip turns."""
+    if not rotates:
+        return raster
+    image = rotation_safe(raster.image)
     if raster.backdrop is None:
         return TextOverlayRaster(image)
-    coverage = raster.backdrop[..., np.newaxis]
-    backdrop = rotation_safe(coverage)[..., 0] if rotates else raster.backdrop
+    backdrop = rotation_safe(raster.backdrop[..., np.newaxis])[..., 0]
     return TextOverlayRaster(image, backdrop, raster.backdrop_sigma_px)
 
 
@@ -568,6 +819,10 @@ def rasterize_text_overlay(
         diagonal (plan/elements EL2b.4), as a turning shape is (ADR 0190); its centre, and so its
         placement, stays where it was.
     """
+    if text_overlay_line_layouts(text, style_params, frame_height):
+        return rasterize_text_overlay_layers(
+            text, style_params, frame_width, frame_height, rotates=rotates
+        ).image
     styled = text_overlay_caption_style(style_params, frame_height)
     if styled is not None:
         image = render_caption_raster(text, frame_width, frame_height, style=styled).image
@@ -615,6 +870,17 @@ def title_drawn_size(
     :param frame_width: Width of the delivered frame in pixels.
     :param frame_height: Height of the delivered frame in pixels.
     """
+    lockup = text_overlay_line_layouts(text, style_params, frame_height)
+    if lockup:
+        # A lockup is measured by its stacked boxes: each line's words plus its chip padding.
+        align = text_overlay_layout(style_params, frame_width, frame_height).align
+        stacked = _stack_lockup(lockup, frame_width, frame_height, align)
+        margin = max(
+            render_caption_raster(line.text, frame_width, frame_height, style=line.style).margin
+            for line in lockup
+        )
+        height, width = stacked.image.shape[:2]
+        return int(width - 2 * margin), int(height - 2 * margin)
     styled = text_overlay_caption_style(style_params, frame_height)
     if styled is None:
         image = rasterize_text_overlay(text, style_params, frame_width, frame_height)

@@ -8,6 +8,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Multi-font text styles (lockups).** A text overlay can now set each of its lines in its own
+  font, size, colour and background. Examples:
+  - a small spaced-out label over a big headline;
+  - a handwritten word laid over bold capitals;
+  - a name over a smaller job title;
+  - a big number over its label.
+
+  The Text panel has a new **Combos** section of 9 of these, researched from how title
+  designers and editors build titles. The panel also has 5 more lockups across its other
+  sections, and 9 plain styles are rebuilt as lockups: Name tag, News bar, Big number,
+  Testimonial, Cinematic and others. Press Shift+Enter to start a new line. The preview and the
+  export stack the lines the same way, and the assistant knows which styles need one line per
+  part ([ADR 0197](docs/adr/0197-text-overlay-lockups.md)).
+- **Text style tiles are shown over photographs,** one per section, instead of a flat grey
+  background, so you can see how a style reads over a real picture.
 - **The self-check notices text overlays drawn on top of each other.** When two titles are on
   screen at the same time and their letters overlap, for example a small date set across the
   last line of a closing title, the review now warns. It names both overlays, what they say and
@@ -89,6 +104,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A new line typed on the monitor is kept.** Shift+Enter while typing into a text overlay used
+  to be dropped when you finished typing. Editing a text overlay's words from the Text panel's
+  list also kept only its first line.
 - **The playhead stays at the top of the timeline.** With more tracks than fit, scrolling down
   took the ruler and the playhead's handle off screen with the tracks. Both now stay pinned at the
   top while the tracks scroll under them. The timeline also no longer draws a focus box around the

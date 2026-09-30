@@ -159,7 +159,8 @@ describe('add_text_layer fits a styled overlay to the frame', () => {
     const word = 'Unterhaltungselektronik';
     // A size at which the name needs a box wider than twice the style's centre — left where
     // it was, the box would start off the left edge — but one the fit can still widen to.
-    let size = style.look.fontSizePercent;
+    // From a small size up: the style's own size may already overflow this long a word.
+    let size = 2;
     const needs = (s: number) =>
       overflowingWords(
         {
@@ -210,12 +211,27 @@ describe('discover_text_overlay_styles', () => {
     expect(look('seventies')).toContain('outline');
   });
 
+  it('tells the model a lockup needs one line per part, and what each line is', () => {
+    const [kicker] = discover({ query: 'kicker-headline' }).styles;
+    expect(kicker!.look).toContain('LOCKUP, write 2 lines joined by \\n');
+    expect(kicker!.look).toContain(
+      '1) Montserrat 600 caps wide tracking #ffd60a 26% of the headline',
+    );
+    expect(kicker!.look).toContain('2) the headline, in the look above');
+    const [heading] = discover({ query: 'subheading' }).styles;
+    expect(heading!.look).not.toContain('LOCKUP');
+  });
+
   it('filters by category and by search', () => {
     const lowerThirds = discover({ category: 'lower-thirds' });
     expect(lowerThirds.styles.length).toBeGreaterThan(0);
     expect(lowerThirds.styles.every((s) => s.category === 'lower-thirds')).toBe(true);
     const bebas = discover({ query: 'bebas' });
-    expect(bebas.styles.map((s) => s.styleId).sort()).toEqual(['big-number', 'poster']);
+    expect(bebas.styles.map((s) => s.styleId).sort()).toEqual([
+      'big-number',
+      'kicker-headline',
+      'poster',
+    ]);
   });
 
   it('answers a name searched in the wrong category with where it really is', () => {

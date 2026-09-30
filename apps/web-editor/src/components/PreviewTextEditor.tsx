@@ -17,7 +17,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Keyframe } from '@framepilot/timeline-schema';
 import type { TextOverlayParams } from '../editor/patch-builders.js';
-import { textOverlayStyle } from '../editor/textOverlay.js';
+import {
+  textOverlayLineBlocks,
+  textOverlayStyle,
+  withoutLockupLines,
+} from '../editor/textOverlay.js';
+import { TextOverlayContent } from './TextOverlayContent.js';
 import { useHugLines } from '../editor/useHugLines.js';
 import {
   textOverlayEditAfter,
@@ -64,6 +69,20 @@ const transformChanged = (a: PictureBaseTransform, b: PictureBaseTransform): boo
   a.y !== b.y ||
   a.rotation !== b.rotation;
 
+/** Insert a "\n" text node at the caret (the box is `white-space: pre-wrap`, so it breaks). */
+function insertLineBreakAtCaret(): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const lineBreak = document.createTextNode('\n');
+  range.insertNode(lineBreak);
+  range.setStartAfter(lineBreak);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function PreviewTextEditor({
   params,
   timeInClip,
@@ -84,15 +103,21 @@ export function PreviewTextEditor({
   const now = transformAt(keyframes, timeInClip);
   const shown: TextOverlayParams = live === null ? params : { ...params, ...live.params };
   const clip = textOverlayClipTransform(live?.transform ?? now, resolution);
+  // A lockup draws each line in its own look; while its words are typed into they are one
+  // block in the overlay's own look, so the caret moves through plain text.
+  const lockup = textOverlayLineBlocks(shown) !== null;
+  const typed = editing && lockup ? withoutLockupLines(shown) : shown;
   // The resting layout: while it is being edited, the words are shown whole, not mid-entrance.
-  const style = textOverlayStyle(shown, duration / 2, duration, clip);
+  const style = textOverlayStyle(typed, duration / 2, duration, clip);
 
   // A typed overlay's box hugs its longest line, as the engine's raster does. Not while typing:
   // the lines move under the caret, and the box settles when the edit commits.
   useHugLines(
     textRef,
     editRef,
-    shown.typography !== undefined && !editing,
+    // A lockup's lines each hug their own words (`width: max-content`); narrowing the column
+    // to its longest row of letters would cut into the lines' padding and re-wrap them.
+    shown.typography !== undefined && !editing && !lockup,
     JSON.stringify([
       shown.text,
       shown.fontFamily,
@@ -196,6 +221,9 @@ export function PreviewTextEditor({
         style={{ ...style, opacity: 1, pointerEvents: editing ? 'auto' : 'none' }}
       >
         <div
+          // A fresh node per mode: typing rewrites this node's DOM, which React must not
+          // reconcile the lockup's lines against.
+          key={editing ? 'typing' : 'shown'}
           ref={editRef}
           className="preview-text-edit-content"
           contentEditable={editing}
@@ -203,7 +231,13 @@ export function PreviewTextEditor({
           aria-label="text overlay content"
           onBlur={commitText}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+            if (event.key === 'Enter' && event.shiftKey) {
+              // A line break as a "\n" character, which `textContent` keeps: left to itself
+              // the browser inserts a <br> element that reads back as nothing, and a lockup's
+              // lines ARE its line breaks.
+              event.preventDefault();
+              insertLineBreakAtCaret();
+            } else if (event.key === 'Enter') {
               event.preventDefault();
               commitText();
             } else if (event.key === 'Escape') {
@@ -213,7 +247,7 @@ export function PreviewTextEditor({
             }
           }}
         >
-          {params.text}
+          {editing ? params.text : <TextOverlayContent params={shown} />}
         </div>
       </div>
       <TransformBox

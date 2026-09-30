@@ -16,9 +16,12 @@ The panel has two tabs, **Styles** and **Fonts**.
   Subheading or Body template and selects it.
 - **Search** matches a template's name, sample text, category or font ("neon", "lower thirds",
   "serif").
-- **Categories:** Basic, Headlines, Lower thirds, Callouts, Social, Quotes, Script, and Retro & fun,
-  60 styles in all. "All" shows every category, after a **Recent** row of the styles you last
-  used.
+- **Categories:** Combos, Basic, Headlines, Lower thirds, Callouts, Social, Quotes, Script, and
+  Retro & fun, 74 styles in all. "All" shows every category, after a **Recent** row of the styles
+  you last used. **Combos** are multi-font lockups (see [Lockups](#lockups)).
+- **Tiles** show each style over a photograph chosen for its category (a person for lower thirds,
+  a street for headlines, a dark sea for callouts), because a text style is judged against a
+  picture.
 - **Click a tile** to add that text overlay at the playhead. The new text overlay is selected, ready to edit.
   **Drag a tile** onto a lane to add it at the drop point.
 - **Apply** (on a tile, while a text overlay is selected) restyles that text overlay and keeps its words, its
@@ -39,6 +42,76 @@ Handwritten & script.
 A text overlay goes on the lane it is dropped on, else the first overlay lane with room, else a new
 overlay lane on top. A text overlay at the same time as another goes on a new layer instead of being
 refused.
+
+## Lockups
+
+A lockup is a text overlay whose lines are set in different faces, sizes and colours, and read
+as one title. Examples: a small tracked kicker over a heavy headline, a script word laid over
+caps, a name over its role, a big number over its label. Each line of the text (split where you
+press Shift+Enter, or where the assistant writes `\n`) takes its own look from the style.
+Lines past the ones the style names keep the headline's look.
+
+- Type the words as usual. Double-click on the monitor to type; while you type, the words show in
+  the headline's look, and each line gets its own look back when you finish.
+- The Inspector's font, size and colour act on the headline. Changing the size scales every
+  line together.
+- **Apply** restyles any text overlay, lockup or not; its words stay, line by line.
+
+### The rules the styles follow
+
+Researched 2026-09-30 from broadcast, documentary, editorial and creator practice. The numbers
+are enforced by `text-overlay-styles.test.ts`.
+
+- **Two families, and a third only as an accent.** A script or handwritten accent is limited to a
+  few words. Never pair two faces that are nearly the same: two geometric sans of one weight,
+  two condensed caps, two scripts or two Didones read as a mistake.
+- **Step sizes clearly.**
+  - A kicker is 25–35 % of a display headline.
+  - A lower third's role is 55–75 % of the name.
+  - A stat's label is 13–20 % of the number.
+  - No line is smaller than 2.4 % of the frame height (~28 px at 1080p). Thinner lines do not
+    survive a streaming encode.
+- **Tracking.**
+  - Small caps kickers and roles: +0.12 to +0.4 em.
+  - Condensed caps headlines: 0 to +0.03 em.
+  - Heavy display in mixed case: −0.01 to −0.03 em.
+  - Scripts: never tracked and never capitalised, because tracking breaks their joins.
+- **Tight leading.** Stacked display caps sit at 0.85–0.95. A kicker sits close enough to its
+  headline to read as one unit.
+- **One accent.** Use one accent colour, on one element: the kicker, the script word or a chip.
+- **Separation by genre.**
+  - Cinematic, documentary and wedding titles use no plate, just a soft lift.
+  - Lower thirds and news use plates, one per line.
+  - Social uses chips or a heavy outline.
+  - Didones and scripts get a shadow, never an outline.
+- **Placement.** Titles stay inside title-safe (90 % of the frame). Lower thirds sit bottom-left,
+  above the caption band. Hooks sit in the upper third.
+
+Sources:
+
+- SMPTE ST 2046-1 safe areas.
+- Lower-third guides from LiGR, anfx and Infinite Creation.
+- Material Design's overline style.
+- Adobe's font-pairing guidance.
+- Apple's keynote typography, and a Vox-style token set.
+- Classic pairings: Bebas Neue + Montserrat, Playfair Display + Montserrat, Great Vibes +
+  Montserrat, Archivo Black + Inter + Caveat.
+
+### How a lockup is stored
+
+`typography.lines` on the text overlay's `text` effect (`TextOverlayLineSchema`,
+`text-overlay-styles.ts`), one entry per line. A line may set any of these fields:
+
+- `fontFamily`, `fontWeight`, `fontStyle`, `textTransform`, `letterSpacing` and `lineHeight`.
+- `textOpacity`, `outlineColor` and `outlineWidth`.
+- `shadow`, where `null` means none.
+- `scale`, relative to the overlay's size.
+- `color`.
+- `background`, the line's chip colour, where `null` means no chip.
+- `chip`, the chip's shape.
+- `spaceBefore`, in ems of the overlay's size. It may be negative, so lines overlap.
+
+See [ADR 0197](../adr/0197-text-overlay-lockups.md).
 
 ## Inspector (Text tab)
 
@@ -88,9 +161,16 @@ stroke). Its first typography edit starts from that stroke, so nothing jumps.
 - Rendering: a text overlay with typography is drawn by the caption rasterizer (`render/text_overlay.py`
   `text_overlay_caption_style` → `render_caption_raster`) in the export and the desktop monitor. The
   browser preview uses the caption CSS (`textOverlay.ts#textOverlayTypographyCss`).
+- Lockups are drawn line by line through the same rasterizer and stacked
+  (`text_overlay_line_layouts` → `_stack_lockup`). The preview renders each line as its own
+  caption block (`textOverlayLineBlocks` via `TextOverlayContent`), with the line box set to the
+  engine's row height (`titleFaceLines`), so the lines stack where the export stacks them.
 - Catalog: `packages/timeline-schema/src/text-overlay-styles.ts`. To add a style, add one object.
   Tests require bundled fonts, real weights and italics, hex colours, a valid typography, a
-  separation layer (outline, shadow or chip), a unique name, and at least 5 styles per category.
+  separation layer (outline, shadow or chip), a unique name, at least 5 styles per category and a
+  wrap box inside the frame. Lockup lines are held to the rules in [Lockups](#lockups).
+- Tile photographs: `apps/web-editor/public/text-styles/<category>.webp` (640×360, Unsplash
+  licence, credited in `LICENSE-unsplash.txt`). A new category needs a photo of its own.
 - Fonts: `CAPTION_FONT_CATALOG` (the caption fonts); the font-change rule is
   `apps/web-editor/src/editor/textOverlayFonts.ts`.
 
@@ -105,4 +185,8 @@ stroke). Its first typography edit starts from that stroke, so nothing jumps.
   exact.
 - The assistant's fit measures the face, weight and case, not tracking, outline or chip padding
   ([#146](https://github.com/rojan-labs/FramePilot/issues/146), [#135](https://github.com/rojan-labs/FramePilot/issues/135)).
+- A lockup's lines keep their own looks; the Inspector edits the headline only, and one word
+  inside a line cannot take its own colour (put an accent word on its own line).
+- A line that wraps inside a lockup is drawn slightly tighter in the browser preview than in the
+  export (the desktop monitor is exact).
 - Saved styles of your own are not there yet ([#145](https://github.com/rojan-labs/FramePilot/issues/145)).

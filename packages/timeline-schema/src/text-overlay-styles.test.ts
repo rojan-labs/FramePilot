@@ -21,6 +21,9 @@ import {
   getTextOverlayStyle,
   parseTextOverlayTypography,
   textOverlayCaptionStyle,
+  textOverlayLineLayouts,
+  type TextOverlayLine,
+  type TextOverlayLook,
   type TextOverlayStyleParams,
 } from './text-overlay-styles.js';
 
@@ -107,6 +110,75 @@ describe('TEXT_OVERLAY_STYLE_CATALOG', () => {
         expect(value, id).toBeGreaterThan(0);
         expect(value, id).toBeLessThanOrEqual(100);
       }
+      // The wrap box, centred on x, stays in frame: the assistant's fit would move it otherwise.
+      expect(look.xPercent - look.boxWidthPercent / 2, id).toBeGreaterThanOrEqual(0);
+      expect(look.xPercent + look.boxWidthPercent / 2, id).toBeLessThanOrEqual(100);
+    }
+  });
+});
+
+describe('lockups in the catalog (typography.lines)', () => {
+  const lockups = TEXT_OVERLAY_STYLE_CATALOG.filter(
+    (style) => (style.look.typography.lines?.length ?? 0) > 0,
+  );
+  /** The face a lockup line is drawn in: its own family, else the style's. */
+  const lineFamily = (look: TextOverlayLook, line: TextOverlayLine): string =>
+    line.fontFamily ?? look.fontFamily;
+
+  it('offers a real set of multi-font lockups, and every Combo mixes families', () => {
+    expect(lockups.length).toBeGreaterThanOrEqual(15);
+    for (const style of TEXT_OVERLAY_STYLE_CATALOG.filter((s) => s.category === 'combos')) {
+      const families = new Set(
+        (style.look.typography.lines ?? []).map((line) => lineFamily(style.look, line)),
+      );
+      families.add(style.look.fontFamily);
+      expect(families.size, style.id).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('draws every line in a bundled face, at a weight and in a style the family ships', () => {
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        const font = getCaptionFont(lineFamily(look, line));
+        expect(font, `${id}: ${lineFamily(look, line)}`).toBeDefined();
+        const weight = line.fontWeight ?? look.fontWeight;
+        expect(weight, id).toBeGreaterThanOrEqual(font!.minWeight);
+        expect(weight, id).toBeLessThanOrEqual(font!.maxWeight);
+        if ((line.fontStyle ?? look.typography.fontStyle) === 'italic') {
+          expect(font!.italicFile, `${id} asks ${font!.family} for an italic`).toBeDefined();
+        }
+        for (const colour of [line.color, line.background, line.outlineColor]) {
+          if (typeof colour === 'string') expect(colour, id).toMatch(HEX);
+        }
+      }
+    }
+  });
+
+  it('keeps every line legible: at least 2.4 % of the frame height', () => {
+    // Research (docs/guides/text-overlays.md): a kicker or role line below ~28 px at 1080p
+    // does not survive a streaming encode.
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        expect(look.fontSizePercent * (line.scale ?? 1), id).toBeGreaterThanOrEqual(2.4);
+      }
+    }
+  });
+
+  it('never tracks or capitalises a script, which breaks its joins', () => {
+    for (const { id, look } of lockups) {
+      for (const line of look.typography.lines ?? []) {
+        if (getCaptionFont(lineFamily(look, line))?.category !== 'handwritten') continue;
+        expect(line.letterSpacing ?? look.typography.letterSpacing ?? 0, id).toBeLessThanOrEqual(0);
+        expect(line.textTransform ?? look.typography.textTransform, id).not.toBe('uppercase');
+      }
+    }
+  });
+
+  it('shows every styled line in its sample text', () => {
+    for (const { id, sampleText, look } of lockups) {
+      expect(sampleText.split('\n').length, id).toBeGreaterThanOrEqual(
+        look.typography.lines!.length,
+      );
     }
   });
 });
@@ -154,6 +226,81 @@ describe('textOverlayCaptionStyle', () => {
         typography: { background: { radius: 0.4 } },
       })!.background,
     ).toEqual({ color: '#ffd60a', radius: 0.4 });
+  });
+});
+
+describe('textOverlayLineLayouts (lockups)', () => {
+  const lockup = {
+    fontFamily: 'Anton',
+    fontWeight: 400,
+    color: '#ffffff',
+    fontSizePercent: 12,
+    align: 'center',
+    boxWidthPercent: 80,
+    background: '#101010',
+    text: 'CHAPTER ONE\nTHE ROAD NORTH',
+    typography: {
+      textTransform: 'uppercase',
+      background: { radius: 0, paddingX: 0.4 },
+      lines: [
+        {
+          fontFamily: 'Montserrat',
+          fontWeight: 650,
+          scale: 0.3,
+          letterSpacing: 0.3,
+          color: '#ffd60a',
+          background: null,
+        },
+        { spaceBefore: -0.2, chip: { radius: 0.2 } },
+      ],
+    },
+  } as const satisfies TextOverlayStyleParams & { text: string };
+
+  it('is undefined for a text overlay with no lines, which draws as one block', () => {
+    const { lines: _lines, ...typography } = lockup.typography;
+    expect(textOverlayLineLayouts({ ...lockup, typography })).toBeUndefined();
+    expect(textOverlayLineLayouts({ ...lockup, typography: undefined })).toBeUndefined();
+  });
+
+  it("styles each paragraph with its line's overrides of the overlay's look", () => {
+    const [kicker, headline] = textOverlayLineLayouts(lockup)!;
+    expect(CaptionStyleSchema.safeParse(kicker!.style).success).toBe(true);
+    expect(kicker).toMatchObject({ index: 0, text: 'CHAPTER ONE', scale: 0.3, spaceBefore: 0 });
+    expect(kicker!.style).toMatchObject({
+      fontFamily: 'Montserrat',
+      fontWeight: 650,
+      letterSpacing: 0.3,
+      textColor: '#ffd60a',
+      textTransform: 'uppercase',
+    });
+    expect(kicker!.style.background).toBeUndefined();
+    expect(kicker!.style.fontScale! * CAPTION_FONT_HEIGHT_PERCENT).toBeCloseTo(12 * 0.3);
+    expect(headline).toMatchObject({
+      index: 1,
+      text: 'THE ROAD NORTH',
+      scale: 1,
+      spaceBefore: -0.2,
+    });
+    expect(headline!.style).toMatchObject({ fontFamily: 'Anton', textColor: '#ffffff' });
+    expect(headline!.style.background).toEqual({ color: '#101010', radius: 0.2, paddingX: 0.4 });
+  });
+
+  it('draws extra paragraphs in the overlay look and leaves empty ones out', () => {
+    const layouts = textOverlayLineLayouts({ ...lockup, text: 'A\n\nB\nC' })!;
+    expect(layouts.map((line) => [line.index, line.style.fontFamily])).toEqual([
+      [0, 'Montserrat'],
+      [2, 'Anton'],
+      [3, 'Anton'],
+    ]);
+  });
+
+  it('refuses lines the engine refuses', () => {
+    for (const line of [{ scale: 0 }, { spaceBefore: 4 }, { fontWeight: 650.5 }, { color: '' }]) {
+      expect(parseTextOverlayTypography({ lines: [line] }), JSON.stringify(line)).toBeUndefined();
+    }
+    expect(parseTextOverlayTypography({ lines: Array.from({ length: 7 }, () => ({})) })).toBe(
+      undefined,
+    );
   });
 });
 

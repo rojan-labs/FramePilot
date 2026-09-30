@@ -1,0 +1,22 @@
+Text panel tile backgrounds
+===========================
+
+The photos behind the Text panel's style tiles (one per style category). A text style is judged
+against a picture, as it will be used, so each tile draws its sample over real footage-like
+photography rather than a flat panel colour.
+
+Every photo is from Unsplash, under the Unsplash License (https://unsplash.com/license): free to
+use for commercial and non-commercial purposes, no permission or attribution required. They are
+credited here anyway. Downloaded 2026-09-30 through Lorem Picsum (https://picsum.photos), which
+serves Unsplash photos, at 640x360 and re-encoded to WebP (cwebp -q 74).
+
+File               Photographer        Source
+combos.webp        Kevin Young         https://unsplash.com/photos/-icmOdYWXuQ
+basic.webp         Steve Carter        https://unsplash.com/photos/Ixp4YhCKZkI
+headlines.webp     Loudge              https://unsplash.com/photos/VfIYjO8P_24
+lower-thirds.webp  Matthew Wiebe       https://unsplash.com/photos/tBtuxtLvAZs
+callouts.webp      Patrick Fore        https://unsplash.com/photos/V6s1cmE39XM
+social.webp        Caleb George        https://unsplash.com/photos/URmkfvtK3Qw
+quotes.webp        Sunset Girl         https://unsplash.com/photos/FjAD28N8-IQ
+script.webp        Kenneth Thewissen   https://unsplash.com/photos/D76DklsG-5U
+retro.webp         Anders Jildén       https://unsplash.com/photos/nrLtvA05jk8
