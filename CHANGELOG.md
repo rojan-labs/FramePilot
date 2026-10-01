@@ -104,6 +104,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Clicking away from a selected object on the monitor deselects it.** When nothing but text
+  or shapes sat under the playhead (a title over black, say), or you clicked the dark area around
+  the frame, the bounding box stayed up. Dragging a handle past the edge of the box still keeps
+  the selection.
 - **A new line typed on the monitor is kept.** Shift+Enter while typing into a text overlay used
   to be dropped when you finished typing. Editing a text overlay's words from the Text panel's
   list also kept only its first line.
