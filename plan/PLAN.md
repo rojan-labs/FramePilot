@@ -11287,9 +11287,11 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   fades, badges, keyframe strip, ghost/drop states; teal placeholder grade in `ClipFilmstrip`.
   _Evidence: waveform colours read from the theme once per paint (`waveformStyleFor`, palette in
   the cache key; `ClipWaveform.cache.test.ts` 6/6); filmstrip/waveform suites green._
-- [~] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
-  strip, empty state, underspace.
-- [ ] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
+- [x] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
+  strip, empty state, underspace. _Evidence: CSS-only in `timeline-skin.css` (frosted on-cut block
+  keeps its duration width and edges, purple fx bars with a CSS-masked glyph, shield head in the
+  unchanged 24 × 22 button, blue tool guides, danger blade); rich-scene screenshots._
+- [~] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
   speed badge, transition bow-tie glyph, shield playhead head; their unit tests.
 - [ ] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
   and before/after screenshots in both themes.

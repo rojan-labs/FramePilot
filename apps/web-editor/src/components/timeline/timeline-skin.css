@@ -735,12 +735,217 @@
   background: var(--tls-tl-bg);
 }
 
+/* =========================================================================
+ * Transitions — a small frosted block on the cut. It keeps its real duration width
+ * (from `transition-blocks.ts`) and its resize edges; only the paint changes.
+ * ========================================================================= */
+.timeline-dock .clip-transition-pill {
+  /* Centred on the clip body, not on the lane: an expanded keyframe strip below the
+     clips (`--kf-lanes-h`) must not drag the block down. Never shorter than the 20px
+     it had, so the target does not shrink on a short lane. */
+  top: calc((100% - var(--kf-lanes-h, 0px)) / 2);
+  height: calc(100% - 8px - var(--kf-lanes-h, 0px));
+  min-height: 20px;
+  gap: 2px;
+  color: var(--clip-indicator-ink);
+  background: var(--transition-fill);
+  border: 1px solid var(--transition-border);
+  border-radius: 2px;
+  box-shadow: none;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.timeline-dock .clip-transition-label {
+  font-size: 9.5px;
+}
+
+/* Selected = the selection colour, like a clip; several cuts gathered for a bulk
+   action stay dashed so "aimed at" never reads as "looking at". */
+.timeline-dock .clip-transition-pill[data-selected] {
+  outline: 1px solid var(--tl-select);
+  outline-offset: 0;
+  border-color: var(--tl-select);
+  box-shadow: 0 0 0 2px var(--tls-select-halo);
+}
+
+.timeline-dock .clip-transition-pill[data-multi] {
+  outline: 1px dashed var(--tl-select);
+  outline-offset: 1px;
+}
+
+.timeline-dock .clip-transition-pill[data-resizing='true'] {
+  border-color: var(--tls-tool);
+}
+
+.timeline-dock .clip-transition-readout {
+  background: var(--tls-head-bg);
+  border-color: var(--tls-line-strong);
+  color: var(--tls-text);
+}
+
+/* The add-a-transition target on a bare cut: a tool affordance, so blue. */
+.timeline-dock .clip-transition-add {
+  background: var(--tls-tool);
+}
+
+/* =========================================================================
+ * Effect layers — full-width purple bars with an icon and a label.
+ * ========================================================================= */
+.timeline-dock .fx-layer {
+  border: 1px solid var(--tls-fx-edge);
+  border-radius: 4px;
+  background: var(--tls-fx);
+  color: var(--tls-fx-ink);
+}
+
+.timeline-dock .fx-layer-body {
+  gap: 5px;
+  padding: 0 5px;
+  font-size: 10.5px;
+}
+
+/* The effect glyph, drawn by CSS (a mask filled with the ink) so the chip's markup and
+   accessible name are untouched. A disabled layer shows its own eye-off icon instead. */
+.timeline-dock .fx-layer-body::before {
+  content: '';
+  flex: none;
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M12 3l2 5 5 .5-4 3.5 1.5 5-4.5-3-4.5 3 1.5-5-4-3.5 5-.5z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M12 3l2 5 5 .5-4 3.5 1.5 5-4.5-3-4.5 3 1.5-5-4-3.5 5-.5z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.timeline-dock .fx-layer.is-disabled .fx-layer-body::before {
+  content: none;
+}
+
+/* Same 5px grab strips; invisible at rest so the bar reads as one object. */
+.timeline-dock .fx-layer-handle {
+  background: transparent;
+}
+
+.timeline-dock .fx-layer-handle:hover {
+  background: color-mix(in srgb, var(--tls-fx-ink) 35%, transparent);
+}
+
+.timeline-dock .fx-layer.is-selected {
+  border-color: var(--tl-select);
+  box-shadow:
+    inset 0 0 0 1px var(--tl-select),
+    0 0 0 2px var(--tls-select-halo);
+}
+
+/* =========================================================================
+ * Playhead — a 1px line and a shield head. The button keeps its 24 × 22 hit box;
+ * the time bubble shows on hover, drag and keyboard focus only.
+ * ========================================================================= */
+.timeline-dock .playhead-head::after,
+.timeline-dock .playhead-head:hover::after,
+.timeline-dock .playhead-head:active::after {
+  top: 4px;
+  width: 12px;
+  height: 14px;
+  background: var(--playhead);
+  /* The mock's shield: a flat top, straight sides, a point on the line. */
+  clip-path: polygon(0 0, 100% 0, 100% 57%, 50% 100%, 0 57%);
+}
+
+.timeline-dock .playhead-bubble {
+  top: 4px;
+  left: calc(50% + 10px);
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--playhead);
+  color: var(--tls-bubble-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.timeline-dock .playhead-head:focus-visible .playhead-bubble {
+  opacity: 1;
+}
+
+/* =========================================================================
+ * Guides and markers.
+ * ========================================================================= */
+.timeline-dock .snap-guide,
+.timeline-dock .snap-guide::before,
+.timeline-dock .snap-guide::after {
+  background: var(--tls-tool);
+}
+
+.timeline-dock .marquee {
+  background: color-mix(in srgb, var(--tls-tool) 12%, transparent);
+  border-color: var(--tls-tool);
+}
+
+/* The blade line keeps the danger colour (ADR 0198 §4). */
+.timeline-dock .razor-guide {
+  background: var(--danger);
+}
+
+.timeline-dock .marker-tick {
+  opacity: 0.9;
+}
+
+/* =========================================================================
+ * Overview strip, empty state, the open area below the stack.
+ * ========================================================================= */
+.timeline-dock .minimap {
+  background: var(--tls-bg);
+  border-top: 1px solid var(--tls-line);
+}
+
+.timeline-dock .mm-block {
+  background: var(--tls-text-dim);
+  box-shadow: inset 0 -1px 0 var(--tls-bg);
+}
+
+.timeline-dock .mm-view {
+  background: color-mix(in srgb, var(--tls-tool) 12%, transparent);
+  border-left-color: var(--tls-tool);
+  border-right-color: var(--tls-tool);
+}
+
+.timeline-dock .minimap:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.timeline-dock .timeline-empty-state {
+  border-color: var(--tls-line-strong);
+  color: var(--tls-text-dim);
+}
+
+.timeline-dock .timeline-empty-state:hover,
+.timeline-dock .timeline-empty-state.is-drop-target {
+  border-color: var(--tls-tool);
+  color: var(--tls-text);
+  background: var(--tls-tool-soft);
+}
+
+.timeline-dock .timeline-underspace {
+  color: var(--tls-text-dim);
+}
+
+.timeline-dock .timeline-underspace.is-drop-target {
+  border-top-color: var(--tls-tool);
+  background: color-mix(in srgb, var(--tls-tool) 7%, transparent);
+  color: var(--tls-text);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .timeline-dock .track-head,
   .timeline-dock .track-control,
   .timeline-dock .track-options,
   .timeline-dock .toolbar .icon-btn,
-  .timeline-dock .toolbar .timeline-tool {
+  .timeline-dock .toolbar .timeline-tool,
+  .timeline-dock .playhead-bubble {
     transition: none;
   }
 }
