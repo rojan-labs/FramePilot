@@ -54,19 +54,25 @@ re-skin of an existing surface plus a handful of display-only additions. It is n
 
    The orange state alias from ADR 0054 existed because a blue ring vanished on blue video
    clips. Video clips are now teal and the ring is white, so that collision is gone.
+
 5. **Clip families (dark / light; body · edge · ink):**
 
-   | Kind (class) | Dark | Light |
-   | --- | --- | --- |
-   | video `is-video` | `#103a43` · `#1c5a66` · wave `#2db3c6` | `#d3ebef` · `#2e8a99` · wave `#1b8fa3` |
-   | image `is-image` | `#0c2e35` · `#1c5a66` (thumbnail fills) | `#dcecee` · `#3f8b93` |
-   | audio `is-audio` | `#233e6e` · `#3a5a96` · wave `#6f9ae6` | `#dbe4f6` · `#4a6fb3` · wave `#3f69c0` |
-   | text `is-overlay` | `#9a5a2c` · `#c07a3d` | `#f3dccb` · `#b4672f` |
-   | caption `is-caption` | `#7a4a26` · `#a8693a` | `#f1e2d3` · `#a0602f` |
-   | shape `is-graphic` | `#a23b3b` · `#cf5a5a` | `#f4d3d3` · `#c04a4a` |
-   | effect layer `.fx-layer` | `#5e4486` · `#7d5fae` | `#e4dbf2` · `#7d5fae` |
+   | Kind (class)             | Dark                                    | Light                                  |
+   | ------------------------ | --------------------------------------- | -------------------------------------- |
+   | video `is-video`         | `#103a43` · `#1c5a66` · wave `#2db3c6`  | `#d3ebef` · `#2e8a99` · wave `#1b8fa3` |
+   | image `is-image`         | `#0c2e35` · `#1c5a66` (thumbnail fills) | `#dcecee` · `#3f8b93`                  |
+   | audio `is-audio`         | `#233e6e` · `#3a5a96` · wave `#6f9ae6`  | `#dbe4f6` · `#4a6fb3` · wave `#3f69c0` |
+   | text `is-overlay`        | `#9a5a2c` · `#c07a3d`                   | `#f3dccb` · `#b4672f`                  |
+   | caption `is-caption`     | `#5a3820` · `#8f6038`, bar `#3d2615`    | `#e6d0b9` · `#8a5a30`, bar `#d4b597`   |
+   | shape `is-graphic`       | `#a23b3b` · `#cf5a5a`                   | `#f4d3d3` · `#c04a4a`                  |
+   | effect layer `.fx-layer` | `#5e4486` · `#7d5fae`                   | `#e4dbf2` · `#7d5fae`                  |
 
-   Captions use a darker step of the text hue, so the two stay apart while reading as one family.
+   Captions use a deeper, duller step of the text hue and a solid name bar, while text clips
+   have no bar. The two stay apart and still read as one family. The first planned step
+   (`#7a4a26`) was too close to the text body to tell apart in the browser.
+   Markers are a 7×9 amber pennant on the ruler, with a line through the lanes at about 35%
+   strength, so a marker is not mistaken for a second playhead.
+
 6. **Display-only additions.** None of these is a new behaviour:
    - a `⋯` track-options button that opens the EXISTING track context menu, which makes the
      menu reachable from the keyboard and by pointer, not only by right-click;
@@ -76,6 +82,7 @@ re-skin of an existing surface plus a handful of display-only additions. It is n
 
    The track flags show dimmed at rest. The mock shows them, and hidden controls were a
    discoverability cost.
+
 7. **What does not change:**
    - every accessible name, role, `aria-*` and `data-*` hook;
    - the keyboard model (roving tabindex, shortcuts);
