@@ -11262,7 +11262,37 @@ lockups next to the panel tiles.
 - Deferred: per-line editing in the Inspector, per-word colour, rotated script accents,
   left-edge anchoring for lower thirds, lockup-aware `title_metrics` (#146).
 
-**Last updated:** 2026-09-30
+## Timeline revamp — neutral NLE skin from `artifacts/timeline-mock.html` — `[~]` in progress (2026-10-02)
+
+Maintainer (2026-10-02): "take ownership of all the implementations related to revamp of UI design
+of timeline … check the artifact … the redesign should not break any of the functionality or any
+accessibility … just UI/UX redesign". Branch `feat/timeline-revamp-2026-10-02`. Decision: ADR 0198.
+
+Scope gate. **Outcome:** the timeline dock (toolbar + headers + ruler + lanes + clips + playhead)
+looks like the reference: a neutral near-black NLE (or its light translation), with no change to
+what any control does. **Gap:** a navy-tinted, orange-accented skin with controls hidden at rest
+and a heavy name bar, which does not match the reference. **Slice:** one scoped design layer
+(`components/timeline/timeline-skin.css`) that re-points the existing timeline tokens and restyles
+the parts, plus four display-only additions (track `⋯` options button, speed badge, transition
+bow-tie, shield playhead head). **Reuse:** every existing component, token name, menu and gesture.
+**Deferred:** CapCut's "cover" thumbnail, adjustment layers (no such feature), any track-height
+or geometry change. **Evidence:** before/after screenshots in both themes on a rich scene (every
+clip kind, effect layer, transition, keyframes, marker, speed), affected unit tests green,
+`timeline.png` baseline regenerated, accessibility hooks unchanged (axe spec in CI).
+
+- [ ] **TR1** Skin foundation: the scoped layer and the dark/light token sets; the toolbar, gutter,
+  ruler, lane bands and track headers (flags dimmed at rest).
+- [ ] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
+  fades, badges, keyframe strip, ghost/drop states; teal placeholder grade in `ClipFilmstrip`.
+- [ ] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
+  strip, empty state, underspace.
+- [ ] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
+  speed badge, transition bow-tie glyph, shield playhead head; their unit tests.
+- [ ] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
+  and before/after screenshots in both themes.
+- [ ] **TR6** Docs: ADR 0198, CHANGELOG, website changelog.
+
+**Last updated:** 2026-10-02
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
