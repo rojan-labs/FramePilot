@@ -48,24 +48,24 @@ export interface TransitionBlockProps {
 }
 
 /**
- * The bow-tie on the cut (ADR 0198 §6): two chevrons meeting at the edit point, the
- * mock's "hourglass". Decorative — the block's accessible name already says which
- * transition it is and how long.
+ * The bow-tie on the cut (ADR 0198 §6): two SOLID triangles whose tips meet at the
+ * edit point. Filled, not stroked: two open chevrons meeting at a point read as a "×"
+ * (close / delete) at this size, which is the opposite of "a transition lives here".
+ * Decorative — the block's accessible name already says which transition it is and
+ * how long.
  */
 function TransitionBowTie(): JSX.Element {
   return (
     <svg
       className="clip-transition-bowtie"
-      viewBox="0 0 8 9"
+      viewBox="0 0 8 8"
       width="8"
-      height="9"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.2}
+      height="8"
+      fill="currentColor"
       aria-hidden="true"
       focusable="false"
     >
-      <path d="M0 .5L4 4.5L0 8.5M8 .5L4 4.5L8 8.5" />
+      <path d="M0 1L4 4L0 7ZM8 1L4 4L8 7Z" />
     </svg>
   );
 }

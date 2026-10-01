@@ -816,14 +816,14 @@
   font-size: 9.5px;
 }
 
-/* The bow-tie glyph (two chevrons meeting at the cut), centred in the block. */
+/* The bow-tie glyph (two solid triangles meeting at the cut), centred in the block.
+   Filled, never stroked: stroked chevrons read as a "×". */
 .timeline-dock .clip-transition-pill .clip-transition-bowtie {
   flex: none;
   width: 8px;
-  height: 9px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.2;
+  height: 8px;
+  fill: currentColor;
+  stroke: none;
 }
 
 /* Selected = the selection colour, like a clip; several cuts gathered for a bulk

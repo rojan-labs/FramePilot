@@ -220,6 +220,10 @@ describe('transition bow-tie', () => {
     const glyph = block.querySelector('svg.clip-transition-bowtie');
     expect(glyph).not.toBeNull();
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+    // Filled triangles, never stroked chevrons: two strokes meeting at a point read as
+    // a "×" (close / delete) at this size.
+    expect(glyph?.getAttribute('fill')).toBe('currentColor');
+    expect(glyph?.hasAttribute('stroke')).toBe(false);
     // The block's name and its two resize edges are unchanged.
     expect(block.getAttribute('aria-label')).toBe(`Fade transition, ${seconds.toFixed(2)}s`);
     expect(block.querySelectorAll('.clip-transition-pill-edge')).toHaveLength(2);
