@@ -11291,9 +11291,11 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   strip, empty state, underspace. _Evidence: CSS-only in `timeline-skin.css` (frosted on-cut block
   keeps its duration width and edges, purple fx bars with a CSS-masked glyph, shield head in the
   unchanged 24 × 22 button, blue tool guides, danger blade); rich-scene screenshots._
-- [~] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
-  speed badge, transition bow-tie glyph, shield playhead head; their unit tests.
-- [ ] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
+- [x] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
+  speed badge, transition bow-tie glyph, shield playhead head; their unit tests. _Evidence:
+  `TimelineView.skin.test.tsx` 11/11, `clip-speed-badge.test.ts` 8/8; `Track options for {lane}`
+  collides with no e2e/unit role query; gutter 174 → 200px (CSS-only) for the fifth 24px box._
+- [~] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
   and before/after screenshots in both themes.
 - [ ] **TR6** Docs: ADR 0198, CHANGELOG, website changelog.
 

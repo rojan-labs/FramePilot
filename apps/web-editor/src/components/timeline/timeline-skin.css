@@ -120,6 +120,12 @@
   --kf-lane-bg: rgba(0, 0, 0, 0.22);
 
   --tl-clip-radius: 5px;
+  /* The header row is five 24px hit boxes wide now (four flags and the track-options
+     button): 6 + 24 + 2 + 18 + 2 + 20 + 2 + 5 × 24 + 6 = 200px. The column absorbs the
+     new box, not the buttons (editor-foundation.css explains why the slack must come
+     out of the column). CSS-only: nothing in TS mirrors this width, and the overview
+     strip reads the same token. Declared on the dock, it beats the `:root:root` 174px. */
+  --tl-gutter-w: 200px;
 }
 
 /* =========================================================================
@@ -554,6 +560,26 @@
   background: var(--tls-hover);
 }
 
+/* The track-options button gets the same 24px box as the flags beside it. */
+.timeline-dock .track-options {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--hit-target-min);
+  min-width: var(--hit-target-min);
+  height: var(--hit-target-min);
+  min-height: var(--hit-target-min);
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.timeline-dock .track-options[aria-expanded='true'] {
+  color: var(--tls-text);
+  background: var(--tls-hover);
+}
+
 .timeline-dock .track-control.is-active {
   color: var(--tls-tool);
 }
@@ -717,6 +743,22 @@
   border-radius: 4px;
 }
 
+/* Speed badge (`1.3×`), top-left under the name bar as in the mock. */
+.timeline-dock .clip-speed-badge {
+  position: absolute;
+  top: 19px;
+  left: 6px;
+  z-index: 3;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--tls-chip-bg);
+  color: var(--tls-chip-ink);
+  font-size: 9.5px;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* Fade wedges: the theme's own shade rather than a fixed black. */
 .timeline-dock .clip-fade-overlay {
   background: rgba(0, 0, 0, 0.36);
@@ -758,6 +800,16 @@
 
 .timeline-dock .clip-transition-label {
   font-size: 9.5px;
+}
+
+/* The bow-tie glyph (two chevrons meeting at the cut), centred in the block. */
+.timeline-dock .clip-transition-pill .clip-transition-bowtie {
+  flex: none;
+  width: 8px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
 }
 
 /* Selected = the selection colour, like a clip; several cuts gathered for a bulk
@@ -843,15 +895,22 @@
  * Playhead — a 1px line and a shield head. The button keeps its 24 × 22 hit box;
  * the time bubble shows on hover, drag and keyboard focus only.
  * ========================================================================= */
-.timeline-dock .playhead-head::after,
-.timeline-dock .playhead-head:hover::after,
-.timeline-dock .playhead-head:active::after {
+/* The shield is the `.playhead-shield` SVG now; the old pseudo-element marker is off. */
+.timeline-dock .playhead-head::after {
+  content: none;
+}
+
+.timeline-dock .playhead-shield {
+  position: absolute;
   top: 4px;
+  left: 50%;
   width: 12px;
   height: 14px;
-  background: var(--playhead);
-  /* The mock's shield: a flat top, straight sides, a point on the line. */
-  clip-path: polygon(0 0, 100% 0, 100% 57%, 50% 100%, 0 57%);
+  transform: translateX(-50%);
+  color: var(--playhead);
+  pointer-events: none;
+  /* A hairline rim keeps the head legible over a bright ruler label or frame. */
+  filter: drop-shadow(0 0 0.5px rgb(0 0 0 / 0.45));
 }
 
 .timeline-dock .playhead-bubble {

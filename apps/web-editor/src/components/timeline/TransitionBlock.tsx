@@ -23,7 +23,6 @@
 import { useRef, useState } from 'react';
 import type { TransitionBlockBox } from './transition-blocks.js';
 import { describeTransition, transitionKindLabel } from './transition-blocks.js';
-import { ArrowLeftRight, ICON_SIZE } from '../icons.js';
 
 export interface TransitionBlockProps {
   readonly box: TransitionBlockBox;
@@ -46,6 +45,29 @@ export interface TransitionBlockProps {
   readonly onResize: (toClipId: string, durationSeconds: number) => void;
   /** Open the block's actions (replace / remove) at a viewport point. */
   readonly onContextMenu?: (toClipId: string, x: number, y: number) => void;
+}
+
+/**
+ * The bow-tie on the cut (ADR 0198 §6): two chevrons meeting at the edit point, the
+ * mock's "hourglass". Decorative — the block's accessible name already says which
+ * transition it is and how long.
+ */
+function TransitionBowTie(): JSX.Element {
+  return (
+    <svg
+      className="clip-transition-bowtie"
+      viewBox="0 0 8 9"
+      width="8"
+      height="9"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.2}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M0 .5L4 4.5L0 8.5M8 .5L4 4.5L8 8.5" />
+    </svg>
+  );
 }
 
 /** Smallest legal transition (seconds) — keeps the block grabbable and > 0. */
@@ -161,7 +183,10 @@ export function TransitionBlock({
         onPointerMove={onResizeMove}
         onPointerUp={endResize}
       />
-      {shownDensity !== 'marker' && <ArrowLeftRight size={ICON_SIZE.sm} aria-hidden="true" />}
+      {/* At every density, `marker` included: the 8px bow-tie fits the 10px minimum
+          block (the old 12px arrow did not), and it is what says "transition" rather
+          than "a stray tick on the cut". */}
+      <TransitionBowTie />
       {shownDensity === 'label' && (
         <span className="clip-transition-label" aria-hidden="true">
           {describeTransition(placement)}

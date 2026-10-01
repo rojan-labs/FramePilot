@@ -82,6 +82,7 @@ import { ClipFilmstrip, filmstripSlots } from './ClipFilmstrip.js';
 import { ClipProcessingBand } from './ClipProcessingBand.js';
 import { TimelineMinimap } from './TimelineMinimap.js';
 import { laneNames } from './timeline/lane-names.js';
+import { clipSpeedBadge } from './timeline/clip-speed-badge.js';
 import { pinToVerticalScroll } from './timeline/pin-to-vertical-scroll.js';
 import { useSettings } from '../editor/useSettings.js';
 import {
@@ -770,6 +771,19 @@ function PlayheadMarker({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
+        {/* The visible shield (ADR 0198 §6). Drawn inside the button so the button's
+            whole 24 × 22 box stays the hit target; the shape is only paint. */}
+        <svg
+          className="playhead-shield"
+          viewBox="0 0 12 14"
+          width="12"
+          height="14"
+          fill="currentColor"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M0 0h12v8l-6 6-6-6z" />
+        </svg>
         <span ref={bubbleRef} className="playhead-bubble tabular" aria-hidden="true">
           {formatTime(initialPlayhead, fps, timeDisplay)}
         </span>
@@ -946,6 +960,8 @@ const TimelineClip = memo(function TimelineClip({
   // any layer it is placed on.
   const kind = clipKind(clip, assetById);
   const effectBadges = clipWidthPx >= EFFECT_BADGE_MIN_CLIP_PX ? clipEffectBadges(clip) : [];
+  // Same narrow-clip cutoff as the effect badges: on a sliver it would cover the clip.
+  const speedBadge = clipWidthPx >= EFFECT_BADGE_MIN_CLIP_PX ? clipSpeedBadge(clip) : null;
   const asset = assetById.get(clip.assetId);
   // Picture clips (video/image) show a filmstrip body; video clips also get a
   // waveform band along the bottom. Hidden on slivers for clarity.
@@ -1239,6 +1255,14 @@ const TimelineClip = memo(function TimelineClip({
               </span>
             );
           })}
+        </span>
+      )}
+      {/* Display only (ADR 0198 §6): the rate lives in the Inspector's Speed section.
+          aria-hidden like the effect badges — the clip's name and the Inspector
+          already carry it for assistive technology. */}
+      {speedBadge && (
+        <span className="clip-speed-badge tabular" aria-hidden="true" title={speedBadge.title}>
+          {speedBadge.text}
         </span>
       )}
       {density.showHeader && (
@@ -3026,6 +3050,10 @@ export function TimelineView({
           className="track"
           key={track.id}
           aria-label={`track ${track.id}`}
+          // Alternating lane bands follow the virtualizer's row INDEX, not
+          // `nth-child`: the mounted rows are a window, and counting them would flip
+          // a lane's shade as rows recycle during a scroll.
+          data-row-parity={row.index % 2 === 0 ? 'even' : 'odd'}
           // Absolutely positioned at the virtualizer's offset so only the windowed
           // lanes mount while the spacer below reserves the full scroll height.
           style={{
@@ -3601,6 +3629,28 @@ export function TimelineView({
                           onClick={() => trackLayout.toggleSolo(track.id)}
                         >
                           <Headphones size={14} aria-hidden="true" />
+                        </button>
+                      </Tooltip>
+                      {/* Track options (ADR 0198 §6): the SAME menu as right-clicking the
+                          header, made reachable by keyboard and by a plain click. Named
+                          by the lane, like the collapse button, never by the raw id. */}
+                      <Tooltip label="Track options">
+                        <button
+                          type="button"
+                          className="track-options"
+                          aria-label={`Track options for ${trackNames.get(track.id) ?? track.id}`}
+                          aria-haspopup="menu"
+                          aria-expanded={trackMenu?.trackId === track.id}
+                          // Keep the press on the button: the header row is the lane's
+                          // drag handle and must not start a reorder from here.
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            setTrackMenu({ trackId: track.id, x: rect.left, y: rect.bottom });
+                          }}
+                        >
+                          <MoreHorizontal size={14} aria-hidden="true" />
                         </button>
                       </Tooltip>
                     </span>
