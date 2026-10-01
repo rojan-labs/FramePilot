@@ -13,6 +13,7 @@ import {
   clearWaveformBitmapCache,
   paintCanvas,
   waveformBitmapCacheSize,
+  waveformStyleFor,
 } from './ClipWaveform.js';
 
 /** Every bitmap handed to the cache, so the test can see which ones were released. */
@@ -106,5 +107,50 @@ describe('waveform bitmap cache', () => {
 
     expect(waveformBitmapCacheSize()).toBe(0);
     for (const bitmap of bitmaps) expect(bitmap.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('waveform palette (ADR 0198)', () => {
+  it('caches a different palette as a different bitmap', async () => {
+    // The same peaks painted as a teal video band and as a blue audio clip are two
+    // pictures; serving one for the other would paint the wrong family's colour.
+    const canvas = sizedCanvas();
+    await paintCanvas(canvas, PEAKS, [], 'asset-a', { barColor: 'teal' });
+    await paintCanvas(canvas, PEAKS, [], 'asset-a', { barColor: 'blue' });
+    await paintCanvas(canvas, PEAKS, [], 'asset-a', { barColor: 'blue' });
+    expect(bitmaps).toHaveLength(2);
+    expect(waveformBitmapCacheSize()).toBe(2);
+  });
+
+  it('reads the variant colours from the canvas custom properties', () => {
+    // Set on the canvas itself: jsdom does not cascade custom properties, while in the
+    // browser the canvas inherits them from `.timeline-dock`.
+    const host = document.createElement('div');
+    const canvas = document.createElement('canvas');
+    canvas.style.setProperty('--clip-wave-video', 'rgb(1, 2, 3)');
+    canvas.style.setProperty('--clip-wave-video-bg', 'transparent');
+    canvas.style.setProperty('--clip-wave-audio', 'rgb(4, 5, 6)');
+    host.append(canvas);
+    document.body.append(host);
+    try {
+      expect(waveformStyleFor(canvas, 'band')).toEqual({
+        barColor: 'rgb(1, 2, 3)',
+        background: 'transparent',
+      });
+      // An unset background is left out, so the renderer's default applies.
+      expect(waveformStyleFor(canvas, 'full')).toEqual({ barColor: 'rgb(4, 5, 6)' });
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('leaves the renderer defaults alone when no theme sets the properties', () => {
+    const canvas = document.createElement('canvas');
+    document.body.append(canvas);
+    try {
+      expect(waveformStyleFor(canvas, 'band')).toEqual({});
+    } finally {
+      canvas.remove();
+    }
   });
 });

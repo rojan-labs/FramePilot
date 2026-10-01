@@ -11283,9 +11283,11 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
 - [x] **TR1** Skin foundation: the scoped layer and the dark/light token sets; the toolbar, gutter,
   ruler, lane bands and track headers (flags dimmed at rest). _Evidence: `timeline-skin.css`
   imported last in `main.tsx`; rich-scene screenshots in both themes._
-- [~] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
+- [x] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
   fades, badges, keyframe strip, ghost/drop states; teal placeholder grade in `ClipFilmstrip`.
-- [ ] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
+  _Evidence: waveform colours read from the theme once per paint (`waveformStyleFor`, palette in
+  the cache key; `ClipWaveform.cache.test.ts` 6/6); filmstrip/waveform suites green._
+- [~] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
   strip, empty state, underspace.
 - [ ] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
   speed badge, transition bow-tie glyph, shield playhead head; their unit tests.

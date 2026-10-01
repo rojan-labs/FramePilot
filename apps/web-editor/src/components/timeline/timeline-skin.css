@@ -638,6 +638,103 @@
   background-color: color-mix(in srgb, var(--tls-tool) 8%, var(--tls-row));
 }
 
+/* =========================================================================
+ * Clips — 5px radius, 1px family edge, a thin solid name bar, and the picture or
+ * waveform filling the body below it.
+ * ========================================================================= */
+.timeline-dock .clip-block:hover,
+.timeline-dock .clip-block:focus-visible {
+  border-color: var(--clip-edge-strong);
+}
+
+.timeline-dock .clip-block::before {
+  background: var(--tls-hover-lift);
+}
+
+/* The name bar: ~16px (the ⋯ button's 16px box sets the floor — it does not shrink),
+   10px name, dim mono duration, no rule under it. */
+.timeline-dock .clip-header {
+  min-height: 16px;
+  gap: 4px;
+  padding: 0 3px 0 6px;
+  border-bottom: 0;
+}
+
+.timeline-dock .clip-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  line-height: 16px;
+}
+
+.timeline-dock .clip-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-dock .clip-menu-btn {
+  color: var(--clip-bar-ink-dim);
+}
+
+.timeline-dock .clip-menu-btn:hover {
+  color: var(--clip-bar-ink);
+  background: var(--tls-hover);
+}
+
+/* The picture and the waveform start UNDER the name bar, as in the mock, so a frame is
+   never cropped by the title. Only when there is a header — a sliver clip has none and
+   keeps its picture full height. */
+.timeline-dock .clip-block:has(> .clip-header) > .clip-filmstrip,
+.timeline-dock .clip-block:has(> .clip-header) > .clip-waveform-canvas:not(.clip-waveform--band) {
+  top: 16px;
+  height: auto;
+  bottom: 0;
+  /* The bar owns the top corners; a picture rounded under it showed a notch. */
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Selection: a white (light theme: near-black) ring drawn inside the clip plus a soft
+   2px halo outside it — the mock's `.clip.sel`. */
+.timeline-dock .clip-block[data-selected='true'] {
+  border-color: var(--tl-select);
+  outline: 1px solid var(--tl-select);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 2px var(--tls-select-halo);
+}
+
+.timeline-dock .clip-block[data-selected='true'] .clip-waveform-sel-overlay {
+  background: var(--tl-select-subtle);
+}
+
+/* Effect badges sit just under the name bar. */
+.timeline-dock .clip-badges {
+  top: 19px;
+}
+
+.timeline-dock .clip-badge {
+  border-radius: 4px;
+}
+
+/* Fade wedges: the theme's own shade rather than a fixed black. */
+.timeline-dock .clip-fade-overlay {
+  background: rgba(0, 0, 0, 0.36);
+}
+
+/* Drag / trim ghosts: lifted, ringed in the selection colour (unchanged hit boxes). */
+.timeline-dock .clip-block.is-move,
+.timeline-dock .clip-block.is-trim-l,
+.timeline-dock .clip-block.is-trim-r {
+  border-color: var(--tl-select);
+}
+
+/* Trim grips: the selection colour at low opacity, as before, with a grip line that
+   reads on both the white (dark) and near-black (light) fills. */
+.timeline-dock .clip-trim::after {
+  background: var(--tls-tl-bg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .timeline-dock .track-head,
   .timeline-dock .track-control,
@@ -646,4 +743,16 @@
   .timeline-dock .toolbar .timeline-tool {
     transition: none;
   }
+}
+
+/* Light theme: a pale fade wedge reads as "fading out" on a pale clip; a black one read
+   as a hole. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .timeline-dock .clip-fade-overlay {
+    background: rgba(255, 255, 255, 0.55);
+  }
+}
+
+:root[data-theme='light'] .timeline-dock .clip-fade-overlay {
+  background: rgba(255, 255, 255, 0.55);
 }
