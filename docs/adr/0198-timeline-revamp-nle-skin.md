@@ -83,8 +83,25 @@ re-skin of an existing surface plus a handful of display-only additions. It is n
    - JS geometry constants (row heights, insets, ruler height, gutter width);
    - every gesture, menu and patch path.
 
-   The `--tl-gutter-w` token grows from 156 px to 178 px to fit the header cluster. It is a
-   CSS-only token, and the overview strip already reads it.
+   The `--tl-gutter-w` token grows to 200 px to fit the header cluster. It is a CSS-only token:
+   no TypeScript mirrors it, and the overview strip already reads it. See the amendment below
+   for why 200 px and not the 178 px first planned.
+
+## Amendment (2026-10-02, during implementation)
+
+- **The gutter is 200 px.** `editor-foundation.css` had already widened it to 174 px, not the
+  156 px in `tokens.css`, and that row had no slack left. Each control in the cluster has a
+  24 px hit box, and no hit box may shrink. The cluster is collapse, glyph, lane name,
+  hide/mute/lock/solo and `⋯`, so it needs 200 px.
+- **Focus rings inside `section.timeline` stay off.** This follows the maintainer's 2026-09-30
+  decision (commit `db986002`), which covers the header controls as well as the lanes. Inside
+  the timeline, keyboard position is shown by selection, and the roving clip focus moves with
+  the arrow keys. The toolbar sits outside the timeline section, so it shows the blue ring.
+  Turning the rings back on in the timeline is one rule in `timeline-skin.css`. That is the
+  maintainer's call to make, and this change does not reverse it.
+- **Name bars are solid.** The bar sits over the picture, so the mock's 32% black is mixed into
+  the body colour ahead of time instead of drawn translucent. A frame under the bar would
+  otherwise change the bar's contrast from clip to clip.
 
 ## Consequences
 

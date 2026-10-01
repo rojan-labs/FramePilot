@@ -450,6 +450,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The timeline has a new look.** The timeline and its toolbar are redesigned as a calm,
+  neutral editing surface, in both dark and light themes:
+  - **Clips.** Each kind has its own colour: teal video, blue audio, orange text, a darker
+    orange for captions, red shapes and purple effect layers. The picture or waveform fills the
+    whole clip under a thin name bar.
+  - **Selection and playhead.** The selected clip has a white ring (black in light theme). The
+    playhead is a thin line with a shield-shaped head.
+  - **Track controls.** Hide, mute, lock and solo are always visible, dimmed until you use them.
+    A new **⋯** button on every track opens the track menu, which before only opened with a
+    right-click. It also works from the keyboard.
+  - **Speed.** Sped-up, reversed, frozen and ramped clips show a badge such as `2×`.
+  - **Transitions** show a small bow-tie on the cut.
+  - **Markers** are a flag on the ruler with a faint line, so they no longer look like a second
+    playhead.
+
+  Nothing about how the timeline works has changed: every shortcut, gesture, menu and
+  screen-reader label is the same ([ADR 0198](docs/adr/0198-timeline-revamp-nle-skin.md)).
+
 - **Stock is now Elements.** The left-rail tab that searched Pexels is called **Elements** and
   sits second, right after Assets — the shelf for everything you put on or into the picture that
   you did not film. Photos and videos are its **Photos** and **Videos** sub-tabs instead of a kind

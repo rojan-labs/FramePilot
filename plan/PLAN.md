@@ -11303,6 +11303,16 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   baseline regeneration left to the maintainer._
 - [ ] **TR6** Docs: ADR 0198, CHANGELOG, website changelog.
 
+### Discovered (2026-10-02) during the timeline revamp — pre-existing, not caused by it
+
+- [ ] **TRD1** Choosing "Cut" in the transition picker throws `RangeError: Transition duration
+  must be a positive finite number, got 0` and unmounts the editor. Cut should remove the
+  transition (or apply a 0-length cut) without throwing.
+- [ ] **TRD2** The global Space play/pause shortcut swallows Space on every focused button in the
+  editor, so Space cannot activate the track flags, the toolbar and so on (WCAG 2.1.1 keyboard
+  operation; Enter still works). The new track-options button handles Space itself. Fix it at the
+  shortcut layer: skip Space when the focused element is a button, link or form control.
+
 **Last updated:** 2026-10-02
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
