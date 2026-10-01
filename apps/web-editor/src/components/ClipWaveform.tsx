@@ -17,6 +17,7 @@ import type { AssetMedia } from '@framepilot/timeline-schema';
 import { useWaveformPeaks } from '../editor/useWaveformPeaks.js';
 import { renderWaveform, type WaveformStyle } from '../editor/waveformRenderer.js';
 import { LruCache } from '../editor/lruCache.js';
+import { subscribeThemeChange } from '../editor/theme-change.js';
 
 // ── ImageBitmap cache ──────────────────────────────────────────────────────
 // Key: "{assetId}:{bucketW}:{physH}:{colours}". One bitmap per asset × bucketed width × palette.
@@ -171,6 +172,29 @@ export async function paintCanvas(
   }
 }
 
+/**
+ * Paint a waveform canvas in the current theme's colours, falling back to a
+ * synchronous render when the off-thread bitmap path fails.
+ */
+function paintWithFallback(
+  canvas: HTMLCanvasElement,
+  peaks: readonly number[],
+  markers: readonly number[],
+  assetId: string,
+  variant: 'full' | 'band',
+): void {
+  const style = waveformStyleFor(canvas, variant);
+  paintCanvas(canvas, peaks, markers, assetId, style).catch(() => {
+    const dpr = window.devicePixelRatio || 1;
+    const physW = Math.min(Math.round(canvas.offsetWidth * dpr), MAX_WAVEFORM_BACKING_PX);
+    const physH = Math.round(canvas.offsetHeight * dpr);
+    canvas.width = physW;
+    canvas.height = physH;
+    const ctx = canvas.getContext('2d');
+    if (ctx) renderWaveform(ctx, peaks, physW, physH, markers, style);
+  });
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export interface ClipWaveformProps {
@@ -207,57 +231,46 @@ export function ClipWaveform({
   peaksRef.current = peaks;
   markersRef.current = markers;
 
-  // ── Wire up ResizeObserver ───────────────────────────────────────────────
+  // Mounted only once there are peaks (the canvas does not exist before), so the
+  // observers below are keyed on that too — keyed on `assetId` alone they ran while
+  // the canvas was still absent and never attached when the peaks arrived later.
+  const hasPeaks = peaks.length > 0;
+
+  // ── Repaint on resize and on a theme switch ──────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     let rafId = 0;
-    const el = canvas; // capture before async — TypeScript loses narrowing across closures
-
-    function scheduleRepaint() {
+    const scheduleRepaint = (): void => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const style = waveformStyleFor(el, variant);
-        paintCanvas(el, peaksRef.current, markersRef.current, assetId, style).catch(() => {
-          const dpr = window.devicePixelRatio || 1;
-          const physW = Math.min(Math.round(el.offsetWidth * dpr), MAX_WAVEFORM_BACKING_PX);
-          const physH = Math.round(el.offsetHeight * dpr);
-          el.width = physW;
-          el.height = physH;
-          const ctx = el.getContext('2d');
-          if (ctx) renderWaveform(ctx, peaksRef.current, physW, physH, markersRef.current, style);
-        });
+        paintWithFallback(canvas, peaksRef.current, markersRef.current, assetId, variant);
       });
-    }
+    };
 
     const ro = new ResizeObserver(scheduleRepaint);
     ro.observe(canvas);
+    // A theme switch changes the colours `waveformStyleFor` reads but not the canvas
+    // size, so the ResizeObserver never fires for it. One shared theme watcher (not one
+    // per clip) schedules the repaint; the new palette is a new cache key.
+    const unsubscribeTheme = subscribeThemeChange(scheduleRepaint);
     // Initial paint (peaks may already be loaded from cache).
     scheduleRepaint();
 
     return () => {
       ro.disconnect();
+      unsubscribeTheme();
       cancelAnimationFrame(rafId);
     };
-  }, [assetId, variant]);
+  }, [assetId, variant, hasPeaks]);
 
   // ── Repaint when peaks arrive / change ────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || peaks.length === 0) return;
-    let rafId = 0;
-    rafId = requestAnimationFrame(() => {
-      const style = waveformStyleFor(canvas, variant);
-      paintCanvas(canvas, peaks, markers, assetId, style).catch(() => {
-        const dpr = window.devicePixelRatio || 1;
-        const physW = Math.min(Math.round(canvas.offsetWidth * dpr), MAX_WAVEFORM_BACKING_PX);
-        const physH = Math.round(canvas.offsetHeight * dpr);
-        canvas.width = physW;
-        canvas.height = physH;
-        const ctx = canvas.getContext('2d');
-        if (ctx) renderWaveform(ctx, peaks, physW, physH, markers, style);
-      });
+    const rafId = requestAnimationFrame(() => {
+      paintWithFallback(canvas, peaks, markers, assetId, variant);
     });
     return () => cancelAnimationFrame(rafId);
   }, [peaks, markers, assetId, variant]);

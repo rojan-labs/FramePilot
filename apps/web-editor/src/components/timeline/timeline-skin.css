@@ -98,17 +98,20 @@
   --clip-ai-edge: #c07a3d;
   --clip-ai-border: #dc9a5c;
   --clip-ai-bar: transparent;
-  --clip-text: #7a4a26;
-  --clip-text-edge: #a8693a;
-  --clip-text-border: #c98a55;
-  --clip-text-bar: transparent;
+  /* Captions are a deeper, duller step of the text hue, with a dimmer edge and a
+     solid name bar. The ADR's #7a4a26 sat so close to the text body (#9a5a2c) that
+     the two kinds read as one; 2:1 apart in lightness they do not. */
+  --clip-text: #5a3820;
+  --clip-text-edge: #8f6038;
+  --clip-text-border: #b98252;
+  --clip-text-bar: #3d2615;
   --clip-graphic: #a23b3b;
   --clip-graphic-edge: #cf5a5a;
   --clip-graphic-border: #e88383;
   --clip-graphic-bar: #6e2828;
   --clip-bar-ink: rgba(255, 255, 255, 0.94);
-  /* 0.62 white holds ≥ 4.6:1 on every solid name bar. The barless text and caption
-     bodies are lighter, so they read a stronger step (0.9 → 4.7:1 on the text body). */
+  /* 0.62 white holds ≥ 4.6:1 on every solid name bar. The barless text body is
+     lighter, so it reads a stronger step (0.9 → 4.7:1). */
   --clip-bar-ink-dim: rgba(255, 255, 255, 0.62);
   --tls-barless-ink-dim: rgba(255, 255, 255, 0.9);
   --clip-indicator-ink: rgba(255, 255, 255, 0.9);
@@ -199,10 +202,10 @@
     --clip-ai-edge: #b4672f;
     --clip-ai-border: #8f4f20;
     --clip-ai-bar: transparent;
-    --clip-text: #f1e2d3;
-    --clip-text-edge: #a0602f;
-    --clip-text-border: #7e4a21;
-    --clip-text-bar: transparent;
+    --clip-text: #e6d0b9;
+    --clip-text-edge: #8a5a30;
+    --clip-text-border: #6b4423;
+    --clip-text-bar: #d4b597;
     --clip-graphic: #f4d3d3;
     --clip-graphic-edge: #c04a4a;
     --clip-graphic-border: #9a3434;
@@ -284,10 +287,10 @@
   --clip-ai-edge: #b4672f;
   --clip-ai-border: #8f4f20;
   --clip-ai-bar: transparent;
-  --clip-text: #f1e2d3;
-  --clip-text-edge: #a0602f;
-  --clip-text-border: #7e4a21;
-  --clip-text-bar: transparent;
+  --clip-text: #e6d0b9;
+  --clip-text-edge: #8a5a30;
+  --clip-text-border: #6b4423;
+  --clip-text-bar: #d4b597;
   --clip-graphic: #f4d3d3;
   --clip-graphic-edge: #c04a4a;
   --clip-graphic-border: #9a3434;
@@ -712,10 +715,10 @@
   background: var(--tls-hover);
 }
 
-/* Text and caption clips have no bar (their label sits on the body, as in the mock),
-   so their dim ink steps up to keep the duration ≥ 4.5:1. */
-.timeline-dock .clip-block.is-overlay,
-.timeline-dock .clip-block.is-caption {
+/* Text clips have no bar (their label sits on the body, as in the mock), so their dim
+   ink steps up to keep the duration ≥ 4.5:1. Captions keep a bar: it is half of what
+   tells a caption from a text overlay at a glance. */
+.timeline-dock .clip-block.is-overlay {
   --clip-bar-ink-dim: var(--tls-barless-ink-dim);
 }
 
@@ -959,8 +962,58 @@
   background: var(--danger);
 }
 
+/* Markers: a small amber pennant in the ruler and a faint line through the lanes, so
+   a marker never reads as a second playhead.
+
+   The ruler drops from z-index 5 to 1 so the pennant (in the marker's stacking
+   context, z-index 2) can draw over it. Still above `.tracks` (0), so a clip scrolled
+   under the ruler stays under it; still below the playhead (6). Hit testing does not
+   move: the marker's own box now starts at the ruler's foot — exactly the part that
+   was hittable before, when the ruler covered the rest — and the pennant and its stem
+   are pseudo-elements with `pointer-events: none`. */
+.timeline-dock .ruler,
+.timeline-dock .timeline-vscroll .ruler {
+  z-index: 1;
+}
+
 .timeline-dock .marker-tick {
-  opacity: 0.9;
+  top: var(--tl-ruler-h);
+}
+
+/* Default markers: the line at ~35%. A marker with its own colour sets it inline,
+   which a stylesheet cannot outrank without !important, so it keeps a full line. */
+.timeline-dock .marker-tick:not([style*='background']) {
+  background: color-mix(in srgb, var(--warning) 35%, transparent);
+}
+
+.timeline-dock .marker-tick::before,
+.timeline-dock .marker-tick::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+}
+
+/* The pennant, 7 × 9 at the top of the ruler, fixed to the marker's line. */
+.timeline-dock .marker-tick::before {
+  top: calc(1px - var(--tl-ruler-h));
+  width: 7px;
+  height: 9px;
+  background: var(--warning);
+  clip-path: polygon(0 0, 100% 0, 70% 50%, 100% 100%, 0 100%);
+}
+
+/* Its stem, down the rest of the ruler, as faint as the line. */
+.timeline-dock .marker-tick::after {
+  top: calc(1px - var(--tl-ruler-h));
+  width: 1px;
+  height: calc(var(--tl-ruler-h) - 1px);
+  background: inherit;
+}
+
+/* A coloured marker's pennant takes the marker's own colour. */
+.timeline-dock .marker-tick[style*='background']::before {
+  background: inherit;
 }
 
 /* =========================================================================
