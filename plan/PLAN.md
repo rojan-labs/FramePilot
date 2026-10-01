@@ -11295,8 +11295,12 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   speed badge, transition bow-tie glyph, shield playhead head; their unit tests. _Evidence:
   `TimelineView.skin.test.tsx` 11/11, `clip-speed-badge.test.ts` 8/8; `Track options for {lane}`
   collides with no e2e/unit role query; gutter 174 → 200px (CSS-only) for the fifth 24px box._
-- [~] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
-  and before/after screenshots in both themes.
+- [x] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
+  and before/after screenshots in both themes. _Evidence: 29 suites / 376 tests green (TimelineView.*,
+  timeline/*, Editor.*, panels, Toolbar, EffectLayer, Inspector.speed, ClipFilmstrip, ClipWaveform);
+  `tsc` + eslint clean; browser probe: every hit box unchanged or larger, Enter/Space open the track
+  menu and Escape returns focus; contrast ≥ 4.5 text / ≥ 3 icons in both themes. `timeline.png`
+  baseline regeneration left to the maintainer._
 - [ ] **TR6** Docs: ADR 0198, CHANGELOG, website changelog.
 
 **Last updated:** 2026-10-02

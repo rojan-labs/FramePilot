@@ -3649,6 +3649,16 @@ export function TimelineView({
                             const rect = event.currentTarget.getBoundingClientRect();
                             setTrackMenu({ trackId: track.id, x: rect.left, y: rect.bottom });
                           }}
+                          // Handled here, not left to the native button: Space is the
+                          // editor's global play/pause shortcut, which would otherwise
+                          // swallow the keystroke before the button could activate.
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            setTrackMenu({ trackId: track.id, x: rect.left, y: rect.bottom });
+                          }}
                         >
                           <MoreHorizontal size={14} aria-hidden="true" />
                         </button>

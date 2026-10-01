@@ -9,7 +9,7 @@
  *
  * jsdom reports zero-origin rects; at the 40 px/s default zoom 1s ⇒ 40px.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { Asset, Clip, Effect, Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
@@ -90,6 +90,26 @@ describe('track options button', () => {
     expect(
       screen.getByRole('button', { name: 'Track options for A1' }).getAttribute('aria-expanded'),
     ).toBe('false');
+  });
+
+  it.each([
+    ['Enter', 'Enter'],
+    ['Space', ' '],
+  ])('opens from the keyboard with %s, without reaching the global shortcuts', (_, key) => {
+    // Space is the editor's play/pause shortcut on `window`; the button must claim the
+    // key first or a keyboard user could never open the menu with it.
+    const globalShortcut = vi.fn();
+    window.addEventListener('keydown', globalShortcut);
+    try {
+      render(<Host timeline={twoLanes} />);
+      const button = screen.getByRole('button', { name: 'Track options for V1' });
+      button.focus();
+      fireEvent.keyDown(button, { key });
+      expect(screen.getByRole('menu', { name: 'track actions' })).toBeDefined();
+      expect(globalShortcut).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', globalShortcut);
+    }
   });
 
   it('acts on its own lane', () => {

@@ -107,8 +107,10 @@
   --clip-graphic-border: #e88383;
   --clip-graphic-bar: #6e2828;
   --clip-bar-ink: rgba(255, 255, 255, 0.94);
-  /* 0.62 white holds ≥ 4.6:1 on every bar, including the barless text body. */
+  /* 0.62 white holds ≥ 4.6:1 on every solid name bar. The barless text and caption
+     bodies are lighter, so they read a stronger step (0.9 → 4.7:1 on the text body). */
   --clip-bar-ink-dim: rgba(255, 255, 255, 0.62);
+  --tls-barless-ink-dim: rgba(255, 255, 255, 0.9);
   --clip-indicator-ink: rgba(255, 255, 255, 0.9);
   --clip-indicator-chip: rgba(0, 0, 0, 0.5);
 
@@ -207,6 +209,7 @@
     --clip-graphic-bar: #ecc2c2;
     --clip-bar-ink: rgba(17, 20, 24, 0.92);
     --clip-bar-ink-dim: rgba(17, 20, 24, 0.7);
+    --tls-barless-ink-dim: rgba(17, 20, 24, 0.7);
     --clip-indicator-ink: rgba(17, 17, 15, 0.82);
     --clip-indicator-chip: rgba(255, 255, 255, 0.72);
 
@@ -291,6 +294,7 @@
   --clip-graphic-bar: #ecc2c2;
   --clip-bar-ink: rgba(17, 20, 24, 0.92);
   --clip-bar-ink-dim: rgba(17, 20, 24, 0.7);
+  --tls-barless-ink-dim: rgba(17, 20, 24, 0.7);
   --clip-indicator-ink: rgba(17, 17, 15, 0.82);
   --clip-indicator-chip: rgba(255, 255, 255, 0.72);
 
@@ -706,6 +710,13 @@
 .timeline-dock .clip-menu-btn:hover {
   color: var(--clip-bar-ink);
   background: var(--tls-hover);
+}
+
+/* Text and caption clips have no bar (their label sits on the body, as in the mock),
+   so their dim ink steps up to keep the duration ≥ 4.5:1. */
+.timeline-dock .clip-block.is-overlay,
+.timeline-dock .clip-block.is-caption {
+  --clip-bar-ink-dim: var(--tls-barless-ink-dim);
 }
 
 /* The picture and the waveform start UNDER the name bar, as in the mock, so a frame is
