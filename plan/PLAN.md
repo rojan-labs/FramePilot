@@ -11280,9 +11280,10 @@ or geometry change. **Evidence:** before/after screenshots in both themes on a r
 clip kind, effect layer, transition, keyframes, marker, speed), affected unit tests green,
 `timeline.png` baseline regenerated, accessibility hooks unchanged (axe spec in CI).
 
-- [ ] **TR1** Skin foundation: the scoped layer and the dark/light token sets; the toolbar, gutter,
-  ruler, lane bands and track headers (flags dimmed at rest).
-- [ ] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
+- [x] **TR1** Skin foundation: the scoped layer and the dark/light token sets; the toolbar, gutter,
+  ruler, lane bands and track headers (flags dimmed at rest). _Evidence: `timeline-skin.css`
+  imported last in `main.tsx`; rich-scene screenshots in both themes._
+- [~] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
   fades, badges, keyframe strip, ghost/drop states; teal placeholder grade in `ClipFilmstrip`.
 - [ ] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
   strip, empty state, underspace.

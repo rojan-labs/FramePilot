@@ -13,6 +13,8 @@ import './editor-foundation.css';
 import './minimal-light-theme.css';
 import './components/ai/AiSidebar.beautiful.css';
 import './components/ai/AiSidebar.polish.css';
+// Timeline dock skin (ADR 0198) — LAST, so its dock-scoped tokens and overrides win.
+import './components/timeline/timeline-skin.css';
 
 const container = document.getElementById('root');
 if (!container) {

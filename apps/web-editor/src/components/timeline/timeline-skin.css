@@ -1,0 +1,649 @@
+/*
+ * Timeline skin — the neutral NLE look from `artifacts/timeline-mock.html` (ADR 0198).
+ *
+ * ONE design layer for the timeline dock (the toolbar + the timeline below it), imported
+ * last in `main.tsx`. Every rule is scoped under `.timeline-dock`, so nothing outside the
+ * dock changes.
+ *
+ * How it works: the layer first re-points the timeline tokens on `.timeline-dock` itself.
+ * A custom property declared on an element beats one inherited from `:root`, whatever the
+ * `:root` selector's specificity, so every existing rule in `styles.css` that reads
+ * `var(--clip-video)` or `var(--tl-select)` picks up the new palette without being
+ * restated. The structural overrides below that are only the parts a token cannot reach.
+ *
+ * What this layer must NOT do (ADR 0198 §7): change a hit area, a JS geometry constant, an
+ * accessible name or a keyboard path. Sizes below are visual only — every button keeps its
+ * box, and handles keep their widths.
+ *
+ * State colours split by meaning (ADR 0198 §4):
+ *   - white (dark) / near-black (light) = what is selected and where "now" is;
+ *   - blue = what a tool is doing (engaged tool, snap guide, marquee, drop targets, focus);
+ *   - the blade line keeps the danger colour.
+ */
+
+/* =========================================================================
+ * Tokens — dark (the default, and an explicit `data-theme='dark'`).
+ * ========================================================================= */
+.timeline-dock,
+:root[data-theme='dark'] .timeline-dock {
+  /* Skin-local surface + ink scale (the mock's palette, value for value). */
+  --tls-bg: #0f0f12;
+  --tls-tl-bg: #141418;
+  --tls-row: #17171c;
+  --tls-row-alt: #15151a;
+  --tls-head-bg: #1a1a20;
+  --tls-line: rgba(255, 255, 255, 0.06);
+  --tls-line-strong: rgba(255, 255, 255, 0.12);
+  /* Icons: 8.8:1 / dim 3.4:1 on the header ground (≥ 3:1 for UI glyphs). */
+  --tls-ico: #b7b8bf;
+  --tls-ico-dim: #6c6d77;
+  /* Text: 13.5:1 / dim 6.3:1 on the header ground (≥ 4.5:1). */
+  --tls-text: #e3e3e8;
+  --tls-text-dim: #9a9ba4;
+  --tls-hover: rgba(255, 255, 255, 0.07);
+  --tls-tool: #3aa0ff;
+  --tls-tool-soft: rgba(58, 160, 255, 0.14);
+  --tls-select: #ffffff;
+  --tls-select-halo: rgba(255, 255, 255, 0.25);
+  --tls-slider-track: rgba(255, 255, 255, 0.16);
+  --tls-slider-knob: #d7d7db;
+  --tls-chip-bg: rgba(0, 0, 0, 0.5);
+  --tls-chip-ink: #ffffff;
+  --tls-hover-lift: rgba(255, 255, 255, 0.08);
+  --tls-fx: #5e4486;
+  --tls-fx-edge: #7d5fae;
+  --tls-fx-ink: #ffffff;
+  --tls-bubble-ink: #111114;
+
+  /* Canvas colours, read once per paint by ClipWaveform (see `waveformStyleFor`). */
+  --clip-wave-video: rgba(45, 179, 198, 0.92);
+  --clip-wave-video-bg: rgba(5, 24, 29, 0.62);
+  --clip-wave-audio: rgba(111, 154, 230, 0.95);
+  --clip-wave-audio-bg: transparent;
+
+  /* State re-points. */
+  --tl-select: var(--tls-select);
+  --tl-select-subtle: rgba(255, 255, 255, 0.1);
+  --playhead: #e8e8ec;
+  --accent: var(--tls-tool);
+  --accent-hover: #63b4ff;
+  --accent-soft: var(--tls-tool-soft);
+  --accent-subtle: var(--tls-tool-soft);
+  --focus-ring: var(--tls-tool);
+  --contact-ink: #ffffff;
+
+  /* Clip families (ADR 0198 §5): body · resting edge · hover edge · name bar.
+     The name bar is the mock's `rgba(0,0,0,.32)` over the body, pre-composited so it is
+     a SOLID ground: the bar sits over the picture layer here (the mock puts it beside),
+     and a translucent bar over a bright frame would sink the title. */
+  --clip-backing: #103a43;
+  --clip-backing-image: #0c2e35;
+  --clip-backing-skeleton: #0c2e35;
+  --clip-video: #103a43;
+  --clip-video-edge: #1c5a66;
+  --clip-video-border: #2f8797;
+  --clip-video-bar: #0b272e;
+  --clip-image: #0c2e35;
+  --clip-image-edge: #1c5a66;
+  --clip-image-border: #2f8797;
+  --clip-image-bar: #081f24;
+  --clip-audio: #233e6e;
+  --clip-audio-edge: #3a5a96;
+  --clip-audio-border: #5b80c4;
+  --clip-audio-bar: #182a4b;
+  --clip-audio-wave: rgba(111, 154, 230, 0.95);
+  /* `is-overlay` (text) reads the `--clip-ai-*` set, `is-caption` the `--clip-text-*`
+     set — so the text family maps onto the AI tokens and captions onto the text ones. */
+  --clip-ai: #9a5a2c;
+  --clip-ai-edge: #c07a3d;
+  --clip-ai-border: #dc9a5c;
+  --clip-ai-bar: transparent;
+  --clip-text: #7a4a26;
+  --clip-text-edge: #a8693a;
+  --clip-text-border: #c98a55;
+  --clip-text-bar: transparent;
+  --clip-graphic: #a23b3b;
+  --clip-graphic-edge: #cf5a5a;
+  --clip-graphic-border: #e88383;
+  --clip-graphic-bar: #6e2828;
+  --clip-bar-ink: rgba(255, 255, 255, 0.94);
+  /* 0.62 white holds ≥ 4.6:1 on every bar, including the barless text body. */
+  --clip-bar-ink-dim: rgba(255, 255, 255, 0.62);
+  --clip-indicator-ink: rgba(255, 255, 255, 0.9);
+  --clip-indicator-chip: rgba(0, 0, 0, 0.5);
+
+  --transition-fill: rgba(225, 232, 235, 0.12);
+  --transition-border: rgba(255, 255, 255, 0.26);
+  --track-lane: var(--tls-row);
+  --ruler-tick: rgba(255, 255, 255, 0.22);
+  --tl-grid: rgba(255, 255, 255, 0.025);
+  --kf-lane-bg: rgba(0, 0, 0, 0.22);
+
+  --tl-clip-radius: 5px;
+}
+
+/* =========================================================================
+ * Tokens — light. Same structure, translated (ADR 0198 §3, §5): white lanes, a
+ * warm-grey gutter, tinted clip families, a near-black selection and playhead.
+ * Repeated for the OS preference and the explicit attribute, the way tokens.css does.
+ * ========================================================================= */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .timeline-dock {
+    --tls-bg: #ffffff;
+    --tls-tl-bg: #fbfbfa;
+    --tls-row: #ffffff;
+    --tls-row-alt: #f7f7f5;
+    --tls-head-bg: #f3f3f1;
+    --tls-line: rgba(17, 17, 15, 0.07);
+    --tls-line-strong: rgba(17, 17, 15, 0.13);
+    /* Icons 8.2:1 / dim 3.7:1; text 15.3:1 / dim 5.5:1 — all on the header ground. */
+    --tls-ico: #47484f;
+    --tls-ico-dim: #7b7c84;
+    --tls-text: #1c1c1f;
+    --tls-text-dim: #606169;
+    --tls-hover: rgba(17, 17, 15, 0.06);
+    --tls-tool: #1f7ae0;
+    --tls-tool-soft: rgba(31, 122, 224, 0.12);
+    --tls-select: #17171a;
+    --tls-select-halo: rgba(17, 17, 15, 0.2);
+    --tls-slider-track: rgba(17, 17, 15, 0.14);
+    --tls-slider-knob: #3a3b42;
+    --tls-chip-bg: rgba(255, 255, 255, 0.82);
+    --tls-chip-ink: #17171a;
+    --tls-hover-lift: rgba(17, 17, 15, 0.05);
+    --tls-fx: #e4dbf2;
+    --tls-fx-edge: #7d5fae;
+    --tls-fx-ink: #2c1d4a;
+    --tls-bubble-ink: #ffffff;
+
+    --clip-wave-video: rgba(27, 143, 163, 0.95);
+    --clip-wave-video-bg: rgba(211, 235, 239, 0.72);
+    --clip-wave-audio: rgba(63, 105, 192, 0.95);
+    --clip-wave-audio-bg: transparent;
+
+    --tl-select: var(--tls-select);
+    --tl-select-subtle: rgba(17, 17, 15, 0.08);
+    --playhead: #1d1d20;
+    --accent: var(--tls-tool);
+    --accent-hover: #1867c0;
+    --accent-soft: var(--tls-tool-soft);
+    --accent-subtle: var(--tls-tool-soft);
+    --focus-ring: var(--tls-tool);
+    --contact-ink: #17171a;
+
+    --clip-backing: #d3ebef;
+    --clip-backing-image: #dcecee;
+    --clip-backing-skeleton: #dcecee;
+    --clip-video: #d3ebef;
+    --clip-video-edge: #2e8a99;
+    --clip-video-border: #1f6f7c;
+    --clip-video-bar: #c3e1e6;
+    --clip-image: #dcecee;
+    --clip-image-edge: #3f8b93;
+    --clip-image-border: #2c7078;
+    --clip-image-bar: #cce2e5;
+    --clip-audio: #dbe4f6;
+    --clip-audio-edge: #4a6fb3;
+    --clip-audio-border: #345894;
+    --clip-audio-bar: #cad7f0;
+    --clip-audio-wave: rgba(63, 105, 192, 0.95);
+    --clip-ai: #f3dccb;
+    --clip-ai-edge: #b4672f;
+    --clip-ai-border: #8f4f20;
+    --clip-ai-bar: transparent;
+    --clip-text: #f1e2d3;
+    --clip-text-edge: #a0602f;
+    --clip-text-border: #7e4a21;
+    --clip-text-bar: transparent;
+    --clip-graphic: #f4d3d3;
+    --clip-graphic-edge: #c04a4a;
+    --clip-graphic-border: #9a3434;
+    --clip-graphic-bar: #ecc2c2;
+    --clip-bar-ink: rgba(17, 20, 24, 0.92);
+    --clip-bar-ink-dim: rgba(17, 20, 24, 0.7);
+    --clip-indicator-ink: rgba(17, 17, 15, 0.82);
+    --clip-indicator-chip: rgba(255, 255, 255, 0.72);
+
+    --transition-fill: rgba(255, 255, 255, 0.6);
+    --transition-border: rgba(17, 17, 15, 0.32);
+    --track-lane: var(--tls-row);
+    --ruler-tick: rgba(17, 17, 15, 0.26);
+    --tl-grid: rgba(17, 17, 15, 0.03);
+    --kf-lane-bg: rgba(17, 17, 15, 0.05);
+  }
+}
+
+:root[data-theme='light'] .timeline-dock {
+  --tls-bg: #ffffff;
+  --tls-tl-bg: #fbfbfa;
+  --tls-row: #ffffff;
+  --tls-row-alt: #f7f7f5;
+  --tls-head-bg: #f3f3f1;
+  --tls-line: rgba(17, 17, 15, 0.07);
+  --tls-line-strong: rgba(17, 17, 15, 0.13);
+  --tls-ico: #47484f;
+  --tls-ico-dim: #7b7c84;
+  --tls-text: #1c1c1f;
+  --tls-text-dim: #606169;
+  --tls-hover: rgba(17, 17, 15, 0.06);
+  --tls-tool: #1f7ae0;
+  --tls-tool-soft: rgba(31, 122, 224, 0.12);
+  --tls-select: #17171a;
+  --tls-select-halo: rgba(17, 17, 15, 0.2);
+  --tls-slider-track: rgba(17, 17, 15, 0.14);
+  --tls-slider-knob: #3a3b42;
+  --tls-chip-bg: rgba(255, 255, 255, 0.82);
+  --tls-chip-ink: #17171a;
+  --tls-hover-lift: rgba(17, 17, 15, 0.05);
+  --tls-fx: #e4dbf2;
+  --tls-fx-edge: #7d5fae;
+  --tls-fx-ink: #2c1d4a;
+  --tls-bubble-ink: #ffffff;
+
+  --clip-wave-video: rgba(27, 143, 163, 0.95);
+  --clip-wave-video-bg: rgba(211, 235, 239, 0.72);
+  --clip-wave-audio: rgba(63, 105, 192, 0.95);
+  --clip-wave-audio-bg: transparent;
+
+  --tl-select: var(--tls-select);
+  --tl-select-subtle: rgba(17, 17, 15, 0.08);
+  --playhead: #1d1d20;
+  --accent: var(--tls-tool);
+  --accent-hover: #1867c0;
+  --accent-soft: var(--tls-tool-soft);
+  --accent-subtle: var(--tls-tool-soft);
+  --focus-ring: var(--tls-tool);
+  --contact-ink: #17171a;
+
+  --clip-backing: #d3ebef;
+  --clip-backing-image: #dcecee;
+  --clip-backing-skeleton: #dcecee;
+  --clip-video: #d3ebef;
+  --clip-video-edge: #2e8a99;
+  --clip-video-border: #1f6f7c;
+  --clip-video-bar: #c3e1e6;
+  --clip-image: #dcecee;
+  --clip-image-edge: #3f8b93;
+  --clip-image-border: #2c7078;
+  --clip-image-bar: #cce2e5;
+  --clip-audio: #dbe4f6;
+  --clip-audio-edge: #4a6fb3;
+  --clip-audio-border: #345894;
+  --clip-audio-bar: #cad7f0;
+  --clip-audio-wave: rgba(63, 105, 192, 0.95);
+  --clip-ai: #f3dccb;
+  --clip-ai-edge: #b4672f;
+  --clip-ai-border: #8f4f20;
+  --clip-ai-bar: transparent;
+  --clip-text: #f1e2d3;
+  --clip-text-edge: #a0602f;
+  --clip-text-border: #7e4a21;
+  --clip-text-bar: transparent;
+  --clip-graphic: #f4d3d3;
+  --clip-graphic-edge: #c04a4a;
+  --clip-graphic-border: #9a3434;
+  --clip-graphic-bar: #ecc2c2;
+  --clip-bar-ink: rgba(17, 20, 24, 0.92);
+  --clip-bar-ink-dim: rgba(17, 20, 24, 0.7);
+  --clip-indicator-ink: rgba(17, 17, 15, 0.82);
+  --clip-indicator-chip: rgba(255, 255, 255, 0.72);
+
+  --transition-fill: rgba(255, 255, 255, 0.6);
+  --transition-border: rgba(17, 17, 15, 0.32);
+  --track-lane: var(--tls-row);
+  --ruler-tick: rgba(17, 17, 15, 0.26);
+  --tl-grid: rgba(17, 17, 15, 0.03);
+  --kf-lane-bg: rgba(17, 17, 15, 0.05);
+}
+
+/* =========================================================================
+ * Frame — the dock, the timeline section and its scroll surfaces.
+ * ========================================================================= */
+.timeline-dock {
+  background: var(--tls-tl-bg);
+}
+
+.timeline-dock .timeline,
+.timeline-dock .timeline-vscroll,
+.timeline-dock .lane-scroll {
+  background-color: var(--tls-tl-bg);
+}
+
+/* =========================================================================
+ * Toolbar — 42px strip, 15px stroke icons, blue engaged tool with no fill.
+ * ========================================================================= */
+.timeline-dock .toolbar {
+  min-height: 42px;
+  gap: 6px;
+  padding: 0 12px;
+  background: var(--tls-bg);
+  border-bottom: 1px solid var(--tls-line);
+}
+
+.timeline-dock .toolbar-group {
+  gap: 2px;
+}
+
+/* 1 × 18px separators between groups. A pseudo-element, so the groups keep their
+   roles and nothing new enters the accessibility tree. */
+.timeline-dock .toolbar > .toolbar-group + .toolbar-group::before {
+  content: '';
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px 0 2px;
+  background: var(--tls-line-strong);
+}
+
+/* The 28px boxes stay (hit area); only the glyph and the chrome change. */
+.timeline-dock .toolbar .icon-btn,
+.timeline-dock .toolbar .timeline-tool,
+.timeline-dock .toolbar .toolbar-more-menu .menu-trigger {
+  color: var(--tls-ico);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+}
+
+.timeline-dock .toolbar svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+}
+
+.timeline-dock .toolbar .icon-btn:hover:not(:disabled),
+.timeline-dock .toolbar .timeline-tool:hover,
+.timeline-dock .toolbar .toolbar-more-menu .menu-trigger:hover {
+  color: var(--tls-text);
+  background: var(--tls-hover);
+  border-color: transparent;
+}
+
+/* Engaged = blue glyph, no fill, no border (the mock's `aria-pressed` tool). */
+.timeline-dock .toolbar .icon-btn.is-active,
+.timeline-dock .toolbar .timeline-tool.is-active,
+.timeline-dock .toolbar .icon-btn.is-active:hover,
+.timeline-dock .toolbar .timeline-tool.is-active:hover {
+  color: var(--tls-tool);
+  background: transparent;
+  border-color: transparent;
+}
+
+.timeline-dock .toolbar .icon-btn.is-active:hover,
+.timeline-dock .toolbar .timeline-tool.is-active:hover {
+  background: var(--tls-hover);
+}
+
+.timeline-dock .toolbar .icon-btn:disabled {
+  color: var(--tls-ico-dim);
+  opacity: 1;
+}
+
+.timeline-dock .toolbar .icon-btn:focus-visible,
+.timeline-dock .toolbar .timeline-tool:focus-visible,
+.timeline-dock .toolbar .toolbar-more-menu .menu-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+/* Overwrite / Insert — a quiet two-state switch on the strip, not a raised card. */
+.timeline-dock .toolbar .segmented {
+  background: transparent;
+  border-color: var(--tls-line-strong);
+  border-radius: 6px;
+}
+
+.timeline-dock .toolbar .segmented button {
+  color: var(--tls-text-dim);
+  border-radius: 4px;
+}
+
+.timeline-dock .toolbar .segmented button:hover:not(.is-active) {
+  color: var(--tls-text);
+}
+
+.timeline-dock .toolbar .segmented button.is-active {
+  color: var(--tls-text);
+  background: var(--tls-hover);
+  box-shadow: none;
+}
+
+.timeline-dock .toolbar .segmented button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+  box-shadow: none;
+}
+
+/* Slim zoom slider: a 4px track and an 11px knob DRAWN inside the native input, whose
+   own box (the pointer target) keeps its full height. */
+.timeline-dock .toolbar-zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 120px;
+  height: 16px;
+  margin: 0 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.timeline-dock .toolbar-zoom-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--tls-slider-track);
+}
+
+.timeline-dock .toolbar-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -3.5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tls-slider-knob);
+}
+
+.timeline-dock .toolbar-zoom-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--tls-slider-track);
+}
+
+.timeline-dock .toolbar-zoom-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tls-slider-knob);
+}
+
+.timeline-dock .toolbar-zoom-slider:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* =========================================================================
+ * Header gutter — head column, Add-track cell, track headers.
+ * ========================================================================= */
+.timeline-dock .track-heads {
+  background: var(--tls-head-bg);
+  border-right: 1px solid var(--tls-line-strong);
+}
+
+.timeline-dock .ruler-spacer,
+.timeline-dock .timeline-vscroll .ruler-spacer {
+  background: var(--tls-head-bg);
+  border-bottom: 1px solid var(--tls-line);
+}
+
+.timeline-dock .add-track-menu .menu-trigger {
+  color: var(--tls-text-dim);
+  font-size: 11px;
+}
+
+.timeline-dock .add-track-menu .menu-trigger:hover {
+  color: var(--tls-text);
+  background: var(--tls-hover);
+}
+
+.timeline-dock .track-head {
+  background: var(--tls-head-bg);
+  border-right: 0;
+  border-bottom: 1px solid var(--tls-line);
+  border-radius: 0;
+  color: var(--tls-text-dim);
+}
+
+.timeline-dock .track-head:hover,
+.timeline-dock .track-head:focus-within {
+  background: linear-gradient(var(--tls-hover), var(--tls-hover)), var(--tls-head-bg);
+}
+
+/* Neutral type glyph, as in the mock: the lane's KIND is carried by its clips' colour,
+   so the header does not repeat it in a fifth hue. */
+.timeline-dock .track-glyph,
+.timeline-dock .track-head.is-image .track-glyph,
+.timeline-dock .track-head.is-audio .track-glyph,
+.timeline-dock .track-head.is-caption .track-glyph,
+.timeline-dock .track-head.is-overlay .track-glyph,
+.timeline-dock .track-head.is-graphic .track-glyph {
+  color: var(--tls-ico);
+}
+
+.timeline-dock .track-glyph svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+}
+
+.timeline-dock .track-name {
+  color: var(--tls-text-dim);
+}
+
+.timeline-dock .track-head:hover .track-name,
+.timeline-dock .track-head:focus-within .track-name {
+  color: var(--tls-text);
+}
+
+.timeline-dock .track-head.is-hidden .track-name,
+.timeline-dock .track-head.is-locked .track-name {
+  color: var(--tls-ico-dim);
+}
+
+/* Flags show dimmed at rest (ADR 0198 §6) — hidden controls were a discoverability
+   cost. Engaged flags keep their colour. */
+.timeline-dock .track-control,
+.timeline-dock .track-options {
+  opacity: 1;
+  color: var(--tls-ico-dim);
+  border-radius: 4px;
+}
+
+.timeline-dock .track-control svg,
+.timeline-dock .track-options svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.7;
+}
+
+.timeline-dock .track-control:hover,
+.timeline-dock .track-options:hover {
+  color: var(--tls-text);
+  background: var(--tls-hover);
+}
+
+.timeline-dock .track-control.is-active {
+  color: var(--tls-tool);
+}
+
+.timeline-dock .track-control.is-solo-muted,
+.timeline-dock .track-solo.is-active {
+  color: var(--warning);
+}
+
+.timeline-dock .track-collapse {
+  color: var(--tls-ico-dim);
+}
+
+.timeline-dock .track-collapse:hover {
+  color: var(--tls-text);
+}
+
+.timeline-dock .layer-order-btn {
+  color: var(--tls-ico-dim);
+}
+
+.timeline-dock .layer-order-btn:hover:not(:disabled) {
+  color: var(--tls-text);
+}
+
+/* Drop line for a lane reorder: a tool doing something, so blue. */
+.timeline-dock .track-head.is-drop-before::after,
+.timeline-dock .track-head.is-drop-after::after {
+  background: var(--tls-tool);
+}
+
+/* =========================================================================
+ * Ruler — dim 10.5px labels, short minor ticks, taller major ticks.
+ * ========================================================================= */
+.timeline-dock .ruler,
+.timeline-dock .timeline-vscroll .ruler {
+  background: var(--tls-tl-bg);
+  border-bottom: 1px solid var(--tls-line);
+}
+
+.timeline-dock .ruler-tick.is-major {
+  padding: 3px 0 0 5px;
+  font-size: 10.5px;
+  color: var(--tls-text-dim);
+}
+
+.timeline-dock .ruler-tick.is-major::after {
+  height: 18px;
+  background: var(--ruler-tick);
+}
+
+.timeline-dock .ruler-tick.is-minor::after {
+  height: 7px;
+  background: var(--tls-line-strong);
+}
+
+/* =========================================================================
+ * Lanes — alternating bands, one hairline per row, square NLE rows.
+ * ========================================================================= */
+.timeline-dock .tracks {
+  background: var(--tls-tl-bg);
+}
+
+.timeline-dock .track-lane,
+.timeline-dock .track-lane.is-effect {
+  background-color: var(--tls-row);
+  border-bottom: 1px solid var(--tls-line);
+  border-radius: 0;
+}
+
+/* Parity comes from the virtualizer's row INDEX (`data-row-parity`), never from
+   `nth-child`: the mounted rows are a window, and counting them flipped a lane's shade
+   as rows recycled during a scroll (styles.css explains the old bug). */
+.timeline-dock .track[data-row-parity='odd'] .track-lane {
+  background-color: var(--tls-row-alt);
+}
+
+/* A compatible lane during a cross-lane move — a tool doing something, so blue. */
+.timeline-dock .track-lane.is-drop-target {
+  outline: 1px dashed var(--tls-tool);
+  outline-offset: -1px;
+  background-color: color-mix(in srgb, var(--tls-tool) 8%, var(--tls-row));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-dock .track-head,
+  .timeline-dock .track-control,
+  .timeline-dock .track-options,
+  .timeline-dock .toolbar .icon-btn,
+  .timeline-dock .toolbar .timeline-tool {
+    transition: none;
+  }
+}
