@@ -57,6 +57,17 @@ export interface ClipFilmstripProps {
   slots?: number;
 }
 
+/**
+ * Painted colours for the filmstrip canvases (ADR 0198 §5: video clips are teal).
+ *
+ * Constants, not tokens: a canvas cannot read `var()`, and these are the one place a
+ * token re-point cannot reach. The base fills any slot a frame does not cover; the
+ * grade is the mock's teal wash laid over the procedural placeholder cells so they
+ * read as "video" in the clip family's hue.
+ */
+const FILMSTRIP_BASE_FILL = '#0c2e35';
+const FILMSTRIP_PLACEHOLDER_GRADE = 'rgba(16, 58, 66, 0.3)';
+
 // Seeded pseudo-random — deterministic per cell position so placeholder cells
 // look stable across re-renders (no flicker on zoom / track-resize).
 function cellSeed(i: number): number {
@@ -97,7 +108,7 @@ function FilmstripPlaceholderCanvas(): JSX.Element {
       ctx.scale(dpr, dpr);
 
       // Dark base fill so no transparent gaps at the right edge.
-      ctx.fillStyle = '#0d1a2a';
+      ctx.fillStyle = FILMSTRIP_BASE_FILL;
       ctx.fillRect(0, 0, w, h);
 
       // Draw evenly-spaced cells (same formula as the mock's filmstrip()).
@@ -123,8 +134,8 @@ function FilmstripPlaceholderCanvas(): JSX.Element {
         ctx.fillRect(i * cellW + cellW - 1, 0, 1, h);
       }
 
-      // Subtle tinted overlay matching the clip's accent family (video = blue tint).
-      ctx.fillStyle = 'rgba(14,46,88,0.28)';
+      // Subtle tinted overlay matching the clip's family (video = teal grade).
+      ctx.fillStyle = FILMSTRIP_PLACEHOLDER_GRADE;
       ctx.fillRect(0, 0, w, h);
     }
 
@@ -230,7 +241,7 @@ function FilmstripCanvas({ frames }: { frames: readonly string[] }): JSX.Element
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       ctx.scale(dpr, dpr);
-      ctx.fillStyle = '#0d1a2a';
+      ctx.fillStyle = FILMSTRIP_BASE_FILL;
       ctx.fillRect(0, 0, w, h);
       const slotW = w / urls.length;
       bitmaps.forEach((bitmap, i) => {

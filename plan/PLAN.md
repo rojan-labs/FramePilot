@@ -11262,7 +11262,60 @@ lockups next to the panel tiles.
 - Deferred: per-line editing in the Inspector, per-word colour, rotated script accents,
   left-edge anchoring for lower thirds, lockup-aware `title_metrics` (#146).
 
-**Last updated:** 2026-09-30
+## Timeline revamp — neutral NLE skin from `artifacts/timeline-mock.html` — `[x]` done (2026-10-02)
+
+Maintainer (2026-10-02): "take ownership of all the implementations related to revamp of UI design
+of timeline … check the artifact … the redesign should not break any of the functionality or any
+accessibility … just UI/UX redesign". Branch `feat/timeline-revamp-2026-10-02`. Decision: ADR 0198.
+
+Scope gate. **Outcome:** the timeline dock (toolbar + headers + ruler + lanes + clips + playhead)
+looks like the reference: a neutral near-black NLE (or its light translation), with no change to
+what any control does. **Gap:** a navy-tinted, orange-accented skin with controls hidden at rest
+and a heavy name bar, which does not match the reference. **Slice:** one scoped design layer
+(`components/timeline/timeline-skin.css`) that re-points the existing timeline tokens and restyles
+the parts, plus four display-only additions (track `⋯` options button, speed badge, transition
+bow-tie, shield playhead head). **Reuse:** every existing component, token name, menu and gesture.
+**Deferred:** CapCut's "cover" thumbnail, adjustment layers (no such feature), any track-height
+or geometry change. **Evidence:** before/after screenshots in both themes on a rich scene (every
+clip kind, effect layer, transition, keyframes, marker, speed), affected unit tests green,
+`timeline.png` baseline regenerated, accessibility hooks unchanged (axe spec in CI).
+
+- [x] **TR1** Skin foundation: the scoped layer and the dark/light token sets; the toolbar, gutter,
+  ruler, lane bands and track headers (flags dimmed at rest). _Evidence: `timeline-skin.css`
+  imported last in `main.tsx`; rich-scene screenshots in both themes._
+- [x] **TR2** Clips: name bar, families, full-body picture/waveform, selection ring, trim grips,
+  fades, badges, keyframe strip, ghost/drop states; teal placeholder grade in `ClipFilmstrip`.
+  _Evidence: waveform colours read from the theme once per paint (`waveformStyleFor`, palette in
+  the cache key; `ClipWaveform.cache.test.ts` 6/6); filmstrip/waveform suites green._
+- [x] **TR3** Transitions, effect layers, playhead, markers, snap/marquee/razor guides, overview
+  strip, empty state, underspace. _Evidence: CSS-only in `timeline-skin.css` (frosted on-cut block
+  keeps its duration width and edges, purple fx bars with a CSS-masked glyph, shield head in the
+  unchanged 24 × 22 button, blue tool guides, danger blade); rich-scene screenshots._
+- [x] **TR4** Display-only additions: track `⋯` options button (opens the existing track menu),
+  speed badge, transition bow-tie glyph, shield playhead head; their unit tests. _Evidence:
+  `TimelineView.skin.test.tsx` 11/11, `clip-speed-badge.test.ts` 8/8; `Track options for {lane}`
+  collides with no e2e/unit role query; gutter 174 → 200px (CSS-only) for the fifth 24px box._
+- [x] **TR5** Verification: affected vitest suites, typecheck, lint, the `timeline.png` baseline,
+  and before/after screenshots in both themes. _Evidence: 29 suites / 376 tests green (TimelineView.*,
+  timeline/*, Editor.*, panels, Toolbar, EffectLayer, Inspector.speed, ClipFilmstrip, ClipWaveform);
+  `tsc` + eslint clean; browser probe: every hit box unchanged or larger, Enter/Space open the track
+  menu and Escape returns focus; contrast ≥ 4.5 text / ≥ 3 icons in both themes. Audit round 1
+  (c999bd3f): captions a distinct deeper step with a bar, markers a ruler pennant + faint line,
+  waveforms repaint on a theme switch (one shared watcher). Final audit re-run: 23 suites / 288
+  tests green, `tsc` + eslint clean; `timeline.png` regenerated (only the `timeline surface` test)._
+- [x] **TR6** Docs: ADR 0198 (+ amendment), CHANGELOG, website changelog.
+
+### Discovered (2026-10-02) during the timeline revamp — pre-existing, not caused by it
+
+- [ ] **TRD1** Choosing "Cut" in the transition picker throws `RangeError: Transition duration
+  must be a positive finite number, got 0` and unmounts the editor. Cut should remove the
+  transition (or apply a 0-length cut) without throwing.
+- [ ] **TRD2** The global Space play/pause shortcut swallows Space on every focused button in the
+  editor, so Space cannot activate the track flags, the toolbar and so on (WCAG 2.1.1 keyboard
+  operation; Enter still works). The new track-options button handles Space itself. Fix it at the
+  shortcut layer: skip Space when the focused element is a button, link or form control.
+
+**Last updated:** 2026-10-02
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
