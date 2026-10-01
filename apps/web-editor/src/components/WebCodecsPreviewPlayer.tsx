@@ -10,7 +10,15 @@
  * project's own timeline time — no per-clip source-time translation needed
  * (P1's single-clip version had to translate; P2's multi-clip EDL doesn't).
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { SHAPE_EFFECT_TYPE, shapeDescriptor } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
@@ -142,6 +150,15 @@ export interface WebCodecsPreviewPlayerProps {
 }
 
 const DEFAULT_RESOLUTION = { width: 1280, height: 720 } as const;
+
+/**
+ * Whether a pointer event landed on the monitor's empty surface (the stage surround, the frame,
+ * the canvas) rather than on an object, a handle or a control. Those surfaces carry
+ * `data-monitor-backdrop`; everything clickable on top of them does not.
+ */
+function isMonitorBackdrop(target: EventTarget): boolean {
+  return target instanceof HTMLElement && target.dataset.monitorBackdrop !== undefined;
+}
 
 /**
  * `items`, or the previous array when it holds the same elements in the same order (a shallow
@@ -296,6 +313,22 @@ export function WebCodecsPreviewPlayer({
     return null;
   }, [maskToolsOn, clipMaskEditing, maskTools.panelClipId, editor.state.timeline]);
   const maskEditing = clipMaskEditing || laneOwner !== null;
+  // Click away to deselect. With a picture under the playhead the full-frame select-hit catches
+  // the click and resolves it to that picture; with none (text over black, or the surround
+  // outside the frame) nothing did, and the bounding box stayed up. Both the press and the click
+  // must be on empty surface: a handle dragged out past the box ends its click on the stage.
+  const backdropPressRef = useRef(false);
+  const onStagePointerDown = (event: ReactPointerEvent): void => {
+    backdropPressRef.current = isMonitorBackdrop(event.target);
+  };
+  const onStageClick = (event: ReactMouseEvent): void => {
+    const pressedBackdrop = backdropPressRef.current;
+    backdropPressRef.current = false;
+    if (!pressedBackdrop || !isMonitorBackdrop(event.target)) return;
+    // The mask tools own clicks on the frame while they are drawing.
+    if (maskEditing || editor.state.selectedIds.length === 0) return;
+    editor.select(null);
+  };
   const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
   // The bounding box's chrome layer over the frame (see TransformChrome).
   const [chromeHost, setChromeHost] = useState<HTMLElement | null>(null);
@@ -1119,6 +1152,9 @@ export function WebCodecsPreviewPlayer({
       <div
         className="preview-stage"
         ref={setStageHost}
+        data-monitor-backdrop=""
+        onPointerDown={onStagePointerDown}
+        onClick={onStageClick}
         {...(takesElementDrops
           ? {
               onDragEnter: onStageDragEnter,
@@ -1132,6 +1168,7 @@ export function WebCodecsPreviewPlayer({
           <div
             className={`preview-frame${elementDropOver ? ' is-element-drop' : ''}`}
             ref={frameRef}
+            data-monitor-backdrop=""
             style={{
               ['--aspect' as string]: String(aspect),
               transform:
@@ -1142,9 +1179,10 @@ export function WebCodecsPreviewPlayer({
                     : `scale(${Number(previewZoom) / 100})`,
             }}
           >
-            <div className="webcodecs-preview">
+            <div className="webcodecs-preview" data-monitor-backdrop="">
               <canvas
                 ref={canvasRef}
+                data-monitor-backdrop=""
                 // The layer compositor sizes its canvas when it presents. Assigning `width` or
                 // `height` clears a canvas even to the same value, and a React commit landing
                 // after a presented frame blanked it (CI oracle: first read of a case).

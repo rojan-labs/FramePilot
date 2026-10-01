@@ -170,6 +170,46 @@ describe('program monitor — on-canvas transform', () => {
     expect(screen.getByRole('group', { name: 'edit text overlay' })).toBeTruthy();
   });
 
+  describe('click away', () => {
+    // Text over black: no picture under the playhead, so no select-hit catches the click.
+    const textOnly: Timeline = { tracks: [timelineWithText.tracks[1]!] };
+    const textBox = () => screen.queryByRole('group', { name: 'edit text overlay' });
+    const clickOn = (element: Element): void => {
+      fireEvent.pointerDown(element);
+      fireEvent.click(element);
+    };
+
+    it('deselects a text object when the empty frame is clicked', () => {
+      render(<Host editorTimeline={textOnly} />);
+      fireEvent.click(screen.getByRole('button', { name: 'select text' }));
+      expect(textBox()).not.toBeNull();
+
+      clickOn(screen.getByRole('img', { name: 'preview' }));
+      expect(textBox()).toBeNull();
+      expect(screen.getByTestId('selection').textContent).toBe('none');
+    });
+
+    it('deselects a picture when the surround outside the frame is clicked', () => {
+      const { container } = render(<Host />);
+      fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+      expect(box()).not.toBeNull();
+
+      clickOn(container.querySelector('.preview-stage')!);
+      expect(box()).toBeNull();
+    });
+
+    it('keeps the selection when a drag starts on the box and ends off it', () => {
+      const { container } = render(<Host editorTimeline={textOnly} />);
+      fireEvent.click(screen.getByRole('button', { name: 'select text' }));
+
+      // The click of a drag fires on the common ancestor of press and release: the stage.
+      fireEvent.pointerDown(textBox()!);
+      fireEvent.click(container.querySelector('.preview-stage')!);
+      expect(textBox()).not.toBeNull();
+      expect(screen.getByTestId('selection').textContent).toBe('text_1');
+    });
+  });
+
   it('lets keyboard users select a preview object without a double-click gesture', () => {
     render(<Host editorTimeline={timelineWithText} />);
     fireEvent.keyDown(
