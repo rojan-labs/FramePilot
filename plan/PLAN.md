@@ -3725,6 +3725,9 @@ Completed 2026-08-02: TwelveLabs audio-only transcription now uses its
 typed asset-upload → indexed-asset workflow instead of the legacy video-only task endpoint;
 MP3 keeps `audio/mpeg`, both paced states are durable, old task ids remain resumable, and retry
 starts a fresh upload after terminal failure. Focused verification: 46 TwelveLabs tests passed.
+(Amended 2026-10-03: that retry is for TRANSIENT failures only; a file TwelveLabs refuses for
+what it is is remembered as `rejected` and never re-uploaded — see "TwelveLabs large uploads"
+near the end of this file.)
 Completed 2026-08-02: caption libraries now hold readable previews at
 rest, page 12 then 8 in a responsive four-column-first grid, share Effects/Transitions filter
 chrome, and keep timing/per-cue styling behind compact disclosures; keyword emphasis now has a
@@ -11315,7 +11318,35 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   operation; Enter still works). The new track-options button handles Space itself. Fix it at the
   shortcut layer: skip Space when the focused element is a button, link or form control.
 
-**Last updated:** 2026-10-02
+## TwelveLabs large uploads + remembered rejections — `[x]` done (2026-10-03)
+
+Maintainer's desktop log: a 1005 MB camera file streamed to `POST /assets` for 200 s, was refused
+`HTTP 400 video_filesize_too_large`, and the next job uploaded it again 6 ms later — "this type of
+thing should never happen". Branch `fix/twelvelabs-large-upload-2026-10-03`. Engine-only; no
+schema migration (new optional keys on the existing `tl:video` mapping row), no new dependency.
+
+- [x] **TLU1** Upload by size: ≤ 200 MB direct (unchanged), video ≤ 10 GB via the multipart
+  upload API (driven chunk by chunk through the injected `httpx` client; nothing written beside
+  the footage; bounded retry with a fresh presigned URL; batched chunk reports), > 10 GB or audio
+  > 200 MB refused before a byte is sent. Limits from the SDK docs, as named constants.
+- [x] **TLU2** `TwelveLabsMediaRejectedError` for a 413/415 or a 400/422 media code
+  (`video_*`/`audio_*`/`file_*`), with a sentence an editor can act on and the code kept; 401/403,
+  429, 5xx and request errors stay what they were.
+- [x] **TLU3** `poll_index_asset` persists a rejection (`rejected` + code + reason +
+  `TL_UPLOAD_POLICY_VERSION`) and answers later requests for the same bytes and policy from the
+  brain: no upload, no network. Transient `failed` mappings still retry; changed bytes or a newer
+  upload policy retry (so files that failed under the old direct-only upload get one more try).
+- [x] **TLU4** Route: a rejection does not count toward `TL_CONSECUTIVE_FAILURE_LIMIT`, and a
+  slice whose only failures are rejections does not stop the job while assets remain; a job that
+  ends having indexed nothing still fails with the human reason (what the desktop shows).
+  _Evidence: `test_twelvelabs.py` 52, `test_twelvelabs_index.py` 24, `test_service_twelvelabs.py`
+  29 + `_stills` 6 passed (multipart byte ranges, URL refill, retry/give-up, pre-flight with zero
+  requests, typed vs transient errors, memo hit/miss by hash and policy, five rejected clips each
+  tried once); `test_twelvelabs_cache` / `test_service_visual_index` / `test_service_shot_ledger`
+  76 passed; `mypy .` and ruff clean. Not verified against the live API: chunk PUT headers and the
+  final `total_completed` follow the SDK's documented shapes._
+
+**Last updated:** 2026-10-03
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
