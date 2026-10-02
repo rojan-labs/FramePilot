@@ -29,6 +29,12 @@ export type UnderstandingUnavailableReason =
   | 'cancelled'
   | 'provider_unavailable'
   | 'source_missing'
+  /**
+   * The provider refused the FILE itself (too large, too long, an unsupported format…).
+   * Permanent for these bytes: the engine remembers it and never re-uploads, so the next
+   * step is a different copy of the clip, not a retry.
+   */
+  | 'media_rejected'
   | 'unknown';
 
 export interface UnderstandingEvent {
@@ -82,29 +88,148 @@ const preparationFlights = new Map<string, Promise<EnsureMediaUnderstandingResul
 const emit = (input: EnsureMediaUnderstandingInput, event: UnderstandingEvent): void =>
   input.onEvent?.(event);
 
-function normalizeReason(value: string | null | undefined): UnderstandingUnavailableReason {
-  // The only caller falls back to `indexing.status`, a non-empty string, so `value` is
-  // never null and never '' — the coalesce and the `unknown` arm below are defensive.
-  /* v8 ignore next */
-  const reason = (value ?? '').toLowerCase();
-  if (reason.includes('cancel')) return 'cancelled';
-  if (reason.includes('rate') || reason.includes('429')) return 'rate_limited';
-  if (reason.includes('quota') || reason.includes('credit')) return 'quota_exceeded';
-  if (reason.includes('auth') || reason.includes('api_key') || reason.includes('401')) {
-    return 'invalid_api_key';
+/** A raw engine or loop reason, classified, with the one sentence a person reads for it. */
+export interface ClassifiedUnderstandingReason {
+  readonly reason: UnderstandingUnavailableReason;
+  /** One complete sentence: the engine's own words, or plain words for a bare token. */
+  readonly message: string;
+}
+
+/**
+ * The engine's exact typed reason tokens (`service.py`, `brain/twelvelabs*.py`,
+ * `brain/keyring.py`), plus the index loop's own terminal statuses, which stand in for
+ * the reason when a slice carried none. A token is not a sentence, so each has plain words.
+ */
+const TOKEN_REASONS: ReadonlyMap<string, ClassifiedUnderstandingReason> = new Map([
+  ['cancelled', { reason: 'cancelled', message: 'Reading the footage was cancelled.' }],
+  ['indexing', { reason: 'indexing', message: 'The footage is still being read.' }],
+  ['not_indexed', { reason: 'not_indexed', message: 'This footage has not been read yet.' }],
+  [
+    'invalid_api_key',
+    { reason: 'invalid_api_key', message: 'The footage-understanding key was rejected.' },
+  ],
+  ['no_api_key', { reason: 'unconfigured', message: 'No footage-understanding key is set up.' }],
+  [
+    'all_keys_failing',
+    {
+      reason: 'provider_unavailable',
+      message:
+        'Every footage-understanding key is failing right now: rejected or rate-limited. Check the keys in Settings, or wait and try again.',
+    },
+  ],
+  [
+    'unreachable',
+    { reason: 'provider_unavailable', message: 'The FramePilot engine could not be reached.' },
+  ],
+  [
+    'unavailable',
+    {
+      reason: 'provider_unavailable',
+      message: 'The FramePilot engine cannot read footage right now.',
+    },
+  ],
+  [
+    'nothing-to-index',
+    { reason: 'provider_unavailable', message: 'There was no footage in this project to read.' },
+  ],
+  [
+    'keys-failing',
+    {
+      reason: 'provider_unavailable',
+      message: 'The footage-understanding keys stopped working partway through.',
+    },
+  ],
+  [
+    'exhausted-slices',
+    {
+      reason: 'timeout',
+      message: 'Reading the footage took too long and stopped before it finished.',
+    },
+  ],
+]);
+
+/**
+ * `(HTTP 429)`, optionally followed by the provider's machine code: `(HTTP 400)
+ * (video_filesize_too_large)`. This is the shape of every TwelveLabs API error sentence.
+ */
+const HTTP_MARKER = /\(HTTP (\d{3})\)(?: \(([a-z0-9_]+)\))?/;
+
+/**
+ * Mirrors the engine's `_is_media_rejection`: 413/415 refuse the file whatever the code,
+ * and a 400/422 whose code is about the media (`video_*`, `audio_*`, `file_*`) refuses
+ * these bytes for good. Only a code naming a missing RESOURCE (`*_not_found`) is not one.
+ */
+const MEDIA_REJECTION_STATUSES = new Set([413, 415]);
+const MEDIA_CODE_STATUSES = new Set([400, 422]);
+const MEDIA_CODE_PREFIXES = ['video_', 'audio_', 'file_'] as const;
+const NOT_MEDIA_CODE_SUFFIX = '_not_found';
+
+const HTTP_STATUS_REASONS: ReadonlyMap<number, UnderstandingUnavailableReason> = new Map([
+  [401, 'invalid_api_key'],
+  [403, 'invalid_api_key'],
+  [402, 'quota_exceeded'],
+  [408, 'timeout'],
+  [429, 'rate_limited'],
+]);
+
+/** The engine's sentence for a refused file: `TwelveLabs can't index ro.mp4: …`. */
+const MEDIA_REJECTED_PREFIX = "TwelveLabs can't index ";
+/** The engine's pre-flight sentence: `ro.mp4 is 1.2 GB; TwelveLabs accepts files up to …`. */
+const MEDIA_PREFLIGHT_MARKER = /; TwelveLabs accepts (?:audio )?files up to /;
+/** The engine's sentence for a transport failure (DNS, connect, network timeout). */
+const TRANSPORT_FAILURE_PREFIX = 'TwelveLabs request failed:';
+/** Python's OSError text for a file that is not on disk. */
+const FILE_NOT_FOUND_MARKER = /\[Errno 2\]|No such file or directory/;
+
+const NO_REASON_MESSAGE = 'Reading the footage stopped without saying why.';
+
+/** End a sentence exactly once, so a caller can quote it without adding a full stop. */
+function asSentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function httpReason(status: number, code: string | undefined): UnderstandingUnavailableReason {
+  if (MEDIA_REJECTION_STATUSES.has(status)) return 'media_rejected';
+  if (
+    MEDIA_CODE_STATUSES.has(status) &&
+    code !== undefined &&
+    MEDIA_CODE_PREFIXES.some((prefix) => code.startsWith(prefix)) &&
+    !code.endsWith(NOT_MEDIA_CODE_SUFFIX)
+  ) {
+    return 'media_rejected';
   }
-  if (reason.includes('timeout')) return 'timeout';
-  if (reason.includes('offline') || reason.includes('network') || reason.includes('unreachable')) {
-    return 'offline';
+  return HTTP_STATUS_REASONS.get(status) ?? 'provider_unavailable';
+}
+
+function proseReason(text: string): UnderstandingUnavailableReason {
+  if (text.startsWith(MEDIA_REJECTED_PREFIX) || MEDIA_PREFLIGHT_MARKER.test(text)) {
+    return 'media_rejected';
   }
-  if (reason.includes('not_indexed')) return 'not_indexed';
-  if (reason.includes('index')) return 'indexing';
-  if (reason.includes('source') || reason.includes('file')) return 'source_missing';
-  if (reason.includes('config') || reason.includes('key') || reason.includes('no-key')) {
-    return 'unconfigured';
-  }
-  /* v8 ignore next -- unreachable for the same reason: `reason` is never empty here */
-  return reason ? 'provider_unavailable' : 'unknown';
+  if (text.startsWith(TRANSPORT_FAILURE_PREFIX)) return 'offline';
+  if (FILE_NOT_FOUND_MARKER.test(text)) return 'source_missing';
+  const http = HTTP_MARKER.exec(text);
+  if (http) return httpReason(Number(http[1]), http[2]);
+  return 'provider_unavailable';
+}
+
+/**
+ * Classify a reason the engine (or the index loop) reported, on precise signals only:
+ * the engine's exact typed tokens, the loop's statuses, its `(HTTP nnn) (code)` marker,
+ * and the fixed openings of its own sentences. Free text is never searched for words —
+ * that read "TwelveLabs can't index ro.mp4" as still-indexing and a file-size refusal
+ * as a missing file. Anything unrecognised keeps the engine's sentence verbatim.
+ *
+ * @param raw - The engine's `reason`, or the loop status when the engine gave none.
+ * @returns The typed reason and the sentence to show for it.
+ */
+export function classifyUnderstandingReason(
+  raw: string | null | undefined,
+): ClassifiedUnderstandingReason {
+  const text = (raw ?? '').trim();
+  if (text === '') return { reason: 'unknown', message: NO_REASON_MESSAGE };
+  const token = TOKEN_REASONS.get(text);
+  if (token) return token;
+  return { reason: proseReason(text), message: asSentence(text) };
 }
 
 function flightKey(input: EnsureMediaUnderstandingInput): string {
@@ -209,9 +334,8 @@ async function prepare(
     };
   }
 
-  const rawReason = indexing.last?.reason ?? indexing.status;
-  const reason = normalizeReason(rawReason);
-  const message = `Media understanding is unavailable: ${rawReason}.`;
+  // `||`, not `??`: an empty reason says nothing, so the loop status speaks instead.
+  const { reason, message } = classifyUnderstandingReason(indexing.last?.reason || indexing.status);
   emit(input, { type: 'unavailable', backend, reason, message });
   return { status: 'unavailable', backend, reason, message, ...(coverage ? { coverage } : {}) };
 }

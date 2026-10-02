@@ -10,6 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  classifyUnderstandingReason,
   ensureMediaUnderstanding,
   queryTimestamp,
   type EnsureMediaUnderstandingInput,
@@ -64,7 +65,7 @@ describe('ensureMediaUnderstanding — refusing honestly', () => {
   it('reports `unconfigured` only when the ENGINE says a key is what is missing', async () => {
     const result = await ensureMediaUnderstanding(
       baseInput({
-        client: client({ status: status(), slices: [{ available: false, reason: 'no-key' }] }),
+        client: client({ status: status(), slices: [{ available: false, reason: 'no_api_key' }] }),
       }),
     );
     expect(result).toMatchObject({ status: 'unavailable', reason: 'unconfigured' });
@@ -290,35 +291,112 @@ describe('ensureMediaUnderstanding — not paying twice for the same media', () 
   });
 });
 
-describe('ensureMediaUnderstanding — reason normalization', () => {
-  // The raw reason comes from a provider and is free text; the runtime maps it to a
-  // typed reason a UI can act on. Every arm matters because the fallback ('unknown')
-  // gives the user nothing to do about it.
+describe('ensureMediaUnderstanding — reason classification', () => {
+  // The raw reason is the engine's own text. It is classified ONLY on precise signals —
+  // exact tokens, the loop's statuses, the `(HTTP nnn) (code)` marker, and the fixed
+  // openings of the engine's sentences — never by searching it for words. Searching is
+  // what turned "TwelveLabs can't index ro.mp4" into "still reading" and a file-size
+  // refusal into "the file can't be found", hiding the real error from the editor.
+  const OLD_FILESIZE = 'TwelveLabs API error (HTTP 400) (video_filesize_too_large).';
+  const NEW_FILESIZE = "TwelveLabs can't index ro.mp4: the file is larger than TwelveLabs accepts.";
+  const PREFLIGHT =
+    'ro.mp4 is 12.3 GB; TwelveLabs accepts files up to 4.0 GB. Export a smaller proxy to index it with TwelveLabs.';
+
+  const fail = (reason: string) =>
+    ensureMediaUnderstanding(
+      baseInput({
+        twelveLabsKey: 'tlk',
+        client: client({
+          status: status(),
+          // An available, not-done slice with a reason is how the engine stops a job.
+          slices: [{ available: true, jobId: 'j', cursor: 1, total: 1, done: false, reason }],
+        }),
+      }),
+    );
+
   it.each([
-    ['request was cancelled', 'cancelled'],
-    ['429 too many requests', 'rate_limited'],
-    ['rate limit exceeded', 'rate_limited'],
-    ['quota exhausted', 'quota_exceeded'],
-    ['insufficient credit', 'quota_exceeded'],
-    ['401 unauthorized', 'invalid_api_key'],
-    ['bad api_key', 'invalid_api_key'],
-    ['auth failed', 'invalid_api_key'],
-    ['operation timeout', 'timeout'],
-    ['network unreachable', 'offline'],
-    ['engine offline', 'offline'],
-    ['asset not_indexed', 'not_indexed'],
-    ['indexing in progress', 'indexing'],
-    ['source file missing', 'source_missing'],
-    ['no-key configured', 'unconfigured'],
-    ['something odd', 'provider_unavailable'],
-  ])('maps %j to %j', async (raw, expected) => {
+    [OLD_FILESIZE, 'media_rejected'],
+    [NEW_FILESIZE, 'media_rejected'],
+    ["TwelveLabs can't index this file (video_codec_weird).", 'media_rejected'],
+    [PREFLIGHT, 'media_rejected'],
+    ['TwelveLabs API error (HTTP 413).', 'media_rejected'],
+    ['indexing', 'indexing'],
+    ['cancelled', 'cancelled'],
+    ['not_indexed', 'not_indexed'],
+    ['invalid_api_key', 'invalid_api_key'],
+    ['no_api_key', 'unconfigured'],
+    ['TwelveLabs rejected the API key (HTTP 401).', 'invalid_api_key'],
+    ['TwelveLabs API error (HTTP 429) (too_many_requests).', 'rate_limited'],
+    ['TwelveLabs API error (HTTP 402).', 'quota_exceeded'],
+    ['TwelveLabs API error (HTTP 404) (video_not_found).', 'provider_unavailable'],
+    ['TwelveLabs API error (HTTP 500).', 'provider_unavailable'],
+    ['TwelveLabs request failed: [Errno 8] nodename nor servname provided', 'offline'],
+    ["[Errno 2] No such file or directory: '/media/ro.mp4'", 'source_missing'],
+    ['all_keys_failing', 'provider_unavailable'],
+  ])('classifies %j as %j', async (raw, expected) => {
+    expect(await fail(raw)).toMatchObject({ status: 'unavailable', reason: expected });
+  });
+
+  it.each([
+    // Each of these contains a word the old substring rules keyed on.
+    ['Visual indexing journals jobs in the brain, which requires a configured sandbox root.'],
+    ['could not generate a separate accurate profile for the monkey'],
+    ['every asset in this slice failed to index'],
+  ])('does not read words inside free text: %j', async (raw) => {
+    const result = await fail(raw);
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider_unavailable' });
+    // …and the editor reads the engine's own sentence instead.
+    expect(result.status === 'unavailable' && result.message).toBe(
+      raw.endsWith('.') ? raw : `${raw}.`,
+    );
+  });
+
+  it('never reports a file refusal as still-reading or as a missing file', async () => {
+    for (const raw of [OLD_FILESIZE, NEW_FILESIZE, PREFLIGHT]) {
+      const result = await fail(raw);
+      expect(result.status === 'unavailable' && result.reason).not.toBe('indexing');
+      expect(result.status === 'unavailable' && result.reason).not.toBe('source_missing');
+    }
+  });
+
+  it('carries the engine sentence ONCE, with no prefix and no doubled full stop', async () => {
+    const result = await fail(NEW_FILESIZE);
+    expect(result.status === 'unavailable' && result.message).toBe(NEW_FILESIZE);
+    const old = await fail(OLD_FILESIZE);
+    expect(old.status === 'unavailable' && old.message).toBe(OLD_FILESIZE);
+  });
+
+  it('gives a bare engine token plain words instead of showing the token', async () => {
+    const result = await fail('invalid_api_key');
+    expect(result.status === 'unavailable' && result.message).not.toMatch(/_/);
+    expect(result.status === 'unavailable' && result.message).toMatch(/\.$/);
+  });
+
+  it('falls back to the loop status, in plain words, when the engine gave no reason', async () => {
     const result = await ensureMediaUnderstanding(
       baseInput({
         twelveLabsKey: 'tlk',
-        client: client({ status: status(), slices: [{ available: false, reason: raw }] }),
+        client: client({ status: status(), slices: [{ available: false, reason: '' }] }),
       }),
     );
-    expect(result).toMatchObject({ status: 'unavailable', reason: expected });
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'provider_unavailable' });
+    expect(result.status === 'unavailable' && result.message).toBe(
+      'The FramePilot engine cannot read footage right now.',
+    );
+  });
+});
+
+describe('classifyUnderstandingReason', () => {
+  it('reports `unknown` with a sentence for an empty reason', () => {
+    expect(classifyUnderstandingReason(undefined)).toEqual({
+      reason: 'unknown',
+      message: 'Reading the footage stopped without saying why.',
+    });
+    expect(classifyUnderstandingReason('  ').reason).toBe('unknown');
+  });
+
+  it('does not treat an Object prototype key as an engine token', () => {
+    expect(classifyUnderstandingReason('constructor').reason).toBe('provider_unavailable');
   });
 });
 
@@ -414,7 +492,17 @@ describe('queryTimestamp — local first, never a fabricated answer', () => {
       search: never,
       ensure: baseInput({
         twelveLabsKey: 'tlk',
-        client: client({ status: status(), slices: [{ available: false, reason: 'network' }] }),
+        client: client({
+          status: status(),
+          slices: [
+            {
+              available: true,
+              jobId: 'j',
+              done: false,
+              reason: 'TwelveLabs request failed: [Errno 8] nodename nor servname provided',
+            },
+          ],
+        }),
       }),
     });
     expect(answer).toMatchObject({ available: false, reason: 'offline_uncached' });
@@ -428,7 +516,7 @@ describe('queryTimestamp — local first, never a fabricated answer', () => {
       search: never,
       // The engine, not the absence of a key here, is what makes this unconfigured now.
       ensure: baseInput({
-        client: client({ status: status(), slices: [{ available: false, reason: 'no-key' }] }),
+        client: client({ status: status(), slices: [{ available: false, reason: 'no_api_key' }] }),
       }),
     });
     expect(answer).toMatchObject({ available: false, reason: 'provider_unconfigured' });
