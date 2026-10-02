@@ -33,10 +33,12 @@ from framepilot_engine.brain.twelvelabs import (
     TLWord,
     TwelveLabsAuthError,
     TwelveLabsClientResolution,
+    TwelveLabsMediaRejectedError,
     TwelveLabsPegasusUnavailableError,
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_DESCRIBED_MODEL,
+    read_video_mapping,
     store_index_id,
     store_video_mapping,
 )
@@ -74,6 +76,7 @@ class _FakeTL:
         gist: str = "",
         auth_fail: bool = False,
         pegasus_unavailable: bool = False,
+        reject: set[str] | None = None,
     ) -> None:
         self.clips = clips or []
         self.words = words or []
@@ -83,6 +86,9 @@ class _FakeTL:
         self.auth_fail = auth_fail
         self.pegasus_unavailable = pegasus_unavailable
         self.source_lookups = 0
+        #: File names TwelveLabs refuses for what they are (e.g. too long).
+        self.reject = reject or set()
+        self.uploads: list[str] = []
 
     def get_transcription(self, index_id: str, video_id: str) -> list[TLWord]:
         if self.auth_fail:
@@ -118,6 +124,11 @@ class _FakeTL:
         return "idx-1"
 
     def create_index_task(self, index_id: str, media_path: Path) -> str:
+        self.uploads.append(media_path.name)
+        if media_path.name in self.reject:
+            raise TwelveLabsMediaRejectedError(
+                _rejection_reason(media_path.name), code="video_duration_too_long"
+            )
         return "task-1"
 
     def get_task(self, task_id: str) -> TaskStatus:
@@ -129,6 +140,10 @@ class _FakeTL:
         if self.auth_fail:
             raise TwelveLabsAuthError("bad key")
         return self.clips
+
+
+def _rejection_reason(file_name: str) -> str:
+    return f"TwelveLabs can't index {file_name}: the video is too long."
 
 
 def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake: _FakeTL | None) -> TestClient:
@@ -195,6 +210,90 @@ def test_index_auth_failure_is_honest(tmp_path: Path, monkeypatch: pytest.Monkey
     client = _client(tmp_path, monkeypatch, _FakeTL(auth_fail=True))
     body = client.post("/brain/visual/index", json={"projectId": "p1"}).json()
     assert body["available"] is True and body["reason"] == "invalid_api_key"
+
+
+# --- files TwelveLabs refuses for what they are ----------------------------------
+
+
+def _seed_videos(root: Path, names: list[str]) -> None:
+    with open_brain(root, "p1") as store:
+        for index, name in enumerate(names):
+            (root / name).write_bytes(b"\x00\x00fake\x00\x00")
+            store.upsert_asset(
+                f"vid{index}", path=name, content_sha256=f"sha-{index}", probe=_video_probe()
+            )
+
+
+def _index_job(client: TestClient, *, max_slices: int = 20) -> dict[str, Any]:
+    """Drive one paced job the way the desktop loop does; return the last slice."""
+    body: dict[str, Any] = {"projectId": "p1", "maxAssets": 2, "tiers": ["labelled"]}
+    last: dict[str, Any] = {}
+    for _ in range(max_slices):
+        last = client.post("/brain/visual/index", json=body).json()
+        if not last["available"] or last["done"] or last.get("reason"):
+            return last
+        body["jobId"] = last["jobId"]
+    return last
+
+
+def test_rejected_file_reports_why_and_is_never_uploaded_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_videos(tmp_path, ["ro.mp4"])
+    fake = _FakeTL(reject={"ro.mp4"})
+    client = _client(tmp_path, monkeypatch, fake)
+
+    first = _index_job(client)
+    # The desktop shows `reason` verbatim: it must be the sentence, not "HTTP 400".
+    assert first["done"] is False
+    assert first["reason"] == _rejection_reason("ro.mp4")
+    assert first["items"][0]["reason"] == _rejection_reason("ro.mp4")
+    assert first["failed"] == 1
+
+    # The reported defect: the next job uploaded the same 1 GB again, 6 ms later.
+    second = _index_job(client)
+    assert second["reason"] == _rejection_reason("ro.mp4")
+    assert fake.uploads == ["ro.mp4"]
+
+
+def test_a_project_of_rejected_files_is_not_a_broken_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Five oversized clips must each be tried, not stop the run as "a bad index"."""
+    names = [f"clip{i}.mp4" for i in range(5)]
+    _seed_videos(tmp_path, names)
+    fake = _FakeTL(reject=set(names))
+    client = _client(tmp_path, monkeypatch, fake)
+
+    last = _index_job(client)
+
+    assert len(names) > service_module.TL_CONSECUTIVE_FAILURE_LIMIT + 1
+    assert sorted(fake.uploads) == names  # every file tried exactly once
+    assert last["cursor"] == len(names)
+    # A job that indexed nothing still never ends `done`, and says why.
+    assert last["done"] is False
+    assert last["reason"] == _rejection_reason("clip4.mp4")
+
+
+def test_a_rejected_file_does_not_stop_the_footage_behind_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_videos(tmp_path, ["huge.mp4", "a.mp4", "b.mp4"])
+    fake = _FakeTL(reject={"huge.mp4"})
+    client = _client(tmp_path, monkeypatch, fake)
+
+    last = _index_job(client)
+
+    assert last["done"] is True, last
+    assert last["reason"] is None
+    assert sorted(fake.uploads) == ["a.mp4", "b.mp4", "huge.mp4"]
+    with open_brain(tmp_path, "p1") as store:
+        statuses = {
+            asset_id: mapping.status
+            for asset_id in ("vid0", "vid1", "vid2")
+            if (mapping := read_video_mapping(store, asset_id)) is not None
+        }
+    assert statuses == {"vid0": "rejected", "vid1": "ready", "vid2": "ready"}
 
 
 def test_index_unavailable_without_projects_root(monkeypatch: pytest.MonkeyPatch) -> None:

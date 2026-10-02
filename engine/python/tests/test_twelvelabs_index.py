@@ -7,14 +7,26 @@ deterministically without the live API.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
+import pytest
+
+from framepilot_engine.brain import twelvelabs_index
 from framepilot_engine.brain.described import described_from_summary
 from framepilot_engine.brain.ledger_models import ShotRecord
-from framepilot_engine.brain.store import open_brain
-from framepilot_engine.brain.twelvelabs import TaskStatus, TLChapter, TLClip
+from framepilot_engine.brain.store import BrainStore, open_brain
+from framepilot_engine.brain.twelvelabs import (
+    TL_UPLOAD_POLICY_VERSION,
+    TaskStatus,
+    TLChapter,
+    TLClip,
+    TwelveLabsMediaRejectedError,
+)
 from framepilot_engine.brain.twelvelabs_index import (
     TL_DESCRIBED_MODEL,
+    TL_REJECTED_STATUS,
+    TLIndexOutcome,
     chapters_to_packets,
     clips_to_packets,
     describe_shots_from_chapters,
@@ -214,6 +226,115 @@ def test_retry_after_failed_mapping_starts_fresh_upload(tmp_path: Path) -> None:
         assert fake.uploads == 1
         mapping = read_video_mapping(store, "vid")
         assert mapping is not None and mapping.video_id == "video-xyz"
+
+
+# --- permanent rejections are remembered, transient failures are not -------------
+
+REJECTED_REASON = "TwelveLabs can't index vid.mp4: the video is too long."
+
+
+class _RejectingUpload:
+    """An upload thunk TwelveLabs refuses for the file itself; counts its calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> str:
+        self.calls += 1
+        raise TwelveLabsMediaRejectedError(REJECTED_REASON, code="video_duration_too_long")
+
+
+def _poll(
+    store: BrainStore,
+    fake: _FakeTL,
+    upload: Callable[[], str],
+    content_hash: str = "sha-vid",
+) -> TLIndexOutcome:
+    return poll_index_asset(
+        fake, store, "idx", "vid", "vid.mp4", upload=upload, content_hash=content_hash
+    )
+
+
+def test_rejection_is_persisted_and_the_same_bytes_are_never_uploaded_again(
+    tmp_path: Path,
+) -> None:
+    _seed_asset(tmp_path)
+    fake = _FakeTL()
+    rejecting = _RejectingUpload()
+    with open_brain(tmp_path, "p1") as store:
+        first = _poll(store, fake, rejecting)
+        mapping = read_video_mapping(store, "vid")
+        assert mapping is not None
+        assert mapping.status == TL_REJECTED_STATUS
+        assert mapping.rejection_code == "video_duration_too_long"
+        assert mapping.rejection_reason == REJECTED_REASON
+        assert mapping.upload_policy == TL_UPLOAD_POLICY_VERSION
+
+        second = _poll(store, fake, rejecting)
+
+    assert rejecting.calls == 1  # the second job did not upload
+    assert fake.polls == 0  # ...and made no call at all
+    for outcome in (first, second):
+        assert outcome.advanced and not outcome.ok
+        assert outcome.status == TL_REJECTED_STATUS
+        assert outcome.reason == REJECTED_REASON
+
+
+def test_changed_bytes_after_a_rejection_upload_again(tmp_path: Path) -> None:
+    _seed_asset(tmp_path)
+    fake = _FakeTL()
+    with open_brain(tmp_path, "p1") as store:
+        _poll(store, fake, _RejectingUpload())
+        # The user re-exported a shorter cut: new bytes deserve a fresh try.
+        outcome = _poll(
+            store, fake, lambda: fake.create_index_task("idx", Path("vid.mp4")), "sha-new"
+        )
+    assert fake.uploads == 1
+    assert outcome.ok
+
+
+def test_rejection_under_an_older_upload_policy_is_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_asset(tmp_path)
+    fake = _FakeTL()
+    with open_brain(tmp_path, "p1") as store:
+        _poll(store, fake, _RejectingUpload())
+        # The upload path changed (as multipart did for >200 MB): what the old path was
+        # refused for must be tried again, once, under the new one.
+        monkeypatch.setattr(
+            twelvelabs_index, "TL_UPLOAD_POLICY_VERSION", TL_UPLOAD_POLICY_VERSION + 1
+        )
+        outcome = _poll(store, fake, lambda: fake.create_index_task("idx", Path("vid.mp4")))
+    assert fake.uploads == 1
+    assert outcome.ok
+
+
+def test_rejection_at_index_attach_is_remembered_too(tmp_path: Path) -> None:
+    class _AttachRejectsTL(_FakeTL):
+        def get_task(self, task_id: str) -> TaskStatus:
+            self.polls += 1
+            raise TwelveLabsMediaRejectedError(REJECTED_REASON, code="video_duration_too_long")
+
+    _seed_asset(tmp_path)
+    fake = _AttachRejectsTL()
+    upload = lambda: fake.create_index_task("idx", Path("vid.mp4"))  # noqa: E731
+    with open_brain(tmp_path, "p1") as store:
+        first = _poll(store, fake, upload)
+        second = _poll(store, fake, upload)
+    assert fake.uploads == 1 and fake.polls == 1
+    assert first.status == second.status == TL_REJECTED_STATUS
+
+
+def test_mapping_rows_without_rejection_keys_still_read(tmp_path: Path) -> None:
+    # Rows written before rejections were remembered carry none of the new keys.
+    _seed_asset(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(store, "vid", content_hash="sha-vid", status="failed")
+        mapping = read_video_mapping(store, "vid")
+    assert mapping is not None
+    assert mapping.rejection_code is None and mapping.upload_policy is None
+    assert not mapping.rejects("sha-vid")
 
 
 # --- clip → packet mapping -------------------------------------------------------

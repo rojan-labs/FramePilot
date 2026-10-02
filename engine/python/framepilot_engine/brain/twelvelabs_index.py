@@ -17,7 +17,10 @@ Storage (migration-free, decision: reuse what exists):
 - **Asset → video mapping** is an ``analysis_results`` row (``kind='tl:video'``)
   keyed by the asset. A fixed ``params_hash`` means a re-index of changed bytes
   overwrites the single row (the source ``content_hash`` lives in the result), so
-  the mapping never accumulates stale duplicates.
+  the mapping never accumulates stale duplicates. The same row remembers a
+  **permanent rejection** (status ``rejected`` + the code, the human reason, and the
+  upload policy that was refused), so the same bytes are never uploaded again just
+  to be refused again — see :func:`poll_index_asset`.
 - **Chapter prose → shot ledger**: :func:`describe_shots_from_chapters` maps a
   Pegasus chapter map onto the asset's measured shots as tier-2 ``described``
   facts (summary only — :func:`described_from_summary`), so a paid describe is
@@ -39,10 +42,12 @@ from framepilot_engine.brain.models import Provenance
 from framepilot_engine.brain.store import BrainStore
 from framepilot_engine.brain.twelvelabs import (
     DEFAULT_PEGASUS_MODEL_NAME,
+    TL_UPLOAD_POLICY_VERSION,
     TaskStatus,
     TLChapter,
     TLClip,
     TLHighlight,
+    TwelveLabsMediaRejectedError,
 )
 from framepilot_engine.brain.visual_search import (
     EvidencePacket,
@@ -66,6 +71,7 @@ __all__ = [
     "MIN_CHAPTER_SHOT_COVERAGE",
     "TL_DESCRIBED_MODEL",
     "TL_MAP_KIND",
+    "TL_REJECTED_STATUS",
     "TL_TOOL",
     "TL_VIDEO_KIND",
     "MappedChapter",
@@ -122,6 +128,14 @@ TL_SLICE_POLL_BUDGET_SECONDS = 30.0
 #: Human-readable "still working" reason surfaced while a task indexes.
 INDEXING_REASON = "indexing"
 
+#: Mapping status for bytes TwelveLabs refused for what they ARE (too big, too long,
+#: unsupported). Distinct from ``failed`` — a transient failure that a later job retries
+#: (plan: "retry after failed") — because retrying a permanent refusal re-uploads the
+#: same file, possibly a gigabyte of it, only to be refused again.
+TL_REJECTED_STATUS = "rejected"
+#: ``failed`` stays the status for everything that can clear on a retry.
+_TL_FAILED_STATUS = "failed"
+
 
 @dataclass(frozen=True)
 class VideoMapping:
@@ -136,11 +150,31 @@ class VideoMapping:
     #: asset, so the footage map needs this id; ``None`` for mappings written before
     #: it was persisted (the route recovers it from the index on demand).
     source_asset_id: str | None = None
+    #: For a ``rejected`` mapping: TwelveLabs' machine code (or FramePilot's pre-flight
+    #: code), the sentence shown to the user, and the :data:`TL_UPLOAD_POLICY_VERSION`
+    #: that was refused. ``None`` on every other mapping and on rows written before
+    #: rejections were remembered.
+    rejection_code: str | None = None
+    rejection_reason: str | None = None
+    upload_policy: int | None = None
 
     @property
     def ready(self) -> bool:
         """True when this asset is fully indexed and searchable."""
         return self.status == "ready" and self.video_id is not None
+
+    def rejects(self, content_hash: str) -> bool:
+        """Whether these exact bytes were refused under the CURRENT upload policy.
+
+        Both halves matter: changed bytes (a re-export) deserve a fresh try, and so do
+        bytes an OLDER upload path was refused for — the 1 GB file the direct-only
+        policy could not send is exactly what multipart now can.
+        """
+        return (
+            self.status == TL_REJECTED_STATUS
+            and self.content_hash == content_hash
+            and self.upload_policy == TL_UPLOAD_POLICY_VERSION
+        )
 
 
 @dataclass(frozen=True)
@@ -193,6 +227,9 @@ def read_video_mapping(store: BrainStore, asset_id: str) -> VideoMapping | None:
         status=str(result.get("status") or "unknown"),
         content_hash=_str_or_none(result.get("contentHash")),
         source_asset_id=_str_or_none(result.get("sourceAssetId")),
+        rejection_code=_str_or_none(result.get("rejectionCode")),
+        rejection_reason=_str_or_none(result.get("rejectionReason")),
+        upload_policy=_int_or_none(result.get("uploadPolicy")),
     )
 
 
@@ -205,20 +242,31 @@ def store_video_mapping(
     task_id: str | None = None,
     video_id: str | None = None,
     source_asset_id: str | None = None,
+    rejection: TwelveLabsMediaRejectedError | None = None,
 ) -> None:
-    """Upsert one asset's TwelveLabs mapping (single row per asset)."""
+    """Upsert one asset's TwelveLabs mapping (single row per asset).
+
+    ``rejection`` records a permanent refusal of these bytes (pass it with
+    ``status=TL_REJECTED_STATUS``); its code, human reason, and the current upload
+    policy are stored so :meth:`VideoMapping.rejects` can answer later without a call.
+    """
+    result: dict[str, object] = {
+        "taskId": task_id,
+        "videoId": video_id,
+        "status": status,
+        "contentHash": content_hash,
+        "sourceAssetId": source_asset_id,
+    }
+    if rejection is not None:
+        result["rejectionCode"] = rejection.code
+        result["rejectionReason"] = str(rejection)
+        result["uploadPolicy"] = TL_UPLOAD_POLICY_VERSION
     store.record_analysis(
         asset_id,
         kind=TL_VIDEO_KIND,
         depth="",
         params_hash=_TL_VIDEO_PARAMS,
-        result={
-            "taskId": task_id,
-            "videoId": video_id,
-            "status": status,
-            "contentHash": content_hash,
-            "sourceAssetId": source_asset_id,
-        },
+        result=result,
         tool=TL_TOOL,
     )
 
@@ -326,11 +374,95 @@ def poll_index_asset(
     yielded back to be re-posted. ``upload`` is a thunk (so the caller owns opening
     the file) that returns the new task id.
 
-    Never raises for an API failure — the caller catches :class:`TwelveLabsError`;
-    this returns typed outcomes only.
+    Failures split in two. A ``failed`` mapping (TwelveLabs gave up, or the caller
+    recorded a transient error) is re-uploaded by the next job — the deliberate
+    "retry after failure" behaviour. A **permanent** refusal of the file
+    (:class:`TwelveLabsMediaRejectedError`, from the upload, its pre-flight, or the
+    attach-to-index step) is persisted as ``rejected`` and answered from the brain on
+    every later call for the same bytes and upload policy: no upload, no network, the
+    same human reason (outcome ``status="rejected"``).
+
+    :raises TwelveLabsError: Any OTHER API/transport failure — the caller decides
+        whether it is the key's fault or the file's.
     """
     mapping = read_video_mapping(store, asset_id)
-    fresh = mapping is None or mapping.content_hash != content_hash or mapping.status == "failed"
+    if mapping is not None and mapping.rejects(content_hash):
+        _log.info(
+            "twelvelabs index asset skipped (rejected before, not re-uploading): "
+            "asset=%s file=%s code=%s",
+            asset_id,
+            media_path_name,
+            mapping.rejection_code or "-",
+        )
+        return _rejected_outcome(
+            mapping.rejection_reason or f"TwelveLabs can't index {media_path_name}."
+        )
+    try:
+        return _advance_index_asset(
+            client,
+            store,
+            asset_id,
+            media_path_name,
+            upload,
+            mapping=mapping,
+            content_hash=content_hash,
+            sleep=sleep,
+            now=now,
+            poll_interval=poll_interval,
+            poll_budget=poll_budget,
+        )
+    except TwelveLabsMediaRejectedError as exc:
+        store_video_mapping(
+            store,
+            asset_id,
+            content_hash=content_hash,
+            status=TL_REJECTED_STATUS,
+            rejection=exc,
+        )
+        _log.warning(
+            "twelvelabs index asset REJECTED (remembered for these bytes): asset=%s file=%s "
+            "code=%s",
+            asset_id,
+            media_path_name,
+            exc.code,
+        )
+        return _rejected_outcome(str(exc))
+
+
+def _rejected_outcome(reason: str) -> TLIndexOutcome:
+    """A terminal, not-ok outcome for a file TwelveLabs will not take as it is."""
+    return TLIndexOutcome(
+        advanced=True, ok=False, newly_indexed=0, status=TL_REJECTED_STATUS, reason=reason
+    )
+
+
+def _advance_index_asset(
+    client: SupportsGetTask,
+    store: BrainStore,
+    asset_id: str,
+    media_path_name: str,
+    upload: Callable[[], str],
+    *,
+    mapping: VideoMapping | None,
+    content_hash: str,
+    sleep: Callable[[float], None],
+    now: Callable[[], float],
+    poll_interval: float,
+    poll_budget: float,
+) -> TLIndexOutcome:
+    """Upload (when needed) and poll one asset within the slice budget.
+
+    :raises TwelveLabsError: On any API/transport failure, media rejections included;
+        :func:`poll_index_asset` turns a rejection into a remembered outcome.
+    """
+    # A `failed` mapping is retried on purpose (it may have been transient), and a
+    # `rejected` one reaching here was refused for OTHER bytes or under an older upload
+    # policy — both start over from a fresh upload.
+    fresh = (
+        mapping is None
+        or mapping.content_hash != content_hash
+        or mapping.status in (_TL_FAILED_STATUS, TL_REJECTED_STATUS)
+    )
 
     if not fresh and mapping is not None and mapping.ready:
         _log.debug(
@@ -386,7 +518,7 @@ def poll_index_asset(
                 store,
                 asset_id,
                 content_hash=content_hash,
-                status="failed",
+                status=_TL_FAILED_STATUS,
                 task_id=task_id,
                 source_asset_id=source_asset_id,
             )
@@ -684,3 +816,8 @@ def describe_shots_from_chapters(
 def _str_or_none(value: object) -> str | None:
     """A non-empty string, or ``None`` (defensive against malformed rows)."""
     return value if isinstance(value, str) and value else None
+
+
+def _int_or_none(value: object) -> int | None:
+    """An int (never a bool), or ``None`` (defensive against malformed rows)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None

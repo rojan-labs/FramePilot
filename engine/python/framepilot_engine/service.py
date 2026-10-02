@@ -215,6 +215,7 @@ from framepilot_engine.brain.twelvelabs import (
     resolve_twelvelabs,
 )
 from framepilot_engine.brain.twelvelabs_index import (
+    TL_REJECTED_STATUS,
     chapters_to_packets,
     clips_to_packets,
     describe_shots_from_chapters,
@@ -1542,6 +1543,10 @@ MAX_VISUAL_SLICE = 10
 #: ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY - 1`` uploads, once, before the job is marked
 #: failed and no further slice runs. Bounded and small, against a 61-asset project that
 #: would otherwise be uploaded in full.
+#:
+#: A file TwelveLabs REJECTS for what it is (too big, too long — ``rejected`` mapping) is
+#: not counted at all: it says nothing about the index, account, or network, and a
+#: project of five oversized clips is not "a broken index".
 TL_CONSECUTIVE_FAILURE_LIMIT = 3
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
@@ -4788,6 +4793,11 @@ def create_app(
         # reach the bound and a broken index would upload every asset in the
         # project one call at a time.
         consecutive_failures = int(job.payload.get("consecutiveFailures", 0))
+        # Assets TwelveLabs refused for what the FILE is (a remembered `rejected`
+        # mapping). Kept beside the items rather than on them so the response schema is
+        # unchanged; filled from the slice's worker threads, hence the lock.
+        rejected_ids: set[str] = set()
+        rejected_lock = threading.Lock()
 
         def prepare_hosted(
             store: BrainStore, vstore: VisualVectorStore, asset_id: str
@@ -4856,6 +4866,9 @@ def create_app(
                     upload=_upload,
                     content_hash=content_hash,
                 )
+                if outcome.status == TL_REJECTED_STATUS:
+                    with rejected_lock:
+                        rejected_ids.add(asset_id)
             except TwelveLabsAuthError:
                 # Auth is a property of the key, not of this file: every remaining
                 # asset would fail identically. Stop the run.
@@ -4867,11 +4880,13 @@ def create_app(
                     stop_reason="invalid_api_key",
                 )
             except TwelveLabsError as exc:
-                # One asset the provider will not take (an unsupported or corrupt file)
-                # must NOT freeze the project. Before this, any TwelveLabsError broke the
-                # slice without advancing the cursor, so every re-post hit the same asset
-                # again and coverage stayed at 0/N forever — the reported defect. Record
-                # it as failed and advance; a RUN of them is caught below.
+                # One asset the provider could not take this time must NOT freeze the
+                # project. Before this, any TwelveLabsError broke the slice without
+                # advancing the cursor, so every re-post hit the same asset again and
+                # coverage stayed at 0/N forever — the reported defect. Record it as
+                # failed (the next job retries it — it may be transient) and advance; a
+                # RUN of them is caught below. A refusal of the FILE itself never lands
+                # here: `poll_index_asset` remembers it as `rejected` and returns it.
                 reason = str(exc)
                 store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
                 _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
@@ -4908,6 +4923,10 @@ def create_app(
         # identically. Counted over the committed prefix and carried on the job, because
         # a slice is one asset by default: a per-slice counter could never reach the bound.
         for position, item in enumerate(items[:advanced]):
+            if item.asset_id in rejected_ids:
+                # Neither evidence of a broken index nor of a working one: leave the run
+                # count exactly where it was.
+                continue
             consecutive_failures = 0 if item.ok else consecutive_failures + 1
             if not item.ok and consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
                 stop_reason = item.reason
@@ -4924,9 +4943,23 @@ def create_app(
         # retry from exactly that state (`main.ts`), so those assets were remembered as
         # enrolled permanently and never measured again. Every processed asset failing
         # is a terminal condition of its own, whatever the consecutive count says.
+        #
+        # Except mid-job when every failure was a REJECTED file: that is a property of
+        # those files, so the run moves on to the assets behind them (a re-run answers
+        # them from the brain, instantly and without uploading). Once the worklist is
+        # exhausted the rule applies again, so a job — a one-asset transcribe above all —
+        # never ends `done` having indexed nothing, and its `reason` is the sentence that
+        # says why (the desktop shows `last.reason` verbatim).
         processed = items[:advanced]
         failed_count = sum(1 for item in processed if not item.ok)
-        if stop_reason is None and processed and failed_count == len(processed):
+        only_rejections = all(item.ok or item.asset_id in rejected_ids for item in processed)
+        more_to_do = cursor + advanced < total
+        if (
+            stop_reason is None
+            and processed
+            and failed_count == len(processed)
+            and not (only_rejections and more_to_do)
+        ):
             stop_reason = processed[-1].reason or "every asset in this slice failed to index"
 
         # Phase 3 — persist the advanced cursor + terminal state.
