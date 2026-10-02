@@ -21,18 +21,22 @@ from framepilot_engine.brain.twelvelabs import (
     TaskStatus,
     TLChapter,
     TLClip,
+    TwelveLabsAssetInaccessibleError,
     TwelveLabsMediaRejectedError,
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_DESCRIBED_MODEL,
     TL_REJECTED_STATUS,
     TLIndexOutcome,
+    bind_index,
     chapters_to_packets,
     clips_to_packets,
     describe_shots_from_chapters,
     is_twelvelabs_description,
     poll_index_asset,
     read_index_id,
+    read_index_key_fingerprint,
+    read_usable_index_id,
     read_video_mapping,
     store_index_id,
     store_video_mapping,
@@ -335,6 +339,201 @@ def test_mapping_rows_without_rejection_keys_still_read(tmp_path: Path) -> None:
     assert mapping is not None
     assert mapping.rejection_code is None and mapping.upload_policy is None
     assert not mapping.rejects("sha-vid")
+
+
+# --- the project's index follows the key; indexed footage follows the index -------
+
+
+class _BindingTL:
+    """The calls :func:`bind_index` makes, recorded."""
+
+    def __init__(
+        self, *, fingerprint: str = "fp-new", readable: bool = True, existing: str | None = None
+    ) -> None:
+        self.key_fingerprint = fingerprint
+        self.readable = readable
+        self.existing = existing
+        self.created: list[str] = []
+        self.checked: list[str] = []
+
+    def create_index(self, name: str) -> str:
+        self.created.append(name)
+        return "idx-new"
+
+    def find_index(self, name: str) -> str | None:
+        return self.existing
+
+    def index_accessible(self, index_id: str) -> bool:
+        self.checked.append(index_id)
+        return self.readable
+
+
+def test_bind_creates_an_index_and_records_its_key(tmp_path: Path) -> None:
+    tl = _BindingTL()
+    with open_brain(tmp_path, "p1") as store:
+        assert bind_index(tl, store, project_id="p1") == "idx-new"
+        assert read_index_key_fingerprint(store) == "fp-new"
+    assert tl.created == ["framepilot-p1"]
+
+
+def test_bind_uses_the_index_of_the_same_key_without_a_call(tmp_path: Path) -> None:
+    tl = _BindingTL(fingerprint="fp-a")
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-a", key_fingerprint="fp-a")
+        assert bind_index(tl, store, project_id="p1") == "idx-a"
+    assert tl.created == [] and tl.checked == []
+
+
+def test_bind_rebinds_when_the_key_changed(tmp_path: Path) -> None:
+    tl = _BindingTL(fingerprint="fp-b")
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-a", key_fingerprint="fp-a")
+        assert bind_index(tl, store, project_id="p1") == "idx-new"
+        assert read_index_id(store) == "idx-new"
+        assert read_index_key_fingerprint(store) == "fp-b"
+    assert tl.checked == []  # a different key is decided without a call
+
+
+def test_bind_reuses_this_accounts_index_of_the_same_name(tmp_path: Path) -> None:
+    # Switching back to an earlier key gets its index (and its footage) back.
+    tl = _BindingTL(fingerprint="fp-b", existing="idx-b")
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-a", key_fingerprint="fp-a")
+        assert bind_index(tl, store, project_id="p1") == "idx-b"
+    assert tl.created == []
+
+
+def test_bind_adopts_a_legacy_index_this_key_can_read(tmp_path: Path) -> None:
+    tl = _BindingTL()
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-old")  # written before fingerprints were kept
+        assert bind_index(tl, store, project_id="p1") == "idx-old"
+        assert read_index_key_fingerprint(store) == "fp-new"
+    assert tl.checked == ["idx-old"] and tl.created == []
+
+
+def test_bind_rebinds_a_legacy_index_this_key_cannot_read(tmp_path: Path) -> None:
+    tl = _BindingTL(readable=False)
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-old")
+        assert bind_index(tl, store, project_id="p1") == "idx-new"
+        assert read_index_key_fingerprint(store) == "fp-new"
+
+
+def test_read_only_routes_treat_another_keys_index_as_absent(tmp_path: Path) -> None:
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-old")
+        assert read_usable_index_id(store, "fp-any") == "idx-old"  # unknown owner: usable
+        store_index_id(store, "idx-a", key_fingerprint="fp-a")
+        assert read_usable_index_id(store, "fp-a") == "idx-a"
+        assert read_usable_index_id(store, "fp-b") is None
+
+
+class _AttachTL(_FakeTL):
+    """Records every polled token; the upload is readable unless told otherwise."""
+
+    def __init__(self, *, upload_readable: bool = True) -> None:
+        super().__init__()
+        self.upload_readable = upload_readable
+        self.tokens: list[str] = []
+
+    def get_task(self, task_id: str) -> TaskStatus:
+        self.tokens.append(task_id)
+        if task_id.startswith("asset-v1:") and not self.upload_readable:
+            self.upload_readable = True  # only the OLD upload is another account's
+            raise TwelveLabsAssetInaccessibleError("another account's upload")
+        return TaskStatus(task_id, "ready", "video-new", source_asset_id="upl-1")
+
+
+def _never_upload() -> str:
+    raise AssertionError("the file must be re-attached, not uploaded again")
+
+
+def test_in_flight_upload_in_the_old_index_is_re_attached_not_re_uploaded(
+    tmp_path: Path,
+) -> None:
+    """The maintainer's state: 1 GB uploaded, token still naming the old index."""
+    _seed_asset(tmp_path)
+    tl = _AttachTL()
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="indexing",
+            task_id="asset-v1:idx-old:upl-1",
+        )
+        outcome = poll_index_asset(
+            tl, store, "idx-new", "vid", "vid.mp4", upload=_never_upload, content_hash="sha-vid"
+        )
+        mapping = read_video_mapping(store, "vid")
+    assert tl.tokens == ["asset-v1:idx-new:upl-1"]
+    assert outcome.ok and outcome.newly_indexed == 1
+    assert mapping is not None and mapping.index_id == "idx-new" and mapping.ready
+
+
+def test_ready_mapping_from_the_old_index_is_re_attached_not_reported_ready(
+    tmp_path: Path,
+) -> None:
+    _seed_asset(tmp_path)
+    tl = _AttachTL()
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="ready",
+            task_id="indexed-asset-v1:idx-old:video-old",
+            video_id="video-old",
+            source_asset_id="upl-1",
+        )
+        old = read_video_mapping(store, "vid")
+        assert old is not None and old.index_id == "idx-old"  # derived from the token
+        assert old.ready and not old.ready_in("idx-new")
+        outcome = poll_index_asset(
+            tl, store, "idx-new", "vid", "vid.mp4", upload=_never_upload, content_hash="sha-vid"
+        )
+        assert video_to_asset_map(store, index_id="idx-new") == {"video-new": "vid"}
+    assert tl.tokens == ["asset-v1:idx-new:upl-1"]
+    assert outcome.newly_indexed == 1
+
+
+def test_upload_another_account_owns_is_uploaded_again_once(tmp_path: Path) -> None:
+    _seed_asset(tmp_path)
+    tl = _AttachTL(upload_readable=False)
+    uploads: list[str] = []
+
+    def upload() -> str:
+        uploads.append("vid.mp4")
+        return "asset-v1:idx-new:upl-2"
+
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="indexing",
+            task_id="asset-v1:idx-old:upl-1",
+        )
+        outcome = poll_index_asset(
+            tl, store, "idx-new", "vid", "vid.mp4", upload=upload, content_hash="sha-vid"
+        )
+    assert uploads == ["vid.mp4"]
+    assert tl.tokens == ["asset-v1:idx-new:upl-1", "asset-v1:idx-new:upl-2"]
+    assert outcome.ok
+
+
+def test_a_rejection_still_holds_after_a_rebind(tmp_path: Path) -> None:
+    # A refusal is about the BYTES, not the index: a new index must not re-send them.
+    _seed_asset(tmp_path)
+    rejecting = _RejectingUpload()
+    with open_brain(tmp_path, "p1") as store:
+        _poll(store, _FakeTL(), rejecting)
+        outcome = poll_index_asset(
+            _FakeTL(), store, "idx-new", "vid", "vid.mp4", upload=rejecting, content_hash="sha-vid"
+        )
+    assert rejecting.calls == 1
+    assert outcome.status == TL_REJECTED_STATUS
 
 
 # --- clip → packet mapping -------------------------------------------------------

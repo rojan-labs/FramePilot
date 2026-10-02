@@ -98,6 +98,15 @@ class _RecordingTL:
         self.refuse = refuse or set()
         self.uploads: list[str] = []
 
+    #: The real client derives this from its key; a fixed value is one stable "account".
+    key_fingerprint = "fp-current"
+
+    def index_accessible(self, index_id: str) -> bool:
+        return True
+
+    def find_index(self, name: str) -> str | None:
+        return None
+
     def create_index(self, name: str) -> str:
         return "idx-1"
 

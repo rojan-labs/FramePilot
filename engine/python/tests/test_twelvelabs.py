@@ -24,11 +24,14 @@ from framepilot_engine.brain.twelvelabs import (
     PREFLIGHT_FILE_TOO_LARGE_CODE,
     TLClip,
     TLWord,
+    TwelveLabsAssetInaccessibleError,
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
+    TwelveLabsIndexInaccessibleError,
     TwelveLabsIndexNotGenerativeError,
     TwelveLabsMediaRejectedError,
+    key_fingerprint,
     resolve_twelvelabs,
 )
 
@@ -864,3 +867,80 @@ def test_transient_or_request_errors_are_not_media_rejections(
     with pytest.raises(TwelveLabsError) as excinfo:
         make_client().create_index_task(INDEX_ID, media)
     assert not isinstance(excinfo.value, TwelveLabsMediaRejectedError)
+
+
+# --- a saved index from another account is not a bad key -------------------------
+#
+# Observed live: after the key was switched to another account, the same key that
+# had just uploaded a file got `403 read_not_allowed` reading the project's saved
+# index — and the route told the user their (working) key was invalid.
+
+NOT_READABLE = {
+    "code": "read_not_allowed",
+    "message": f"The caller is not authorized to read entity {INDEX_ID}.",
+}
+
+
+@respx.mock
+def test_read_not_allowed_on_an_index_is_inaccessible_not_auth() -> None:
+    respx.get(url(f"/indexes/{INDEX_ID}")).respond(403, json=NOT_READABLE)
+    assert make_client().index_accessible(INDEX_ID) is False
+
+
+@respx.mock
+def test_read_not_allowed_on_attach_is_index_inaccessible() -> None:
+    respx.get(url(f"/assets/{ASSET_ID}")).respond(
+        200, json={"_id": ASSET_ID, "method": "direct", "status": "ready"}
+    )
+    respx.post(url(f"/indexes/{INDEX_ID}/indexed-assets")).respond(403, json=NOT_READABLE)
+    with pytest.raises(TwelveLabsIndexInaccessibleError) as excinfo:
+        make_client().get_task(f"asset-v1:{INDEX_ID}:{ASSET_ID}")
+    assert not isinstance(excinfo.value, TwelveLabsAuthError)
+
+
+@respx.mock
+def test_read_not_allowed_on_the_upload_itself_is_asset_inaccessible() -> None:
+    # Distinct from the index: the caller must upload again, not rebind.
+    respx.get(url(f"/assets/{ASSET_ID}")).respond(403, json=NOT_READABLE)
+    with pytest.raises(TwelveLabsAssetInaccessibleError):
+        make_client().get_task(f"asset-v1:{INDEX_ID}:{ASSET_ID}")
+
+
+@respx.mock
+def test_plain_403_on_an_index_is_still_an_auth_error() -> None:
+    respx.get(url(f"/indexes/{INDEX_ID}")).respond(403, json={"code": "forbidden"})
+    with pytest.raises(TwelveLabsAuthError):
+        make_client().index_accessible(INDEX_ID)
+
+
+@respx.mock
+def test_readable_index_is_accessible() -> None:
+    respx.get(url(f"/indexes/{INDEX_ID}")).respond(
+        200, json={"_id": INDEX_ID, "index_name": "framepilot-p1"}
+    )
+    assert make_client().index_accessible(INDEX_ID) is True
+
+
+@respx.mock
+def test_find_index_matches_the_exact_name_only() -> None:
+    route = respx.get(url("/indexes")).respond(
+        200,
+        json={
+            "data": [
+                {"_id": "other", "index_name": "framepilot-p1-copy"},
+                {"_id": INDEX_ID, "index_name": "framepilot-p1"},
+            ],
+            "page_info": {"page": 1, "total_page": 1, "total_results": 2, "limit_per_page": 50},
+        },
+    )
+    assert make_client().find_index("framepilot-p1") == INDEX_ID
+    assert route.calls[0].request.url.params["index_name"] == "framepilot-p1"
+    assert len(route.calls) == 1  # one page, not a walk of every page
+
+
+def test_key_fingerprint_identifies_a_key_without_revealing_it() -> None:
+    fingerprint = key_fingerprint(KEY)
+    assert fingerprint == key_fingerprint(KEY) == make_client().key_fingerprint
+    assert fingerprint != key_fingerprint(KEY + "x")
+    assert re.fullmatch(r"[0-9a-f]{16}", fingerprint)
+    assert KEY not in fingerprint and fingerprint not in KEY

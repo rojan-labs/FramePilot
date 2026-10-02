@@ -451,6 +451,15 @@ def test_status_reports_ledger_coverage(tmp_path: Path, monkeypatch: pytest.Monk
 class _FakeTL:
     """Only the calls the index slice makes."""
 
+    #: The real client derives this from its key; a fixed value is one stable "account".
+    key_fingerprint = "fp-current"
+
+    def index_accessible(self, index_id: str) -> bool:
+        return True
+
+    def find_index(self, name: str) -> str | None:
+        return None
+
     def create_index(self, name: str) -> str:
         return "idx-1"
 

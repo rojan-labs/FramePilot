@@ -31,7 +31,9 @@ Design rules mirror :mod:`framepilot_engine.brain.visual_embed`:
   transport error is translated to a typed :class:`TwelveLabsError`
   (401/403 → :class:`TwelveLabsAuthError`; a generate call against a Marengo-only
   index → :class:`TwelveLabsIndexNotGenerativeError`; a file TwelveLabs refuses
-  for what it IS → :class:`TwelveLabsMediaRejectedError`); the routes translate that
+  for what it IS → :class:`TwelveLabsMediaRejectedError`; a valid key reading an
+  index another account owns → :class:`TwelveLabsIndexInaccessibleError`, never an
+  auth error); the routes translate that
   into an ``available=True`` response carrying a typed ``reason``, never a
   fabricated result. TwelveLabs never fabricates a video the user did not upload.
 - **Secrets stay out of logs.** Only HTTP status codes, index/video/task ids, and
@@ -61,6 +63,7 @@ rate limit or an outage; the caller remembers it so it is never re-uploaded
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -108,14 +111,20 @@ __all__ = [
     "TLHighlight",
     "TLWord",
     "TaskStatus",
+    "TwelveLabsAssetInaccessibleError",
     "TwelveLabsAuthError",
     "TwelveLabsClient",
     "TwelveLabsClientResolution",
     "TwelveLabsError",
+    "TwelveLabsIndexInaccessibleError",
     "TwelveLabsIndexNotGenerativeError",
     "TwelveLabsMediaRejectedError",
     "TwelveLabsPegasusUnavailableError",
+    "asset_task_token",
+    "key_fingerprint",
     "resolve_twelvelabs",
+    "task_token_index",
+    "task_token_uploaded_asset",
 ]
 
 #: TwelveLabs REST base (API version 1.3).
@@ -213,6 +222,23 @@ _CHUNK_PROGRESS_LOG_EVERY = 10
 #: Content type for a raw multipart chunk PUT (what object storage expects).
 _CHUNK_CONTENT_TYPE = "application/octet-stream"
 
+#: The machine code TwelveLabs answers when the key is valid but the entity (an index,
+#: an uploaded asset) belongs to ANOTHER account or no longer exists for this one:
+#: ``403 {"code":"read_not_allowed","message":"The caller is not authorized to read
+#: entity <id>."}`` — observed live after a project's key was switched to a different
+#: account. It is about the ENTITY, never the key, so it must not read as a bad key.
+_ENTITY_NOT_READABLE_CODE = "read_not_allowed"
+#: Statuses on which :data:`_ENTITY_NOT_READABLE_CODE` is honoured.
+_ENTITY_NOT_READABLE_STATUSES = frozenset({403, 404})
+
+#: Domain separator for :func:`key_fingerprint`, so the digest is useless for anything
+#: but recognising "the same key as before" (and a version, should the scheme change).
+_KEY_FINGERPRINT_DOMAIN = b"framepilot:twelvelabs-key-fingerprint:v1\x00"
+#: Hex characters kept: 64 bits tells keys apart and is not a usable hash of the key.
+_KEY_FINGERPRINT_HEX_CHARS = 16
+#: How many indexes one name lookup reads (first page only; the name filter keeps it small).
+_INDEX_LOOKUP_PAGE_LIMIT = 50
+
 #: Typed reason when no key is configured (mirrors ``visual_embed.NO_API_KEY_REASON``).
 NO_API_KEY_REASON = "no_api_key"
 
@@ -261,6 +287,27 @@ class TwelveLabsIndexNotGenerativeError(TwelveLabsError):
     degrade to the built-in span/caption map — which the account's existing Marengo
     index already supports — instead of surfacing a raw HTTP 400. Recreating the
     index (with Pegasus) and re-indexing restores the full Pegasus map.
+    """
+
+
+class TwelveLabsIndexInaccessibleError(TwelveLabsError):
+    """The key is fine, but the index (or entity) it names is not this account's.
+
+    TwelveLabs answers ``read_not_allowed`` (HTTP 403) when a project's saved index was
+    created under a DIFFERENT TwelveLabs account — the user switched keys — or is gone.
+    Before this type it was read as a rejected key, so a user whose key worked was told
+    to fix it, forever. The index route answers it by binding the project to an index
+    of the current account; read-only routes report the project as not indexed yet.
+    """
+
+
+class TwelveLabsAssetInaccessibleError(TwelveLabsError):
+    """An UPLOADED asset this account cannot read (another account's upload).
+
+    Raised only by :meth:`TwelveLabsClient.get_task` when reading the uploaded asset
+    itself fails with ``read_not_allowed`` — distinct from the index being unreadable,
+    so a caller re-attaching an earlier upload to a new index knows to upload the file
+    again rather than to rebind the index.
     """
 
 
@@ -326,6 +373,41 @@ class TaskStatus:
     def done(self) -> bool:
         """True when polling should stop (ready or failed)."""
         return self.ready or self.failed
+
+
+def key_fingerprint(api_key: str) -> str:
+    """A short, non-reversible tag that recognises the same TwelveLabs key again.
+
+    Stored next to a project's index id so a CHANGED key (often a different account,
+    whose indexes the new key cannot read) is noticed before any call fails. Never the
+    key, never reversible: a domain-separated SHA-256, truncated.
+    """
+    digest = hashlib.sha256(_KEY_FINGERPRINT_DOMAIN + api_key.strip().encode("utf-8"))
+    return digest.hexdigest()[:_KEY_FINGERPRINT_HEX_CHARS]
+
+
+def asset_task_token(index_id: str, asset_id: str) -> str:
+    """The resumable token that attaches uploaded ``asset_id`` to ``index_id``.
+
+    :meth:`TwelveLabsClient.get_task` waits for the asset to be ready, then attaches it
+    — so re-tokening an EARLIER upload for a new index re-attaches it without uploading
+    the file again.
+    """
+    return _task_token(_ASSET_TASK_PREFIX, index_id, asset_id)
+
+
+def task_token_index(task_id: str | None) -> str | None:
+    """The index a FramePilot task token belongs to, or ``None`` (legacy/unknown)."""
+    token = _parse_task_token(task_id) if task_id else None
+    return token[1] if token is not None else None
+
+
+def task_token_uploaded_asset(task_id: str | None) -> str | None:
+    """The uploaded-asset id an ``asset-v1`` token carries, or ``None``."""
+    token = _parse_task_token(task_id) if task_id else None
+    if token is None or token[0] != _ASSET_TASK_PREFIX:
+        return None
+    return token[2]
 
 
 def _task_token(kind: str, index_id: str, remote_id: str) -> str:
@@ -463,6 +545,7 @@ class TwelveLabsClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._model_name = model_name
+        self._key_fingerprint = key_fingerprint(api_key)
         self._timeout = timeout
         self._upload_timeout = upload_timeout
         # The size limits are parameters (defaulting to TwelveLabs' documented ones) so
@@ -484,6 +567,11 @@ class TwelveLabsClient:
             timeout=timeout,
             httpx_client=http,
         )
+
+    @property
+    def key_fingerprint(self) -> str:
+        """:func:`key_fingerprint` of this client's key (safe to store and to log)."""
+        return self._key_fingerprint
 
     # -- error translation ------------------------------------------------------
 
@@ -538,6 +626,33 @@ class TwelveLabsClient:
             raise TwelveLabsError("TwelveLabs index create returned no id.")
         _log.info("ACT twelvelabs index created: %s", index_id)
         return index_id
+
+    def index_accessible(self, index_id: str) -> bool:
+        """Whether this key can read ``index_id`` (False: another account's, or gone).
+
+        :raises TwelveLabsError: On any other failure (a rejected key stays an auth error).
+        """
+        try:
+            with self._translate_errors():
+                self._sdk.indexes.retrieve(index_id)
+        except TwelveLabsIndexInaccessibleError:
+            return False
+        return True
+
+    def find_index(self, name: str) -> str | None:
+        """The id of this account's index called exactly ``name``, or ``None``.
+
+        Lets a project that switches back to an earlier account reuse the index it
+        already has there (and every asset indexed in it) instead of making another.
+
+        :raises TwelveLabsError: On any API/transport failure.
+        """
+        with self._translate_errors():
+            page = self._sdk.indexes.list(index_name=name, page_limit=_INDEX_LOOKUP_PAGE_LIMIT)
+        for index in page.items or []:
+            if index.index_name == name and isinstance(index.id, str) and index.id:
+                return index.id
+        return None
 
     # -- indexing tasks ---------------------------------------------------------
 
@@ -799,9 +914,19 @@ class TwelveLabsClient:
         return TaskStatus(task_id=task_id, status=status, video_id=video_id)
 
     def _advance_uploaded_asset(self, task_id: str, index_id: str, asset_id: str) -> TaskStatus:
-        """Wait for an upload, then attach it to the requested index exactly once."""
-        with self._translate_errors():
-            asset = self._sdk.assets.retrieve(asset_id)
+        """Wait for an upload, then attach it to the requested index exactly once.
+
+        :raises TwelveLabsAssetInaccessibleError: This key cannot read the upload (it
+            was made under another account) — upload the file again.
+        """
+        try:
+            with self._translate_errors():
+                asset = self._sdk.assets.retrieve(asset_id)
+        except TwelveLabsIndexInaccessibleError as exc:
+            raise TwelveLabsAssetInaccessibleError(
+                "The earlier TwelveLabs upload of this file belongs to a different "
+                "TwelveLabs account; it has to be uploaded again."
+            ) from exc
         asset_status = asset.status
         if not isinstance(asset_status, str):
             raise TwelveLabsError("TwelveLabs asset status missing.")
@@ -1206,7 +1331,9 @@ def _decode_analyze_json(raw: object) -> dict[str, object] | None:
 def _raise_typed(exc: ApiError, *, pegasus: bool) -> NoReturn:
     """Translate an SDK :class:`ApiError` into FramePilot's typed error hierarchy.
 
-    Preserves the pre-SDK status-code contract: 401 (and non-Pegasus 403) → auth;
+    Preserves the pre-SDK status-code contract: 401 (and non-Pegasus 403) → auth,
+    except a 403/404 ``read_not_allowed`` (the entity is another account's) →
+    :class:`TwelveLabsIndexInaccessibleError`;
     on a generative call 402/403 → no Pegasus entitlement and a 400
     ``index_not_supported_for_generate`` → a Marengo-only index; a 413/415, or a
     400/422 whose ``code`` is about the media (``video_*``/``audio_*``/``file_*``) →
@@ -1219,6 +1346,11 @@ def _raise_typed(exc: ApiError, *, pegasus: bool) -> NoReturn:
     if status == 401:
         _log.warning("twelvelabs ✗ rejected the API key (HTTP 401)")
         raise TwelveLabsAuthError("TwelveLabs rejected the API key (HTTP 401).") from exc
+    if status in _ENTITY_NOT_READABLE_STATUSES and code == _ENTITY_NOT_READABLE_CODE:
+        _log.warning("twelvelabs ✗ entity not readable by this key (HTTP %d %s)", status, code)
+        raise TwelveLabsIndexInaccessibleError(
+            "The saved TwelveLabs index belongs to a different TwelveLabs account or was deleted."
+        ) from exc
     if pegasus and status in (402, 403):
         _log.warning("twelvelabs ✗ not entitled to Pegasus (HTTP %d)", status)
         raise TwelveLabsPegasusUnavailableError(
