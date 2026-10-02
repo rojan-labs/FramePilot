@@ -8,6 +8,8 @@ search, clip parsing (including skipped malformed rows), and honest failures
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import httpx
@@ -16,13 +18,17 @@ import respx
 
 from framepilot_engine.brain.twelvelabs import (
     DEFAULT_BASE_URL,
+    MULTIPART_UPLOAD_MAX_BYTES,
     NO_API_KEY_REASON,
+    PREFLIGHT_AUDIO_TOO_LARGE_CODE,
+    PREFLIGHT_FILE_TOO_LARGE_CODE,
     TLClip,
     TLWord,
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
     TwelveLabsIndexNotGenerativeError,
+    TwelveLabsMediaRejectedError,
     resolve_twelvelabs,
 )
 
@@ -577,3 +583,284 @@ def test_api_key_never_appears_in_error_message() -> None:
     # The route snippet may echo the body, but our own message must not add the key.
     # (Body echo is TwelveLabs' text, not ours — assert we never inject the header value.)
     assert "x-api-key" not in str(excinfo.value)
+
+
+# --- large files: multipart upload, pre-flight, media rejections ------------------
+#
+# The size limits are constructor parameters so the multipart path runs over a few
+# bytes: a 10-byte "direct limit" and 10-byte chunks stand in for 200 MB and the
+# chunk size TwelveLabs picks. Only the >10 GB pre-flight uses the real default,
+# on a sparse file (stat only, no bytes on disk).
+
+UPLOAD_ID = "upload_xyz"
+PRESIGNED_HOST = "https://uploads.example.test"
+SMALL_LIMIT = 10
+CHUNK = 10
+MEDIA_BYTES = b"0123456789ABCDEFGHIJKLMNO"  # 25 bytes → chunks of 10, 10, 5
+
+
+def presigned(index: int, tag: str = "initial") -> str:
+    return f"{PRESIGNED_HOST}/part{index}?signature={tag}-secret"
+
+
+class FakeStorage:
+    """Object storage behind the presigned URLs; ``failures`` = PUTs to refuse per chunk."""
+
+    def __init__(self, failures: dict[int, int] | None = None) -> None:
+        self.failures = dict(failures or {})
+        self.stored: list[tuple[int, bytes]] = []
+        self.attempt_urls: list[str] = []
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        match = re.search(r"part(\d+)", request.url.path)
+        assert match is not None
+        index = int(match.group(1))
+        self.attempt_urls.append(str(request.url))
+        if self.failures.get(index, 0) > 0:
+            self.failures[index] -= 1
+            return httpx.Response(503)
+        self.stored.append((index, request.content))
+        return httpx.Response(200, headers={"ETag": f'"etag-{index}"'})
+
+
+class MultipartRoutes:
+    """respx routes for one multipart session (create → URLs → PUTs → report)."""
+
+    def __init__(self, storage: FakeStorage, *, initial_urls: list[int]) -> None:
+        self.reported: list[dict[str, object]] = []
+        self.create = respx.post(url("/assets/multipart-uploads")).respond(
+            201,
+            json={
+                "upload_id": UPLOAD_ID,
+                "asset_id": ASSET_ID,
+                "chunk_size": CHUNK,
+                "total_chunks": 3,
+                "upload_urls": [{"chunk_index": i, "url": presigned(i)} for i in initial_urls],
+            },
+        )
+        self.more_urls = respx.post(
+            url(f"/assets/multipart-uploads/{UPLOAD_ID}/presigned-urls")
+        ).mock(side_effect=self._more_urls)
+        self.report = respx.post(url(f"/assets/multipart-uploads/{UPLOAD_ID}")).mock(
+            side_effect=self._report
+        )
+        respx.put(url__startswith=PRESIGNED_HOST).mock(side_effect=storage.handle)
+
+    def _more_urls(self, request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        start, count = int(body["start"]), int(body["count"])
+        chunks = [
+            {"chunk_index": i, "url": presigned(i, "fresh")} for i in range(start, start + count)
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "upload_id": UPLOAD_ID,
+                "start_index": start,
+                "count": count,
+                "upload_urls": chunks,
+            },
+        )
+
+    def _report(self, request: httpx.Request) -> httpx.Response:
+        self.reported.extend(json.loads(request.content)["completed_chunks"])
+        return httpx.Response(
+            200, json={"asset_id": ASSET_ID, "total_completed": len(self.reported)}
+        )
+
+
+def small_limit_client(sleeps: list[float] | None = None) -> TwelveLabsClient:
+    recorded = sleeps if sleeps is not None else []
+    return TwelveLabsClient(
+        KEY,
+        http=httpx.Client(),
+        direct_upload_max_bytes=SMALL_LIMIT,
+        sleep=recorded.append,
+    )
+
+
+def media_file(tmp_path: Path, name: str = "ro.mp4", data: bytes = MEDIA_BYTES) -> Path:
+    folder = tmp_path / "footage"
+    folder.mkdir()
+    media = folder / name
+    media.write_bytes(data)
+    return media
+
+
+@respx.mock
+def test_file_over_direct_limit_uploads_multipart_in_chunks(tmp_path: Path) -> None:
+    media = media_file(tmp_path)
+    storage = FakeStorage()
+    routes = MultipartRoutes(storage, initial_urls=[1, 2])
+    direct = respx.post(url("/assets"))
+
+    token = small_limit_client().create_index_task(INDEX_ID, media)
+
+    # Same resumable token shape as a direct upload, so polling is unchanged.
+    assert token == f"asset-v1:{INDEX_ID}:{ASSET_ID}"
+    assert not direct.called
+    session = json.loads(routes.create.calls[0].request.content)
+    assert session["type"] == "video"
+    assert session["total_size"] == len(MEDIA_BYTES)
+    assert session["filename"] == "ro.mp4"
+    # Each chunk is exactly its byte range of the file, in order.
+    assert storage.stored == [(1, b"0123456789"), (2, b"ABCDEFGHIJ"), (3, b"KLMNO")]
+    # The initial set covered chunks 1-2; chunk 3's URL was fetched when it ran out.
+    assert routes.more_urls.call_count == 1
+    assert json.loads(routes.more_urls.calls[0].request.content) == {"start": 3, "count": 1}
+    assert routes.reported == [
+        {"chunk_index": 1, "proof": "etag-1", "proof_type": "etag", "chunk_size": 10},
+        {"chunk_index": 2, "proof": "etag-2", "proof_type": "etag", "chunk_size": 10},
+        {"chunk_index": 3, "proof": "etag-3", "proof_type": "etag", "chunk_size": 5},
+    ]
+    # Nothing was written beside the user's footage (the SDK helper writes `<stem>_chunks/`).
+    assert sorted(p.name for p in media.parent.iterdir()) == ["ro.mp4"]
+
+
+@respx.mock
+def test_multipart_chunk_that_fails_once_is_retried_with_a_fresh_url(tmp_path: Path) -> None:
+    media = media_file(tmp_path)
+    storage = FakeStorage(failures={1: 1})
+    routes = MultipartRoutes(storage, initial_urls=[1, 2, 3])
+    sleeps: list[float] = []
+
+    token = small_limit_client(sleeps).create_index_task(INDEX_ID, media)
+
+    assert token == f"asset-v1:{INDEX_ID}:{ASSET_ID}"
+    assert [index for index, _ in storage.stored] == [1, 2, 3]
+    assert storage.stored[0] == (1, b"0123456789")
+    assert sleeps == [2.0]
+    # The retry asked for a fresh presigned URL rather than re-using the spent one.
+    assert json.loads(routes.more_urls.calls[0].request.content)["start"] == 1
+    assert storage.attempt_urls[1] == presigned(1, "fresh")
+    assert len(routes.reported) == 3
+
+
+@respx.mock
+def test_multipart_chunk_that_keeps_failing_raises_without_leaking_the_url(
+    tmp_path: Path,
+) -> None:
+    media = media_file(tmp_path)
+    storage = FakeStorage(failures={2: 99})
+    routes = MultipartRoutes(storage, initial_urls=[1, 2, 3])
+    sleeps: list[float] = []
+
+    with pytest.raises(TwelveLabsError) as excinfo:
+        small_limit_client(sleeps).create_index_task(INDEX_ID, media)
+
+    message = str(excinfo.value)
+    assert not isinstance(excinfo.value, TwelveLabsMediaRejectedError)  # transient, not the file
+    assert "part 2 of 3" in message
+    assert "secret" not in message
+    assert sleeps == [2.0, 4.0]  # bounded: three attempts, backing off
+    assert [index for index, _ in storage.stored] == [1]
+    assert not routes.report.called
+
+
+@respx.mock
+def test_file_at_direct_limit_still_uploads_direct(tmp_path: Path) -> None:
+    media = media_file(tmp_path, data=MEDIA_BYTES[:SMALL_LIMIT])
+    direct = respx.post(url("/assets")).respond(
+        201, json={"_id": ASSET_ID, "method": "direct", "status": "processing"}
+    )
+    multipart = respx.post(url("/assets/multipart-uploads"))
+
+    small_limit_client().create_index_task(INDEX_ID, media)
+
+    assert direct.called
+    assert not multipart.called
+
+
+def test_file_over_ten_gb_is_refused_before_any_request(tmp_path: Path) -> None:
+    media = tmp_path / "ro.mp4"
+    with media.open("wb") as handle:
+        handle.truncate(12_300_000_000)  # sparse: no bytes on disk
+    assert media.stat().st_size > MULTIPART_UPLOAD_MAX_BYTES
+
+    # Every request is unmocked, so ANY network call would fail the test.
+    with respx.mock(assert_all_mocked=True) as router:
+        with pytest.raises(TwelveLabsMediaRejectedError) as excinfo:
+            make_client().create_index_task(INDEX_ID, media)
+        assert not router.calls
+
+    assert excinfo.value.code == PREFLIGHT_FILE_TOO_LARGE_CODE
+    assert excinfo.value.http_status is None
+    assert str(excinfo.value) == (
+        "ro.mp4 is 12.3 GB; TwelveLabs accepts files up to 10 GB. "
+        "Export a smaller proxy to index it with TwelveLabs."
+    )
+
+
+def test_audio_over_direct_limit_is_refused_before_any_request(tmp_path: Path) -> None:
+    # Multipart upload is video-only; an endpoint that would refuse it is never tried.
+    media = media_file(tmp_path, name="interview.mp3")
+    with respx.mock(assert_all_mocked=True) as router:
+        with pytest.raises(TwelveLabsMediaRejectedError) as excinfo:
+            small_limit_client().create_index_task(INDEX_ID, media)
+        assert not router.calls
+    assert excinfo.value.code == PREFLIGHT_AUDIO_TOO_LARGE_CODE
+    assert "interview.mp3" in str(excinfo.value)
+
+
+@respx.mock
+def test_filesize_rejection_is_typed_human_and_names_the_file(tmp_path: Path) -> None:
+    media = tmp_path / "ro.mp4"
+    media.write_bytes(b"fake")
+    respx.post(url("/assets")).respond(
+        400, json={"code": "video_filesize_too_large", "message": "too big"}
+    )
+    with pytest.raises(TwelveLabsMediaRejectedError) as excinfo:
+        make_client().create_index_task(INDEX_ID, media)
+    assert excinfo.value.code == "video_filesize_too_large"
+    assert excinfo.value.http_status == 400
+    assert str(excinfo.value) == (
+        "TwelveLabs can't index ro.mp4: the file is larger than TwelveLabs accepts."
+    )
+    assert "HTTP 400" not in str(excinfo.value)
+
+
+@respx.mock
+def test_rejection_at_index_attach_is_a_media_rejection() -> None:
+    # Marengo can refuse an uploaded asset when it is attached (e.g. too long).
+    respx.get(url(f"/assets/{ASSET_ID}")).respond(
+        200, json={"_id": ASSET_ID, "method": "direct", "status": "ready"}
+    )
+    respx.post(url(f"/indexes/{INDEX_ID}/indexed-assets")).respond(
+        400, json={"code": "video_duration_too_long", "message": "too long"}
+    )
+    with pytest.raises(TwelveLabsMediaRejectedError) as excinfo:
+        make_client().get_task(f"asset-v1:{INDEX_ID}:{ASSET_ID}")
+    assert excinfo.value.code == "video_duration_too_long"
+    assert str(excinfo.value) == "TwelveLabs can't index this file: the video is too long."
+
+
+@respx.mock
+def test_413_without_a_code_is_a_media_rejection(tmp_path: Path) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"fake")
+    respx.post(url("/assets")).respond(413, text="payload too large")
+    with pytest.raises(TwelveLabsMediaRejectedError) as excinfo:
+        make_client().create_index_task(INDEX_ID, media)
+    assert excinfo.value.code == "http_413"
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (429, {"code": "too_many_requests", "message": "slow down"}),
+        (500, {"code": "video_filesize_too_large", "message": "an outage, whatever it says"}),
+        (401, {"code": "api_key_invalid", "message": "bad key"}),
+        (400, {"code": "parameter_invalid", "message": "a request bug, not the file"}),
+        (400, {"code": "video_not_found", "message": "a missing resource"}),
+    ],
+)
+@respx.mock
+def test_transient_or_request_errors_are_not_media_rejections(
+    tmp_path: Path, status: int, body: dict[str, str]
+) -> None:
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"fake")
+    respx.post(url("/assets")).respond(status, json=body)
+    with pytest.raises(TwelveLabsError) as excinfo:
+        make_client().create_index_task(INDEX_ID, media)
+    assert not isinstance(excinfo.value, TwelveLabsMediaRejectedError)
