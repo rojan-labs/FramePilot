@@ -12,6 +12,6 @@
   "devDependencies": {
     "@playwright/test": "^1.63.0",
     "@types/node": "^20.14.0",
-    "electron": "^39.8.10"
+    "electron": "^41.10.6"
   }
 }
