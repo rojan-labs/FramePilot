@@ -108,7 +108,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   refused as too large, and then upload again on the next try. Video up to 10 GB now uploads in
   parts. A file TwelveLabs can't take (over 10 GB, say, or too long) is reported once in plain
   words, such as "ro.mp4 is 12.3 GB; TwelveLabs accepts files up to 10 GB", and is not uploaded
-  again. The other clips in the project still index.
+  again. The other clips in the project still index. The footage understanding panel now shows
+  which clip could not be read and why, instead of saying the footage was not read yet.
 - **Clicking away from a selected object on the monitor deselects it.** When nothing but text
   or shapes sat under the playhead (a title over black, say), or you clicked the dark area around
   the frame, the bounding box stayed up. Dragging a handle past the edge of the box still keeps

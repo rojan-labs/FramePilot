@@ -11345,6 +11345,17 @@ schema migration (new optional keys on the existing `tl:video` mapping row), no 
   tried once); `test_twelvelabs_cache` / `test_service_visual_index` / `test_service_shot_ledger`
   76 passed; `mypy .` and ruff clean. Not verified against the live API: chunk PUT headers and the
   final `total_completed` follow the SDK's documented shapes._
+- [x] **TLU5** The footage understanding panel shows a failed read. The runtime classified the
+  engine's reason by substring, so "TwelveLabs can't index ro.mp4: …" read as still-indexing and
+  `(HTTP 400) (video_filesize_too_large)` as a missing file; `classifyUnderstandingReason` now
+  matches only exact engine tokens, loop statuses, the `(HTTP nnn) (code)` marker and the engine's
+  sentence openings (new `media_rejected` reason), and the message is the engine's sentence once.
+  The panel reads `GET /brain/visual/status` `failures` with the map on open/refresh and, when the
+  map is empty, names each failed clip with its reason and Try again; status unreachable or absent
+  renders as before. _Evidence: `packages/ai-sdk/src/media-understanding-runtime.test.ts` 67,
+  `apps/web-editor/src/components/FootageUnderstandingPanel.test.tsx` 19 and
+  `apps/web-editor/src/editor/visualIndex.test.ts` 7 passed, with the real engine strings; ai-sdk
+  and web-editor typecheck and eslint clean. Not checked in the running desktop app._
 
 **Last updated:** 2026-10-03
 
