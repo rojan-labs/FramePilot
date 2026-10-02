@@ -14155,6 +14155,40 @@ a.export-credits-license {
   font-size: var(--font-size-sm, 13px);
   line-height: 1.55;
 }
+/* The clips whose last read failed: name, then the reason, left-aligned so a long
+   sentence reads as prose inside the centered empty state. */
+.understanding-failures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 40ch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.understanding-failure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, var(--radius-sm));
+}
+.understanding-failure-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.understanding-failure-reason {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs, 12px);
+  line-height: 1.45;
+}
 
 .understanding-summary {
   margin: 0 0 var(--space-4);
