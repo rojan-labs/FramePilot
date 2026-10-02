@@ -362,8 +362,15 @@ describe('ensureMediaUnderstanding — reason classification', () => {
   it('carries the engine sentence ONCE, with no prefix and no doubled full stop', async () => {
     const result = await fail(NEW_FILESIZE);
     expect(result.status === 'unavailable' && result.message).toBe(NEW_FILESIZE);
+    // A refusal the old engine journaled as an API error is restated as the file's problem.
     const old = await fail(OLD_FILESIZE);
-    expect(old.status === 'unavailable' && old.message).toBe(OLD_FILESIZE);
+    expect(old.status === 'unavailable' && old.message).toBe(
+      "TwelveLabs can't index this file (video_filesize_too_large).",
+    );
+    const bare = await fail('TwelveLabs API error (HTTP 413).');
+    expect(bare.status === 'unavailable' && bare.message).toBe(
+      "TwelveLabs can't index this file (HTTP 413).",
+    );
   });
 
   it('gives a bare engine token plain words instead of showing the token', async () => {

@@ -201,15 +201,31 @@ function httpReason(status: number, code: string | undefined): UnderstandingUnav
   return HTTP_STATUS_REASONS.get(status) ?? 'provider_unavailable';
 }
 
-function proseReason(text: string): UnderstandingUnavailableReason {
+/**
+ * The generic API-error sentence an engine from before media rejections had words wrote
+ * (`TwelveLabs API error (HTTP 400) (video_filesize_too_large).`). It is still journaled
+ * as an asset's last failure until that asset is read again.
+ */
+const LEGACY_API_ERROR_PREFIX = 'TwelveLabs API error (HTTP ';
+
+function classifyProse(text: string): ClassifiedUnderstandingReason {
+  const verbatim = asSentence(text);
   if (text.startsWith(MEDIA_REJECTED_PREFIX) || MEDIA_PREFLIGHT_MARKER.test(text)) {
-    return 'media_rejected';
+    return { reason: 'media_rejected', message: verbatim };
   }
-  if (text.startsWith(TRANSPORT_FAILURE_PREFIX)) return 'offline';
-  if (FILE_NOT_FOUND_MARKER.test(text)) return 'source_missing';
+  if (text.startsWith(TRANSPORT_FAILURE_PREFIX)) return { reason: 'offline', message: verbatim };
+  if (FILE_NOT_FOUND_MARKER.test(text)) return { reason: 'source_missing', message: verbatim };
   const http = HTTP_MARKER.exec(text);
-  if (http) return httpReason(Number(http[1]), http[2]);
-  return 'provider_unavailable';
+  if (!http) return { reason: 'provider_unavailable', message: verbatim };
+  const status = Number(http[1]);
+  const code = http[2];
+  const reason = httpReason(status, code);
+  // An old refusal reads as an API error. Say it the way the engine says it now, so the
+  // editor reads it as a problem with the FILE rather than with the service.
+  if (reason === 'media_rejected' && text.startsWith(LEGACY_API_ERROR_PREFIX)) {
+    return { reason, message: `TwelveLabs can't index this file (${code ?? `HTTP ${status}`}).` };
+  }
+  return { reason, message: verbatim };
 }
 
 /**
@@ -217,7 +233,8 @@ function proseReason(text: string): UnderstandingUnavailableReason {
  * the engine's exact typed tokens, the loop's statuses, its `(HTTP nnn) (code)` marker,
  * and the fixed openings of its own sentences. Free text is never searched for words —
  * that read "TwelveLabs can't index ro.mp4" as still-indexing and a file-size refusal
- * as a missing file. Anything unrecognised keeps the engine's sentence verbatim.
+ * as a missing file. Anything unrecognised keeps the engine's sentence verbatim; only a
+ * refusal in the old engine's API-error wording is restated in its current wording.
  *
  * @param raw - The engine's `reason`, or the loop status when the engine gave none.
  * @returns The typed reason and the sentence to show for it.
@@ -227,9 +244,7 @@ export function classifyUnderstandingReason(
 ): ClassifiedUnderstandingReason {
   const text = (raw ?? '').trim();
   if (text === '') return { reason: 'unknown', message: NO_REASON_MESSAGE };
-  const token = TOKEN_REASONS.get(text);
-  if (token) return token;
-  return { reason: proseReason(text), message: asSentence(text) };
+  return TOKEN_REASONS.get(text) ?? classifyProse(text);
 }
 
 function flightKey(input: EnsureMediaUnderstandingInput): string {
