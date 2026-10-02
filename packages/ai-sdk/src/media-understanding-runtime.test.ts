@@ -333,6 +333,8 @@ describe('ensureMediaUnderstanding — reason classification', () => {
     ['TwelveLabs request failed: [Errno 8] nodename nor servname provided', 'offline'],
     ["[Errno 2] No such file or directory: '/media/ro.mp4'", 'source_missing'],
     ['all_keys_failing', 'provider_unavailable'],
+    // The loop's own status when no slice answered: the reason a caller reads as offline.
+    ['unreachable', 'offline'],
   ])('classifies %j as %j', async (raw, expected) => {
     expect(await fail(raw)).toMatchObject({ status: 'unavailable', reason: expected });
   });

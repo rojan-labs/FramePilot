@@ -118,8 +118,9 @@ const TOKEN_REASONS: ReadonlyMap<string, ClassifiedUnderstandingReason> = new Ma
     },
   ],
   [
+    // Nothing answered at all (no sidecar, or a malformed reply): a reachability problem.
     'unreachable',
-    { reason: 'provider_unavailable', message: 'The FramePilot engine could not be reached.' },
+    { reason: 'offline', message: 'The FramePilot engine could not be reached.' },
   ],
   [
     'unavailable',
