@@ -11356,6 +11356,21 @@ schema migration (new optional keys on the existing `tl:video` mapping row), no 
   `apps/web-editor/src/components/FootageUnderstandingPanel.test.tsx` 19 and
   `apps/web-editor/src/editor/visualIndex.test.ts` 7 passed, with the real engine strings; ai-sdk
   and web-editor typecheck and eslint clean. Not checked in the running desktop app._
+- [x] **TLU6** A saved index from another TwelveLabs account is not a bad key. Live: after the
+  key was switched, the working key got `403 read_not_allowed` on the project's saved index and
+  the run stopped with `invalid_api_key`. A 403/404 `read_not_allowed` is now
+  `TwelveLabsIndexInaccessibleError` (the upload itself: `TwelveLabsAssetInaccessibleError`); a
+  non-reversible key fingerprint is stored beside the index id (`fields`, no migration);
+  `bind_index` (index route only) keeps the index for the same key, adopts or rebinds a legacy
+  one after one readability check, and rebinds on a changed key to this account's same-named
+  index or a new one. Mappings record their index (older rows: from the task token); one in
+  another index is re-attached from its earlier upload, uploaded again only if this key cannot
+  read that upload. Search / footage map / describe / transcription answer `not_indexed`.
+  _Evidence: `test_twelvelabs.py` 59, `test_twelvelabs_index.py` 35, `test_service_twelvelabs.py`
+  34 passed, including the maintainer's state end to end over the real client (legacy index →
+  403 → one rebind → upload re-attached, no `POST /assets`, no multipart create) and an index
+  that stops answering mid-run (re-checked next slice, never `invalid_api_key`); the TL suites
+  around them 248 passed in all; `mypy .` and ruff clean. Live re-run pending (coordinator)._
 
 **Last updated:** 2026-10-03
 

@@ -110,6 +110,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   words, such as "ro.mp4 is 12.3 GB; TwelveLabs accepts files up to 10 GB", and is not uploaded
   again. The other clips in the project still index. The footage understanding panel now shows
   which clip could not be read and why, instead of saying the footage was not read yet.
+- **Switching TwelveLabs keys no longer leaves a project stuck on "invalid key".** A project
+  whose saved TwelveLabs index belonged to the previous account now moves to an index of the new
+  one, and footage already uploaded is attached to it rather than uploaded again.
 - **Clicking away from a selected object on the monitor deselects it.** When nothing but text
   or shapes sat under the playhead (a title over black, say), or you clicked the dark area around
   the frame, the bounding box stayed up. Dragging a handle past the edge of the box still keeps
