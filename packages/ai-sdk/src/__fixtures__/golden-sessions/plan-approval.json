@@ -1383,7 +1383,7 @@
         {
           "id": "step-2",
           "label": "Tighten the intro",
-          "status": "failed",
+          "status": "stopped",
           "detail": "The run ended before this step"
         }
       ]

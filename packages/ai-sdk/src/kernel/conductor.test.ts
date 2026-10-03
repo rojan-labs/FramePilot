@@ -558,7 +558,7 @@ describe('onEffectResult — approval fold (P11.3)', () => {
     expect(
       settled?.type === 'plan' &&
         settled.steps.every(
-          (step) => step.status === 'failed' && step.detail === 'Stopped before this step',
+          (step) => step.status === 'stopped' && step.detail === 'Stopped before this step',
         ),
     ).toBe(true);
   });
@@ -2929,8 +2929,8 @@ describe('the model-owned plan (update_plan)', () => {
     expect(settled).toMatchObject({
       steps: [
         { id: 'plan-item-1', status: 'completed' },
-        { id: 'plan-item-2', status: 'failed', detail: 'Not done — the run ended first' },
-        { id: 'plan-item-3', status: 'failed', detail: 'Not done — the run ended first' },
+        { id: 'plan-item-2', status: 'stopped', detail: 'Not done — the run ended first' },
+        { id: 'plan-item-3', status: 'stopped', detail: 'Not done — the run ended first' },
       ],
     });
     // The drafted-ledger notification is not said for a list the editor never saw.
@@ -3039,8 +3039,8 @@ describe('the model-owned plan (update_plan)', () => {
     expect(settled).toMatchObject({
       steps: [
         { status: 'completed' },
-        { status: 'failed', detail: 'Stopped before this was done' },
-        { status: 'failed', detail: 'Stopped before this was done' },
+        { status: 'stopped', detail: 'Stopped before this was done' },
+        { status: 'stopped', detail: 'Stopped before this was done' },
       ],
     });
   });
@@ -3059,7 +3059,7 @@ describe('the model-owned plan (update_plan)', () => {
     const plans = view.nodes.filter((node) => node.kind === 'plan');
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
-      steps: [{ status: 'completed' }, { status: 'failed' }, { status: 'failed' }],
+      steps: [{ status: 'completed' }, { status: 'stopped' }, { status: 'stopped' }],
     });
   });
 });

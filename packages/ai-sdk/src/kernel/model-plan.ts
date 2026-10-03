@@ -314,7 +314,10 @@ export function modelPlanSteps(
     if (item.status === 'blocked') {
       return { ...base, status: 'failed', ...(item.note ? { detail: item.note } : {}) };
     }
-    if (settledReason !== undefined) return { ...base, status: 'failed', detail: settledReason };
+    // An item the run ended before reaching is STOPPED, not failed: nothing went wrong with
+    // it, the run simply ended first — and the sidebar draws the two differently ("Not done"
+    // against a cross).
+    if (settledReason !== undefined) return { ...base, status: 'stopped', detail: settledReason };
     return item.status === 'in_progress'
       ? { ...base, status: 'running', ...(item.note ? { detail: item.note } : {}) }
       : { ...base, status: 'pending' };

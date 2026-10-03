@@ -8652,7 +8652,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           "detail": "The run ended before this step",
           "id": "step-2",
           "label": "Wrap up",
-          "status": "failed",
+          "status": "stopped",
         },
       ],
       "ts": 1000,

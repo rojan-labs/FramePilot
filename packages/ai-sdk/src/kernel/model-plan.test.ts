@@ -103,15 +103,15 @@ describe('modelPlanSteps', () => {
     ]);
   });
 
-  it('settles every open item as failed with the reason once the run has ended', () => {
+  it('settles every open item as stopped with the reason once the run has ended', () => {
     const steps = modelPlanSteps(
       [item('Montage', 'done'), item('Grade', 'in_progress'), item('Ramps', 'pending')],
       'Not done — the run ended first',
     );
     expect(steps.map((s) => [s.status, s.detail])).toEqual([
       ['completed', undefined],
-      ['failed', 'Not done — the run ended first'],
-      ['failed', 'Not done — the run ended first'],
+      ['stopped', 'Not done — the run ended first'],
+      ['stopped', 'Not done — the run ended first'],
     ]);
   });
 });

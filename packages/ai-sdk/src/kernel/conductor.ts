@@ -1287,7 +1287,7 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
       em.plan(
         state.planSteps.map((step) =>
           step.status === 'pending' || step.status === 'running'
-            ? { ...step, status: 'failed' as const, detail: reason }
+            ? { ...step, status: 'stopped' as const, detail: reason }
             : step,
         ),
       ),

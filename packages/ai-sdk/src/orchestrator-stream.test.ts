@@ -2612,9 +2612,9 @@ describe('streamAgent robustness (parity with agent())', () => {
     expect(live?.type === 'plan' && live.steps[2]?.status).toBe('pending');
     const lastPlan = plans.at(-1);
     expect(lastPlan?.type === 'plan' && lastPlan.steps.map((s) => s.status)).toEqual([
-      'failed',
-      'failed',
-      'failed',
+      'stopped',
+      'stopped',
+      'stopped',
     ]);
     expect(lastPlan?.type === 'plan' && lastPlan.steps[2]?.detail).toBe(
       'The run ended before this step',
@@ -6103,7 +6103,7 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
       steps: [
         { label: 'Tighten the intro', status: 'completed' },
         { label: 'Masking: text behind the hero word', status: 'failed' },
-        { label: 'Sound design', status: 'failed' },
+        { label: 'Sound design', status: 'stopped' },
         { label: 'QA', status: 'completed' },
       ],
     });
