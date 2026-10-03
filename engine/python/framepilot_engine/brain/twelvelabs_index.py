@@ -45,6 +45,7 @@ from framepilot_engine.brain.described import DescribedParseError, described_fro
 from framepilot_engine.brain.fts import SupportsWord
 from framepilot_engine.brain.ledger_models import DescribedFacts, ShotRecord
 from framepilot_engine.brain.models import Provenance
+from framepilot_engine.brain.slice_work import Pending
 from framepilot_engine.brain.store import BrainStore
 from framepilot_engine.brain.twelvelabs import (
     DEFAULT_PEGASUS_MODEL_NAME,
@@ -156,6 +157,13 @@ TL_SLICE_POLL_BUDGET_SECONDS = 30.0
 
 #: Human-readable "still working" reason surfaced while a task indexes.
 INDEXING_REASON = "indexing"
+#: The same "still working" signal while the upload itself is in flight. An upload is
+#: 100 x 10 MB chunks for a 1 GB file — minutes, scaling with the user's bandwidth — so
+#: it is started by one slice and collected by a later one, exactly like a task that is
+#: still indexing (see :func:`_advance_index_asset`).
+UPLOADING_REASON = "uploading"
+#: Outcome status while the upload is in flight. Never persisted: there is no task yet.
+TL_UPLOADING_STATUS = "uploading"
 
 #: Mapping status for bytes TwelveLabs refused for what they ARE (too big, too long,
 #: unsupported). Distinct from ``failed`` — a transient failure that a later job retries
@@ -224,8 +232,9 @@ class TLIndexOutcome:
 
     ``advanced`` tells the route whether to move the job cursor past this asset:
     True once the asset is terminal (ready or failed), False while it is still
-    indexing (the slice is re-posted to keep polling). ``newly_indexed`` counts a
-    just-completed asset (for the response's ``indexed`` total).
+    uploading or indexing (the slice is re-posted to keep collecting/polling).
+    ``newly_indexed`` counts a just-completed asset (for the response's ``indexed``
+    total).
     """
 
     advanced: bool
@@ -511,7 +520,7 @@ def poll_index_asset(
     index_id: str,
     asset_id: str,
     media_path_name: str,
-    upload: Callable[[], str],
+    upload: Callable[[], str | Pending],
     *,
     content_hash: str,
     sleep: Callable[[float], None] = time.sleep,
@@ -525,7 +534,10 @@ def poll_index_asset(
     no-op (``advanced``); a changed ``content_hash`` (or no mapping) starts a new
     upload; a pending task is polled up to ``poll_budget`` before the slice is
     yielded back to be re-posted. ``upload`` is a thunk (so the caller owns opening
-    the file) that returns the new task id.
+    the file) that returns the new task id — or :class:`Pending` when the upload is
+    still in flight after the caller's own bounded wait, in which case the asset is
+    yielded un-advanced (``status="uploading"``) and the next slice's call to the same
+    thunk collects that same upload.
 
     Failures split in two. A ``failed`` mapping (TwelveLabs gave up, or the caller
     recorded a transient error) is re-uploaded by the next job — the deliberate
@@ -583,6 +595,22 @@ def poll_index_asset(
         return _rejected_outcome(str(exc))
 
 
+def _uploading_outcome(asset_id: str, media_path_name: str) -> TLIndexOutcome:
+    """Yield the slice while the upload runs on; the next slice collects it."""
+    _log.info(
+        "twelvelabs upload still in flight: asset=%s file=%s (yielding to re-post)",
+        asset_id,
+        media_path_name,
+    )
+    return TLIndexOutcome(
+        advanced=False,
+        ok=True,
+        newly_indexed=0,
+        status=TL_UPLOADING_STATUS,
+        reason=UPLOADING_REASON,
+    )
+
+
 def _rejected_outcome(reason: str) -> TLIndexOutcome:
     """A terminal, not-ok outcome for a file TwelveLabs will not take as it is."""
     return TLIndexOutcome(
@@ -596,7 +624,7 @@ def _advance_index_asset(
     index_id: str,
     asset_id: str,
     media_path_name: str,
-    upload: Callable[[], str],
+    upload: Callable[[], str | Pending],
     *,
     mapping: VideoMapping | None,
     content_hash: str,
@@ -612,6 +640,21 @@ def _advance_index_asset(
     the earlier upload is re-attached to ``index_id`` instead of uploading the file
     again. Only when this key cannot read that upload (another account's) is the file
     uploaded afresh.
+
+    ## The slice contract
+
+    Nothing here may hold one HTTP slice open for as long as the file takes. The poll
+    is bounded by ``poll_budget``, and the upload by the caller's own wait inside
+    ``upload`` (the route waits :data:`TL_SLICE_POLL_BUDGET_SECONDS`), so one slice
+    spends at most about the sum of the two, whatever the file's length or the user's
+    bandwidth. Before this, a 1.05 GB, 58:51 source spent 5.3 minutes uploading inside
+    one request and the host gave up at 300 s, so the asset was never indexed.
+
+    An upload still in flight persists NO mapping. The next slice therefore reads the
+    same mapping this one did, takes the same branch, and calls ``upload`` again — which
+    hands it the upload already running rather than sending the file twice. A sidecar
+    restart loses the in-flight upload and nothing else, and the next slice starts it
+    again.
 
     :raises TwelveLabsError: On any API/transport failure, media rejections included;
         :func:`poll_index_asset` turns a rejection into a remembered outcome.
@@ -650,19 +693,20 @@ def _advance_index_asset(
             mapping.index_id if mapping is not None else "-",
             index_id,
         )
-        store_video_mapping(
-            store,
-            asset_id,
-            content_hash=content_hash,
-            status="indexing",
-            task_id=task_id,
-            source_asset_id=source_asset_id,
-        )
+        # Not persisted until TwelveLabs has answered for it: the poll below writes the
+        # task the moment it is ready, failed, or yields. Written here, it would break
+        # the one case where the re-attach turns into a fresh upload (this key cannot
+        # read the earlier one) still in flight when the slice yields: the next slice
+        # would resume polling a re-attach already known to be unreadable, and fail the
+        # asset, instead of taking this branch again and collecting that upload.
     elif fresh or moved or mapping is None or mapping.task_id is None:
         _log.info(
             "ACT twelvelabs index asset (fresh upload): asset=%s file=%s", asset_id, media_path_name
         )
-        task_id = upload()
+        uploaded = upload()
+        if isinstance(uploaded, Pending):
+            return _uploading_outcome(asset_id, media_path_name)
+        task_id = uploaded
         store_video_mapping(
             store, asset_id, content_hash=content_hash, status="indexing", task_id=task_id
         )
@@ -688,7 +732,10 @@ def _advance_index_asset(
             )
             reattach_from = None
             source_asset_id = None
-            task_id = upload()
+            uploaded = upload()
+            if isinstance(uploaded, Pending):
+                return _uploading_outcome(asset_id, media_path_name)
+            task_id = uploaded
             store_video_mapping(
                 store, asset_id, content_hash=content_hash, status="indexing", task_id=task_id
             )

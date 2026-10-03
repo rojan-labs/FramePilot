@@ -74,7 +74,7 @@ from framepilot_engine.analysis.reference import (
     analyze_reference_image as analyze_reference_image,
 )
 from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut, detect_scenes
-from framepilot_engine.analysis.shot_stats import measure_asset
+from framepilot_engine.analysis.shot_stats import ShotStats, measure_asset
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
     DEFAULT_NOISE_FLOOR_DB,
@@ -188,6 +188,7 @@ from framepilot_engine.brain.similar import (
     build_embedding_rows,
     semantic_hits,
 )
+from framepilot_engine.brain.slice_work import Pending, SliceWork
 from framepilot_engine.brain.soul import (
     SoulDoc,
     append_soul_note,
@@ -219,6 +220,7 @@ from framepilot_engine.brain.twelvelabs import (
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_REJECTED_STATUS,
+    TL_SLICE_POLL_BUDGET_SECONDS,
     bind_index,
     chapters_to_packets,
     clips_to_packets,
@@ -1568,6 +1570,25 @@ _ATTACHED_PICTURE_MIN_FPS = 1000.0
 #: and the carrier is 1 fps); the margin covers a loaded machine. Floored by the media
 #: timeout, so a short clip keeps the usual bound.
 _TL_CARRIER_SECONDS_PER_MEDIA_SECOND = 0.25
+#: ffmpeg bound for tier 0's whole-file passes (the measurement decode, the loudness
+#: pass), per second of media. A decode's cost is proportional to duration, and the flat
+#: media timeout (60 s) failed a 58:51 interview whose measurement takes 72.7 s — so a
+#: long source never got a shot ledger at all. Measured on that 1080x608 H.264 file at
+#: 0.021 s/s; a 4K source is ~13x its pixels and HEVC decodes at about twice H.264's cost
+#: in software, which puts 4K HEVC near 0.5 s/s. One second per media second (a decode
+#: may take as long as the footage plays) leaves 2x over that for a loaded machine. It
+#: is a stuck-process bound, not an expected time, and is floored by the media timeout
+#: so a short clip keeps the usual bound.
+_TIER0_SECONDS_PER_MEDIA_SECOND = 1.0
+#: How long one index slice waits on an asset's tier-0 decodes before yielding with the
+#: cursor kept on that asset. The decodes run on their own thread (``SliceWork``) and
+#: the next slice collects them, so a long source spans several slices instead of
+#: holding one request open past the host's timeout. Long enough that a short clip still
+#: finishes in the slice that started it, as it always did: at the measured 0.021 s/s the
+#: measurement covers about twenty minutes of footage like that file in this time.
+TIER0_SLICE_WAIT_SECONDS = 30.0
+#: The ``pending`` reason while tier 0's decodes are still running.
+TIER0_MEASURING_REASON = "measuring"
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
 NOT_REQUESTED_REASON = "tier not requested"
@@ -2544,6 +2565,7 @@ def create_app(
     *,
     render_queue: RenderQueue | None = None,
     asr_setup: AsrSetupTracker | None = None,
+    slice_work: SliceWork | None = None,
 ) -> FastAPI:
     """Construct the FastAPI application.
 
@@ -2555,6 +2577,10 @@ def create_app(
     :param asr_setup: Single-slot tracker backing the ``/asr/setup`` routes.
         Scoped to the app (not a module global) so each process/TestClient gets
         its own; tests inject one built with a fake downloader.
+    :param slice_work: Registry of the long steps a ``/brain/visual/index`` slice starts
+        and a later slice collects (tier-0 decodes, TwelveLabs uploads). Scoped to the
+        app for the same reason as ``asr_setup``; tests inject one whose work runs on
+        demand, so a "still running" slice needs no sleep.
     :returns: A configured :class:`fastapi.FastAPI` instance.
     """
     settings = settings or get_settings()
@@ -2563,6 +2589,7 @@ def create_app(
         default_timeout=float(settings.render_timeout_seconds)
     )
     asr_setup = asr_setup or AsrSetupTracker()
+    slice_work = slice_work or SliceWork()
 
     # Which project brains have had their non-terminal jobs swept this process
     # lifetime (plan B5.1). Scoped to this app instance so a fresh process
@@ -2619,6 +2646,12 @@ def create_app(
     # exactly the four foreground surfaces named there — export, preview, frame grab and
     # the temporal-evidence batch — and its rules live in `brain/governor.py`, not here.
     index_governor = IndexGovernor(external_busy=_render_queue_busy)
+    # Tier 0's decodes run on `SliceWork` threads that outlive the pool worker which
+    # started them (a long source spans several slices), so the pool's
+    # `tier_workers("measured")` size no longer bounds the decodes themselves. This does:
+    # a slice that moves on from a still-decoding asset must not stack another ffmpeg
+    # beside it, or a project of long sources runs one decode per asset in the window.
+    _tier0_decode_gate = threading.BoundedSemaphore(index_governor.tier_workers("measured"))
     # P5.4: identical requests that arrive while one is already running share its answer
     # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
     _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
@@ -3429,21 +3462,30 @@ def create_app(
     class _TierOutcome:
         """What one ledger tier did to one asset.
 
-        Three states, because the three are genuinely different facts and collapsing them
+        Distinct states, because they are genuinely different facts and collapsing them
         is the defect ADR 0175 exists to fix: ``ok`` ran, ``skipped`` could not run (no
-        key, no pack, not asked for), ``failed`` tried and could not finish. Only the last
-        is an error; a skipped tier is coverage the agent is allowed to read.
+        key, no pack, not asked for), ``failed`` tried and could not finish. Only
+        ``failed`` is an error; a skipped tier is coverage the agent is allowed to read.
+        ``pending`` is the fourth: the work is running and this slice will not wait for
+        it (always with ``complete`` False). Neither an error nor coverage.
         """
 
-        state: Literal["ok", "skipped", "failed"]
+        state: Literal["ok", "skipped", "failed", "pending"]
         reason: str | None = None
         shots: int = 0
-        #: False when the tier ran out of its per-asset time budget with work still to do.
-        #: Only tier 2 can set it: a VLM call is seconds, and an asset with sixty shots
-        #: would otherwise hold one HTTP slice open for minutes. The caller keeps the job
-        #: cursor on this asset so the next slice resumes it — exactly the mechanism the
-        #: hosted "still indexing" case already uses — rather than advancing past shots
-        #: nobody has described.
+        #: False when the tier has work still to do that this slice must not wait for. No
+        #: index slice may hold its HTTP request open for as long as the MEDIA takes — the
+        #: host abandons a request at 300 s — so each long step gets a budget instead:
+        #:
+        #: - tier 2 when its per-asset budget expires (a VLM call is seconds, and an asset
+        #:   with sixty shots would otherwise take minutes);
+        #: - tier 0, as ``pending``, while its whole-file decodes are still running past
+        #:   :data:`TIER0_SLICE_WAIT_SECONDS` (72.7 s for a 58:51 source, and it scales
+        #:   with the media). They run on their own thread and a later slice collects them.
+        #:
+        #: The caller keeps the job cursor on this asset so the next slice resumes it —
+        #: exactly the mechanism the hosted "still indexing" case already uses — rather
+        #: than advancing past work nobody has finished.
         complete: bool = True
 
         @property
@@ -3490,6 +3532,14 @@ def create_app(
         are a resume, not repeated work. Bumping that version is what re-measures a
         library without touching the other two tiers.
 
+        The decodes themselves (:func:`_tier0_measurements`) cost time proportional to
+        the media — 72.7 s for a 58:51 source — so they run on a :class:`SliceWork`
+        thread and this call waits for them at most :data:`TIER0_SLICE_WAIT_SECONDS`.
+        Still running after that is ``pending`` with ``complete`` False: the caller keeps
+        the cursor on the asset, and the next slice's call joins the SAME decode rather
+        than starting another. Every brain read and write stays here, on the slice
+        thread, under the route's per-project lock.
+
         :returns: The tier's disposition; ``shots`` counts rows written THIS call, so a
             resumed asset reports ``ok`` with zero.
         """
@@ -3527,32 +3577,25 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         try:
-            stats = measure_asset(media_path, duration=duration, is_image=is_image, timeout=timeout)
+            # Keyed by everything the result depends on — above all the bytes' hash, so a
+            # file replaced mid-decode is measured again rather than answered with the
+            # old file's shots.
+            measured = slice_work.run(
+                ("tier0", str(media_path), content_hash, TIER0_VERSION, duration, is_image),
+                lambda: _tier0_measurements(media_path, info, asset_id, timeout),
+                budget=TIER0_SLICE_WAIT_SECONDS,
+            )
         except (FFmpegError, OSError) as exc:
             _log.warning("tier 0 measurement failed: asset=%s reason=%s", asset_id, exc)
             return _TierOutcome("failed", str(exc))
-        # VU5.3's duplicate detection needs a keyframe hash, and the measurement pass
-        # above computes none — it reads `signalstats` off a 160px decode and never looks
-        # at a frame as pixels. Without this, `MeasuredFacts.phash` had no producer at all,
-        # so `_link_duplicate_shots` filtered on `phash is not None` and matched nothing on
-        # every project. One 9x8 grayscale frame per shot, and a frame that will not decode
-        # yields no entry rather than a zero every other shot would look like.
-        phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
-        # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
-        # producer: null for every shot of every asset, including assets with an audio
-        # stream, which is indistinguishable from "this asset is silent". One `ebur128`
-        # pass over the whole asset yields momentary loudness every 100ms; the shot spans
-        # bucket it. Skipped for an asset with no audio stream (`-vn` would leave ffmpeg
-        # nothing to output) and for a still, and never fatal: a measurement that fails
-        # leaves the field null, exactly as it was.
-        loudness: dict[int, float] = {}
-        if info.has_audio and not is_image:
-            try:
-                loudness = measure_shot_loudness(
-                    media_path, [(s.t0, s.t1) for s in stats], timeout=timeout
-                )
-            except (FFmpegError, OSError) as exc:
-                _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        if isinstance(measured, Pending):
+            _log.info(
+                "tier 0 still measuring: asset=%s duration=%.0fs (yielding to re-post)",
+                asset_id,
+                duration,
+            )
+            return _TierOutcome("pending", TIER0_MEASURING_REASON, complete=False)
+        stats, phashes, loudness = measured
         rows = shots_from_stats(
             asset_id, content_hash, stats, phashes=phashes, loudness_lufs=loudness
         )
@@ -3573,6 +3616,57 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         return _TierOutcome("ok", shots=len(rows))
+
+    def _tier0_measurements(
+        media_path: Path, info: MediaInfo, asset_id: str, timeout: float
+    ) -> tuple[list[ShotStats], dict[int, str], dict[int, float]]:
+        """Tier 0's ffmpeg passes over one asset — and nothing else.
+
+        Runs on a :class:`SliceWork` thread, so it touches the FILE only: no brain, no
+        store. The store's connection belongs to the slice thread that opened it, and
+        the writes must happen under the route's per-project lock, which a background
+        thread outliving its request does not hold. Holds a tier-0 decode slot
+        (``_tier0_decode_gate``) for the whole of it.
+
+        :param timeout: The media timeout. The whole-file passes are bounded by
+            :func:`_tier0_decode_timeout` instead; per-frame seeks keep this one.
+        :returns: ``(stats, phashes, loudness)`` for :func:`shots_from_stats`.
+        :raises FFmpegError: When the measurement decode cannot run (the asset's
+            failure, collected by the slice that asks next).
+        """
+        is_image = info.is_image
+        duration = info.duration_seconds or 0.0
+        decode_timeout = _tier0_decode_timeout(duration, timeout)
+        loudness: dict[int, float] = {}
+        with _tier0_decode_gate:
+            stats = measure_asset(
+                media_path, duration=duration, is_image=is_image, timeout=decode_timeout
+            )
+            # VU5.3's duplicate detection needs a keyframe hash, and the measurement pass
+            # above computes none — it reads `signalstats` off a 160px decode and never
+            # looks at a frame as pixels. Without this, `MeasuredFacts.phash` had no
+            # producer at all, so `_link_duplicate_shots` filtered on `phash is not None`
+            # and matched nothing on every project. One 9x8 grayscale frame per shot, and a
+            # frame that will not decode yields no entry rather than a zero every other
+            # shot would look like. Each frame is its own short seek, so the per-call
+            # bound stays the media timeout.
+            phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
+            # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
+            # producer: null for every shot of every asset, including assets with an
+            # audio stream, which is indistinguishable from "this asset is silent". One
+            # `ebur128` pass over the whole asset yields momentary loudness every 100ms;
+            # the shot spans bucket it. Skipped for an asset with no audio stream (`-vn`
+            # would leave ffmpeg nothing to output) and for a still, and never fatal: a
+            # measurement that fails leaves the field null, exactly as it was. A
+            # whole-file pass, so it takes the duration-scaled bound like the measurement.
+            if info.has_audio and not is_image:
+                try:
+                    loudness = measure_shot_loudness(
+                        media_path, [(s.t0, s.t1) for s in stats], timeout=decode_timeout
+                    )
+                except (FFmpegError, OSError) as exc:
+                    _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        return stats, phashes, loudness
 
     #: Nudge a keyframe that lands exactly on the asset's last second back inside the
     #: media handle. The worker refuses a keyframe outside the approved range rather than
@@ -4713,12 +4807,17 @@ def create_app(
 
         Mirrors the built-in route's journaled-job pacing (``_resolve_visual_job``
         + cursor), but each asset is uploaded to a TwelveLabs index and its
-        ``video_id`` recorded in the brain. An asset still indexing does NOT
-        advance the cursor — the slice is re-posted (like the built-in loop) until
-        every asset is terminal. Captioning is a no-op: TwelveLabs understands the
-        audio track natively, so no per-scene VLM captions are needed. Honest-
+        ``video_id`` recorded in the brain. An asset still measuring, uploading or
+        indexing does NOT advance the cursor — the slice is re-posted (like the built-in
+        loop) until every asset is terminal. Captioning is a no-op: TwelveLabs understands
+        the audio track natively, so no per-scene VLM captions are needed. Honest-
         unavailable: an auth failure reports ``invalid_api_key``; other API
         failures surface their message; no key never reaches here.
+
+        Those three "still working" states surface ONLY as an un-advanced item (its
+        ``reason`` is ``measuring``/``uploading``/``indexing``), never as the response's
+        ``reason``: the host's loop treats a response-level reason on a not-done slice as
+        terminal (``visual-index-client.ts``), and these are the opposite of terminal.
         """
         # The governor's pause, on this route too (plan VU8 §8.3). "Hosted means network"
         # is true for tiers 1 and 2 and FALSE for tier 0: the measurement below is a local
@@ -4860,6 +4959,19 @@ def create_app(
                 else _TierOutcome("skipped", NOT_REQUESTED_REASON)
             )
             tiers = {**tier_states, "measured": tier0.label()}
+            if not tier0.complete:
+                # Tier 0 is still decoding on its own thread: keep the cursor here and
+                # leave TwelveLabs alone until it finishes. Running the hosted step
+                # alongside would be worse than waiting — a terminal TwelveLabs failure
+                # is recorded as a `failed` mapping, which the next slice reads as
+                # "upload afresh", so every re-post until the measurement finished would
+                # send the whole file again. Not a failure, so it counts toward nothing.
+                return _AssetOutcome(
+                    item=VisualIndexItem(
+                        asset_id=asset_id, ok=True, reason=tier0.reason, tiers=tiers
+                    ),
+                    advanced=False,
+                )
             asset = store.get_asset(asset_id)
             if asset is None:
                 return _AssetOutcome(
@@ -4902,7 +5014,9 @@ def create_app(
                 )
             content_hash = asset.content_sha256 or _sha256_file(media_path)
 
-            def _upload(idx: str = index_id, path: Path = media_path) -> str:
+            def _send(idx: str, path: Path) -> str:
+                # Runs on the `SliceWork` thread: the file and the network only, never the
+                # brain (the mapping is written by the slice that collects the task id).
                 # Classified here, not up front: only a fresh upload needs it, and a
                 # probe-less asset would otherwise pay an ffprobe on every slice.
                 audio_only = _audio_only_media(asset, path, timeout)
@@ -4927,6 +5041,19 @@ def create_app(
                             f"Could not prepare {path.name} for TwelveLabs: {exc}"
                         ) from exc
                     return client.create_index_task(idx, carrier)
+
+            def _upload(idx: str = index_id, path: Path = media_path) -> str | Pending:
+                # The upload is minutes for a long source (a 1.05 GB file is 100 x 10 MB
+                # chunks, 5.3 min on the measured link) and scales with the user's
+                # bandwidth, so it runs on its own thread. This slice waits on it for the
+                # poll budget; a later slice's call collects the SAME upload. Keyed by the
+                # bytes as well as the asset, so a file re-exported mid-upload is uploaded
+                # anew rather than answered with the old bytes' task.
+                return slice_work.run(
+                    ("tl-upload", idx, asset_id, content_hash),
+                    lambda: _send(idx, path),
+                    budget=TL_SLICE_POLL_BUDGET_SECONDS,
+                )
 
             try:
                 outcome = poll_index_asset(
@@ -5122,6 +5249,25 @@ def create_app(
         unavailable: no sandbox root, no embedding key, or a mid-batch key
         exhaustion all report a typed ``reason`` instead of crashing. Keys are
         never logged.
+
+        ## How long one call may take
+
+        Bounded by per-step budgets, not by the media. A step whose cost scales with
+        the file — tier 0's whole-file decode, a TwelveLabs upload — is started by a
+        slice on its own thread (``SliceWork``) and waited on for a budget
+        (:data:`TIER0_SLICE_WAIT_SECONDS`, then
+        :data:`~framepilot_engine.brain.twelvelabs_index.TL_SLICE_POLL_BUDGET_SECONDS`
+        for the upload and the same again for task polling; tier 2 has its own
+        per-asset budget). Still running when the budget expires, the asset keeps the
+        cursor and the next call collects the same work. So a TwelveLabs call costs
+        tens of seconds whatever the file's length or the user's bandwidth. Before, a
+        58:51, 1.05 GB source held one request open through a 72.7 s decode (which
+        failed its flat 60 s bound) and a 5.3-minute upload, the host gave up at 300 s,
+        and the asset was never indexed.
+
+        Not yet bounded this way: the built-in tier-1 arms (``_index_one_asset``'s
+        scene detection, sampling and embedding; ``_label_tier1_local``'s per-shot
+        keyframes) still run inside the call and scale with the asset.
         """
         with _visual_index_lock(req.project_id):
             root = settings.projects_root
@@ -5332,6 +5478,17 @@ def create_app(
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
                 tiers = {**tier_states, "measured": tier0.label()}
+                if not tier0.complete:
+                    # Tier 0 is still decoding on its own thread; the next slice collects
+                    # it. Tiers 1 and 2 wait with the cursor: tier 2 and the local tier-1
+                    # arm work from the shots tier 0 writes, so they would find none yet,
+                    # and the cursor cannot advance past an asset whose floor is not laid.
+                    return _AssetOutcome(
+                        item=VisualIndexItem(
+                            asset_id=asset_id, ok=True, reason=tier0.reason, tiers=tiers
+                        ),
+                        advanced=False,
+                    )
 
                 def _with_tier2(item: VisualIndexItem, advanced: bool) -> _AssetOutcome:
                     """Run tier 2 for this asset, after whichever tier-1 arm ran.
@@ -8821,6 +8978,16 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 1 << 20) -> str:
         while chunk := handle.read(chunk_bytes):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _tier0_decode_timeout(duration_seconds: float, media_timeout: float) -> float:
+    """The ffmpeg bound for one of tier 0's whole-file passes over ``duration_seconds``.
+
+    Scaled by :data:`_TIER0_SECONDS_PER_MEDIA_SECOND` because a decode costs time in
+    proportion to the footage, and floored by the media timeout so a short clip (or a
+    still, whose duration is a nominal 0.04 s) keeps the usual bound.
+    """
+    return max(media_timeout, duration_seconds * _TIER0_SECONDS_PER_MEDIA_SECOND)
 
 
 def _replace_file_text(path: Path, text: str) -> None:
