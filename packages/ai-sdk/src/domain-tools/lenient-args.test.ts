@@ -242,3 +242,29 @@ describe('a structured argument sent as its JSON text', () => {
     expect(() => reframe.parse({ from: '{"x":0.5}', to: { x: 0.4 } })).toThrow(/clipId/);
   });
 });
+
+describe('an array sent as its JSON text is read even when its length rules misfire on the string', () => {
+  // Desktop run `001be135`: both calls below were refused, because zod applied the array's
+  // max-length rule to the JSON text as well ("Load at most 4 domains per call", "Too big:
+  // expected string to have <=40 characters") and the decoder gave up on any non-type issue.
+  it('loads the domains load_tools was sent as JSON text', () => {
+    const loadTools = getTool('load_tools')!;
+    expect(loadTools.parse({ domains: '["footage"]' })).toEqual({ domains: ['footage'] });
+  });
+
+  it('reads the plan update_plan was sent as JSON text', () => {
+    const updatePlan = getTool('update_plan')!;
+    const items = [
+      { task: 'Voiceover as one uncut clip on the audio track from 0:00', status: 'in_progress' },
+      { task: 'Transcribe the voiceover and break it into beats', status: 'pending' },
+    ];
+    expect(updatePlan.parse({ items: JSON.stringify(items) })).toEqual({ items });
+  });
+
+  it("names the decoded value's own problem, not the string it arrived as", () => {
+    const updatePlan = getTool('update_plan')!;
+    const items = [{ task: 'Cut the intro', status: 'done' }];
+    expect(() => updatePlan.parse({ items: JSON.stringify(items) })).toThrow(/note/);
+    expect(() => updatePlan.parse({ items: JSON.stringify(items) })).not.toThrow(/received string/);
+  });
+});

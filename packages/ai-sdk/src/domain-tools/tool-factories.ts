@@ -93,7 +93,7 @@ function setAt(root: unknown, path: readonly PropertyKey[], value: unknown): voi
 
 /**
  * Arguments with every JSON-encoded string decoded where the schema wanted the object or array
- * that string spells, or `undefined` when the failure is anything else.
+ * that string spells, or `undefined` when there is no such string.
  *
  * WHY: a model sometimes sends a structured argument as its JSON text — harness run 18's
  * `reframe_pan { from: "{\"x\":0.56,\"y\":0.5}" }` was refused "from: expected object,
@@ -101,36 +101,47 @@ function setAt(root: unknown, path: readonly PropertyKey[], value: unknown): voi
  * the schema asks for means one thing. Decided from the schema's own type errors and the value's
  * type alone; the repaired arguments are validated again from scratch, so nothing the schema
  * would refuse gets through.
+ *
+ * Other issues do not stop the decode. Zod also applies an array's length rules to the string
+ * itself, so desktop run `001be135`'s `load_tools { domains: "[\"footage\"]" }` was refused
+ * twice over — "expected array, received string" AND "Load at most 4 domains per call", the
+ * second measuring the length of the JSON text — and `update_plan` the same way with "Too big:
+ * expected string to have <=40 characters". Bailing on any non-type issue meant the decoder
+ * never ran for exactly the arguments it exists for; those issues are about the string, and
+ * the decoded value is judged afresh.
  */
 function decodeJsonStringArgs(rawArgs: unknown, error: z.ZodError): unknown {
-  if (error.issues.length === 0) return undefined;
   const repaired = cloneArgs(rawArgs);
+  let decodedAny = false;
   for (const issue of error.issues) {
-    if (issue.code !== 'invalid_type' || issue.path.length === 0) return undefined;
+    if (issue.code !== 'invalid_type' || issue.path.length === 0) continue;
     const expected = (issue as { expected?: unknown }).expected;
-    if (expected !== 'object' && expected !== 'array') return undefined;
+    if (expected !== 'object' && expected !== 'array') continue;
     const raw = valueAt(repaired, issue.path);
-    if (typeof raw !== 'string') return undefined;
+    if (typeof raw !== 'string') continue;
     let decoded: unknown;
     try {
       decoded = JSON.parse(raw) as unknown;
     } catch {
-      return undefined;
+      continue;
     }
     const isArray = Array.isArray(decoded);
     const isObject = decoded !== null && typeof decoded === 'object' && !isArray;
-    if ((expected === 'array' && !isArray) || (expected === 'object' && !isObject)) {
-      return undefined;
-    }
+    if ((expected === 'array' && !isArray) || (expected === 'object' && !isObject)) continue;
     setAt(repaired, issue.path, decoded);
+    decodedAny = true;
   }
-  return repaired;
+  return decodedAny ? repaired : undefined;
 }
 
 /**
  * Validate a tool's arguments against its schema, accepting a structured argument sent as its
- * JSON text (see {@link decodeJsonStringArgs}). Any other failure throws the schema's own error,
- * unchanged, so the model reads exactly what it did before.
+ * JSON text (see {@link decodeJsonStringArgs}).
+ *
+ * When a decoded value still fails, the error thrown is the DECODED value's: that is the one
+ * that names what is actually wrong (`items.0.note: A done item needs a note…`), where the
+ * first parse could only say "expected array, received string" about an argument the model had
+ * in fact sent as an array.
  *
  * @param schema - The tool's argument schema.
  * @param rawArgs - The arguments as the model sent them.
@@ -140,11 +151,10 @@ export function parseToolArgs<S extends z.ZodType>(schema: S, rawArgs: unknown):
   const first = schema.safeParse(rawArgs);
   if (first.success) return first.data;
   const repaired = decodeJsonStringArgs(rawArgs, first.error);
-  if (repaired !== undefined) {
-    const second = schema.safeParse(repaired);
-    if (second.success) return second.data;
-  }
-  throw first.error;
+  if (repaired === undefined) throw first.error;
+  const second = schema.safeParse(repaired);
+  if (second.success) return second.data;
+  throw second.error;
 }
 
 export function readTool<S extends z.ZodType>(
