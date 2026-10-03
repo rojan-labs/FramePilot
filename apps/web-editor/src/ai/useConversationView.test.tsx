@@ -6,7 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { createTurnEmitter, reduceEvents, type AiEvent } from '@framepilot/ai-sdk';
-import { appendEvent, createConversation, type Conversation } from './conversation.js';
+import {
+  appendEvent,
+  appendEvents,
+  createConversation,
+  type Conversation,
+} from './conversation.js';
 import { useConversationView } from './useConversationView.js';
 
 const emitter = createTurnEmitter({ conversationId: 'c1', turnId: 't1', now: () => 1000 });
@@ -94,5 +99,30 @@ describe('useConversationView', () => {
     });
     rerender({ c: replaced });
     expect(result.current).toEqual(reduceEvents(replaced.events));
+  });
+
+  it('resumes the fold across a compacting append instead of re-folding the log', () => {
+    // A turn's next ledger drops the one it supersedes, so the new log is not a pure
+    // extension of the old one — but nothing the view renders was removed.
+    const first = conversationWith('c1', [
+      emitter.userMessage('Cut it'),
+      emitter.reasoning(['Looking'], false),
+      emitter.runState({ version: 1 }),
+    ]);
+    const { result, rerender } = renderHook(({ c }) => useConversationView(c), {
+      initialProps: { c: first },
+    });
+    const userNode = result.current.nodes[0];
+    const grown = appendEvents(first, [
+      emitter.delta('t1:assistant', 'Done'),
+      emitter.runState({ version: 2 }),
+    ]);
+    expect(grown.events.filter((event) => event.type === 'run_state')).toHaveLength(1);
+    rerender({ c: grown });
+
+    expect(result.current).toEqual(reduceEvents(grown.events));
+    expect(result.current.runState?.working).toEqual({ version: 2 });
+    // Same builder: an unchanged node keeps its identity (a re-fold would rebuild it).
+    expect(result.current.nodes[0]).toBe(userNode);
   });
 });

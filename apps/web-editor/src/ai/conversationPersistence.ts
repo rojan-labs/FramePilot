@@ -14,7 +14,7 @@
  * `Conversation` shape, so the on-disk and IndexedDB records are interchangeable.
  */
 import type { ConversationRecord, ConversationSummary } from '@framepilot/shared-types';
-import type { Conversation } from './conversation.js';
+import { type Conversation, compactConversation } from './conversation.js';
 
 /** Project a conversation to its lightweight summary (for the history list). */
 export function toSummary(conversation: Conversation): ConversationSummary {
@@ -33,9 +33,14 @@ export function toSummary(conversation: Conversation): ConversationSummary {
   };
 }
 
-/** Build the `{ summary, data }` record the desktop IPC channel persists. */
+/**
+ * Build the `{ summary, data }` record the desktop IPC channel persists — without any
+ * superseded `run_state` (see `compactRunStates`), so a conversation never grows on disk
+ * by ledgers the view has already replaced.
+ */
 export function toRecord(conversation: Conversation): ConversationRecord {
-  return { summary: toSummary(conversation), data: conversation };
+  const compacted = compactConversation(conversation);
+  return { summary: toSummary(compacted), data: compacted };
 }
 
 /**
@@ -51,7 +56,9 @@ export function parseConversation(data: unknown): Conversation | null {
   if (typeof record['projectId'] !== 'string') return null;
   if (!Array.isArray(record['events'])) return null;
   if (typeof record['uiState'] !== 'object' || record['uiState'] === null) return null;
-  return data as Conversation;
+  // Records saved before compaction existed carry every ledger; the first load drops the
+  // superseded ones and the next save writes the compact form back.
+  return compactConversation(data as Conversation);
 }
 
 /** One record per conversation; read/write the same JSON shape on every backend. */
@@ -186,7 +193,8 @@ export class IndexedDbPersistence implements ConversationPersistence {
   }
 
   public async save(conversation: Conversation): Promise<void> {
-    await this.tx('readwrite', (store) => promisifyRequest(store.put(conversation)));
+    const compacted = compactConversation(conversation);
+    await this.tx('readwrite', (store) => promisifyRequest(store.put(compacted)));
   }
 
   public async delete(id: string): Promise<void> {

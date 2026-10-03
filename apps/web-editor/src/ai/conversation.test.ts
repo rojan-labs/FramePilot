@@ -8,6 +8,8 @@ import { createTurnEmitter } from '@framepilot/ai-sdk';
 import {
   DEFAULT_TITLE,
   appendEvent,
+  appendEvents,
+  compactRunStates,
   createConversation,
   deriveTitle,
   groupByDate,
@@ -69,6 +71,54 @@ describe('appendEvent', () => {
     const e = emitter();
     const renamed = { ...base(), title: 'Custom' };
     expect(appendEvent(renamed, e.userMessage('ignored')).title).toBe('Custom');
+  });
+});
+
+describe('superseded run_state ledgers', () => {
+  // Run 001be135: 92 ledgers, ~640 KB each, were 59 MB of a 70 MB conversation — every one
+  // superseded by the next under the same `${turnId}:run-state` id.
+  const ledger = (turnId: string, version: number) =>
+    emitter(turnId).runState({ version, operations: ['op'] });
+
+  it('keeps only the newest ledger per turn as a batch arrives', () => {
+    const e = emitter();
+    const first = appendEvents(base(), [e.userMessage('cut'), ledger('turn_1', 1)]);
+    const next = appendEvents(first, [e.status('executing'), ledger('turn_1', 2)]);
+    const ledgers = next.events.filter((event) => event.type === 'run_state');
+    expect(ledgers).toHaveLength(1);
+    expect(ledgers[0]?.type === 'run_state' && ledgers[0].working).toEqual({
+      version: 2,
+      operations: ['op'],
+    });
+    // Everything that is not a ledger is untouched and in order.
+    expect(next.events.map((event) => event.type)).toEqual(['user_message', 'status', 'run_state']);
+  });
+
+  it('keeps one ledger per turn, and the last one within a single batch', () => {
+    const one = appendEvents(base(), [
+      ledger('turn_1', 1),
+      ledger('turn_2', 1),
+      ledger('turn_1', 2),
+    ]);
+    expect(one.events.map((event) => `${event.id}`)).toEqual([
+      'turn_2:run-state',
+      'turn_1:run-state',
+    ]);
+    expect(appendEvent(one, ledger('turn_2', 2)).events.map((event) => event.id)).toEqual([
+      'turn_1:run-state',
+      'turn_2:run-state',
+    ]);
+  });
+
+  it('compacts a loaded log, and returns the same array when nothing is superseded', () => {
+    const e = emitter();
+    const clean = [e.userMessage('cut'), ledger('turn_1', 1)];
+    expect(compactRunStates(clean)).toBe(clean);
+    const stale = [ledger('turn_1', 1), e.userMessage('cut'), ledger('turn_1', 2)];
+    expect(compactRunStates(stale).map((event) => event.type)).toEqual([
+      'user_message',
+      'run_state',
+    ]);
   });
 });
 

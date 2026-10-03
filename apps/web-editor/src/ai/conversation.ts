@@ -361,12 +361,85 @@ export function deriveTitle(events: readonly AiEvent[]): string {
 }
 
 /**
+ * Drop every `run_state` event that a later event with the same id supersedes.
+ *
+ * A turn re-emits its causal ledger under one stable id (`${turnId}:run-state`) at every
+ * reducer boundary, and the view keeps only the latest (`events.ts`). Kept verbatim they
+ * were 59 MB of a 70 MB conversation — 92 snapshots, each carrying the whole operation
+ * ledger — saved on every debounce, read on every open and held in the renderer's heap,
+ * for a view that reads one of them in the development inspector. Only `run_state` is
+ * ever removed, so the log still folds to exactly the same view.
+ *
+ * @param events - A conversation's event log.
+ * @returns The same array when nothing is superseded, else a compacted copy.
+ */
+export function compactRunStates(events: readonly AiEvent[]): readonly AiEvent[] {
+  const latest = new Map<string, AiEvent>();
+  for (const event of events) {
+    const id = runStateId(event);
+    if (id !== null) latest.set(id, event);
+  }
+  if (latest.size === 0) return events;
+  const keep = (event: AiEvent): boolean => {
+    const id = runStateId(event);
+    return id === null || latest.get(id) === event;
+  };
+  return events.every(keep) ? events : events.filter(keep);
+}
+
+/**
+ * The id of a `run_state` event, `null` for anything else. Read defensively: a log loaded
+ * from disk is only shape-checked (`parseConversation`), so an entry may not be an event.
+ */
+function runStateId(event: unknown): string | null {
+  if (typeof event !== 'object' || event === null) return null;
+  const record = event as { readonly type?: unknown; readonly id?: unknown };
+  return record.type === 'run_state' && typeof record.id === 'string' ? record.id : null;
+}
+
+/** A conversation whose log carries no superseded `run_state` (same object when already so). */
+export function compactConversation(conversation: Conversation): Conversation {
+  const events = compactRunStates(conversation.events);
+  return events === conversation.events ? conversation : { ...conversation, events };
+}
+
+/**
+ * `existing` followed by `incoming`, minus every `run_state` an incoming one supersedes.
+ *
+ * Compacting as events arrive keeps a live run's heap flat instead of holding every
+ * ledger until the next load. The result is not a pure extension of `existing` when
+ * something was dropped; `useConversationView` resumes its fold from the last event that
+ * compaction can never remove, so a dropped ledger never forces a re-fold.
+ */
+function appendCompacted(
+  existing: readonly AiEvent[],
+  incoming: readonly AiEvent[],
+): readonly AiEvent[] {
+  let incomingRunStates: Map<string, AiEvent> | undefined;
+  for (const event of incoming) {
+    const id = runStateId(event);
+    if (id !== null) (incomingRunStates ??= new Map()).set(id, event);
+  }
+  if (incomingRunStates === undefined) return [...existing, ...incoming];
+  const superseding = incomingRunStates;
+  const kept = existing.filter((event) => {
+    const id = runStateId(event);
+    return id === null || !superseding.has(id);
+  });
+  const appended = incoming.filter((event) => {
+    const id = runStateId(event);
+    return id === null || superseding.get(id) === event;
+  });
+  return [...kept, ...appended];
+}
+
+/**
  * Append one event to a conversation's log (immutably). Advances `updatedAt` to the
  * event's timestamp, auto-derives the title while it is still the default, and marks
  * the conversation unread when the new event is not the user's own message.
  */
 export function appendEvent(conversation: Conversation, event: AiEvent): Conversation {
-  const events = [...conversation.events, event];
+  const events = appendCompacted(conversation.events, [event]);
   const title = conversation.title === DEFAULT_TITLE ? deriveTitle(events) : conversation.title;
   const unread = event.type === 'user_message' ? conversation.unread : true;
   return { ...conversation, events, updatedAt: event.ts, title, unread };
@@ -382,7 +455,7 @@ export function appendEvents(
   incoming: readonly AiEvent[],
 ): Conversation {
   if (incoming.length === 0) return conversation;
-  const events = [...conversation.events, ...incoming];
+  const events = appendCompacted(conversation.events, incoming);
   const title = conversation.title === DEFAULT_TITLE ? deriveTitle(events) : conversation.title;
   const unread = incoming.some((event) => event.type !== 'user_message') || conversation.unread;
   const last = incoming[incoming.length - 1];

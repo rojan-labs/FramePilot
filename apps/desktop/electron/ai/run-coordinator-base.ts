@@ -457,7 +457,17 @@ function streamWorkingState(event: JsonValue): JsonValue | undefined {
   return record['type'] === 'run_state' ? record['working'] : undefined;
 }
 
+/** A validated ledger, and whether it differs from the one the snapshot already holds. */
+interface WorkingStateUpdate {
+  readonly value: JsonValue;
+  readonly changed: boolean;
+}
+
 function validateWorkingStateProjection(snapshot: RunSnapshot, value: JsonValue): JsonValue {
+  return nextWorkingState(snapshot, value).value;
+}
+
+function nextWorkingState(snapshot: RunSnapshot, value: JsonValue): WorkingStateUpdate {
   const next = parseWorkingState(value);
   if (next === null) {
     throw new RunStoreConflictError('Run-state event contains an invalid causal ledger.');
@@ -480,7 +490,12 @@ function validateWorkingStateProjection(snapshot: RunSnapshot, value: JsonValue)
       `Run-state version ${next.version} was reused with different content.`,
     );
   }
-  return toJsonValue(next);
+  // Same version ⇒ same content (checked just above), so the version alone says whether
+  // the snapshot needs rewriting.
+  return {
+    value: toJsonValue(next),
+    changed: previous === null || next.version !== previous.version,
+  };
 }
 
 function projectRuntimeEffect(snapshot: RunSnapshot, event: RunEventEnvelope): RunSnapshot {
@@ -542,9 +557,33 @@ function projectRuntimeEffect(snapshot: RunSnapshot, event: RunEventEnvelope): R
  */
 const CARRY_FORWARD_SCAN_LIMIT = 20;
 
+/**
+ * How many live runs keep a folded snapshot in memory (see `projectedSnapshot`). A run
+ * drops out as soon as it is terminal; the cap only bounds runs abandoned mid-flight.
+ */
+const MAX_PROJECTED_RUNS = 32;
+
+/** The projection of a run as of its WAL head, plus the head's payload text for de-duplication. */
+interface RunProjection {
+  readonly snapshot: RunSnapshot;
+  /** `JSON.stringify` of the head stream event's payload, when the head is one. */
+  readonly headPayload?: { readonly eventId: string; readonly text: string };
+}
+
 export class RunCoordinator {
   private readonly lanes = new Map<string, Promise<void>>();
   private readonly subscribers = new Map<string, Set<Subscriber>>();
+  /**
+   * Each live run's snapshot as of its WAL head, folded forward as events are recorded.
+   *
+   * `recordStreamEvent` runs once per streamed token. Recomputing its snapshot meant
+   * replaying the WAL tail since the last checkpoint on every call — up to fifty events,
+   * each `run_state` among them re-parsing and re-serialising a ledger hundreds of KB long
+   * — so a long run paid that per token. The head sequence is the validity key: any path
+   * that appends moves the head and the next read replays once from the persisted
+   * snapshot; any path that changes the snapshot WITHOUT appending writes it through here.
+   */
+  private readonly projections = new Map<string, RunProjection>();
 
   public constructor(private readonly store: RunStore) {}
 
@@ -703,6 +742,7 @@ export class RunCoordinator {
       };
       await this.store.append(event);
       await this.store.saveSnapshot(snapshot);
+      this.projections.delete(input.runId);
       this.publish(event);
       log.action('terminal run outcome persisted', {
         runId: input.runId,
@@ -823,14 +863,21 @@ export class RunCoordinator {
     return newest?.workingState;
   }
 
-  /** Persist one compatibility-stream event before any renderer observes it. */
+  /**
+   * Persist one compatibility-stream event before any renderer observes it.
+   *
+   * Returns the durable event the caller may cursor on. That is NOT always the event just
+   * recorded: a `run_state` ledger never enters the WAL (its working state goes straight
+   * to the snapshot, the only reader of it), and a stream event past its share of the WAL
+   * budget is skipped by the store. Both hand back the run's last persisted event and are
+   * not published to subscribers — a re-attaching renderer replays the WAL, and there is
+   * no sequence to give them. Neither ever fails the run: recording is not allowed to end
+   * an edit.
+   */
   public recordStreamEvent(input: RecordStreamEventInput): Promise<RunEventEnvelope> {
     return this.withRunLane(input.runId, async () => {
       const stored = await this.store.load(input.runId);
-      // Do not persist the recovered projection here: this hot path is called for
-      // every streamed token. It is replayed from at most one checkpoint interval
-      // of WAL below, then checkpointed only when useful.
-      const current = await this.recoverSnapshot(stored, false);
+      const current = await this.projectedSnapshot(input.runId, stored);
       if (current === null || current.projectId !== input.projectId) {
         throw new RunStoreConflictError('Stream event project does not match the durable run.');
       }
@@ -843,39 +890,56 @@ export class RunCoordinator {
         // scary "A terminal run cannot accept stream events." banner and leaving the
         // last reasoning node shimmering "Thinking…". Return the last recorded event so
         // the caller gets a valid sequence and moves on; nothing new is appended.
+        this.projections.delete(input.runId);
         const last = stored.events.at(-1);
         if (last !== undefined) return last;
         throw new RunStoreConflictError('A terminal run cannot accept stream events.');
       }
-      const previous = stored.events.at(-1);
+      const head = stored.events.at(-1);
+      const eventJson = toJsonValue(input.event);
+      const occurredAt = input.occurredAt ?? Date.now();
+      const rawWorkingState = streamWorkingState(input.event);
+      if (rawWorkingState !== undefined && head !== undefined) {
+        return this.foldWorkingState(input.runId, current, head, rawWorkingState, occurredAt);
+      }
+      const payloadText = JSON.stringify({ event: eventJson });
       if (
-        previous?.kind === 'run.stream_event' &&
-        JSON.stringify(previous.payload) === JSON.stringify({ event: toJsonValue(input.event) })
+        head?.kind === 'run.stream_event' &&
+        this.headPayloadText(input.runId, head) === payloadText
       ) {
         log.debug('duplicate stream event dropped', {
           runId: input.runId,
-          sequence: previous.sequence,
+          sequence: head.sequence,
         });
-        return previous;
+        return head;
       }
-      const occurredAt = input.occurredAt ?? Date.now();
       const event: RunEventEnvelope = {
         schemaVersion: RUN_PROTOCOL_SCHEMA_VERSION,
         eventId: this.createEventId(),
         runId: input.runId,
         projectId: input.projectId,
-        sequence: (stored.events.at(-1)?.sequence ?? 0) + 1,
+        sequence: (head?.sequence ?? 0) + 1,
         occurredAt,
         kind: 'run.stream_event',
-        payload: { event: toJsonValue(input.event) },
+        payload: { event: eventJson },
       };
       const status = streamStatus(input.event);
-      const rawWorkingState = streamWorkingState(input.event);
       const workingState =
         rawWorkingState === undefined
           ? undefined
           : validateWorkingStateProjection(current, rawWorkingState);
       const statusChanged = status !== null && status !== current.status;
+      const persisted = await this.store.append(event);
+      if (persisted.eventId !== event.eventId) {
+        // Skipped by the WAL budget. The log is unchanged, so a status this event carried
+        // can only survive a restart through the snapshot — write it there now.
+        if (statusChanged && status !== null) {
+          const snapshot: RunSnapshot = { ...current, status, updatedAt: occurredAt };
+          await this.store.saveSnapshot(snapshot);
+          this.rememberProjection(input.runId, { snapshot });
+        }
+        return persisted;
+      }
       const snapshot: RunSnapshot = {
         ...current,
         ...(status === null ? {} : { status }),
@@ -883,20 +947,96 @@ export class RunCoordinator {
         lastSequence: event.sequence,
         updatedAt: occurredAt,
       };
-      await this.store.append(event);
       if (statusChanged || event.sequence % STREAM_SNAPSHOT_INTERVAL === 0) {
         await this.store.saveSnapshot(snapshot);
       }
+      this.rememberProjection(input.runId, {
+        snapshot,
+        headPayload: { eventId: event.eventId, text: payloadText },
+      });
       this.publish(event);
       return event;
     });
+  }
+
+  /**
+   * Fold a `run_state` ledger into the snapshot without writing it to the WAL.
+   *
+   * The snapshot is the only reader of a run's working state (carry-forward reads
+   * `snapshot.workingState`; the renderer's copy rides the live stream and the
+   * conversation log), and each ledger supersedes the last. Appending every one made them
+   * 53 MB of run f8574746's 65 MB WAL, which is what overflowed it. The snapshot is
+   * written before the caller publishes, so the ledger is exactly as durable as before.
+   *
+   * An invalid ledger is reported and dropped, never thrown: it is a diagnostic record,
+   * and failing the publish would abort an edit over it.
+   */
+  private async foldWorkingState(
+    runId: string,
+    current: RunSnapshot,
+    head: RunEventEnvelope,
+    rawWorkingState: JsonValue,
+    occurredAt: number,
+  ): Promise<RunEventEnvelope> {
+    let update: WorkingStateUpdate;
+    try {
+      update = nextWorkingState(current, rawWorkingState);
+    } catch (error) {
+      log.warn('run-state ledger rejected; snapshot keeps the previous one', {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return head;
+    }
+    if (!update.changed) return head;
+    const snapshot: RunSnapshot = { ...current, workingState: update.value, updatedAt: occurredAt };
+    await this.store.saveSnapshot(snapshot);
+    const previous = this.projections.get(runId);
+    this.rememberProjection(runId, {
+      snapshot,
+      ...(previous?.headPayload === undefined ? {} : { headPayload: previous.headPayload }),
+    });
+    return head;
+  }
+
+  /**
+   * The run's snapshot as of its WAL head: the cached projection when it is current,
+   * otherwise one replay from the persisted snapshot (see {@link projections}).
+   */
+  private async projectedSnapshot(runId: string, stored: StoredRun): Promise<RunSnapshot | null> {
+    const headSequence = stored.events.at(-1)?.sequence ?? stored.snapshot?.lastSequence;
+    const cached = this.projections.get(runId);
+    if (cached !== undefined && cached.snapshot.lastSequence === headSequence) {
+      return cached.snapshot;
+    }
+    const recovered = await this.recoverSnapshot(stored, false);
+    if (recovered !== null) this.rememberProjection(runId, { snapshot: recovered });
+    return recovered;
+  }
+
+  private rememberProjection(runId: string, projection: RunProjection): void {
+    this.projections.delete(runId);
+    if (TERMINAL_STATUSES.has(projection.snapshot.status)) return;
+    this.projections.set(runId, projection);
+    while (this.projections.size > MAX_PROJECTED_RUNS) {
+      const oldest = this.projections.keys().next();
+      if (oldest.done === true) return;
+      this.projections.delete(oldest.value);
+    }
+  }
+
+  /** The head stream event's payload text, stringified at most once per head. */
+  private headPayloadText(runId: string, head: RunEventEnvelope): string {
+    const cached = this.projections.get(runId)?.headPayload;
+    if (cached?.eventId === head.eventId) return cached.text;
+    return JSON.stringify(head.payload);
   }
 
   /** Persist one canonical EditorRun stage beside, not inside, presentation events. */
   public recordEditorLifecycle(input: RecordEditorLifecycleInput): Promise<RunEventEnvelope> {
     return this.withRunLane(input.runId, async () => {
       const stored = await this.store.load(input.runId);
-      const current = await this.recoverSnapshot(stored, false);
+      const current = await this.projectedSnapshot(input.runId, stored);
       if (current === null || current.projectId !== input.projectId) {
         throw new RunStoreConflictError('Editor lifecycle project does not match the durable run.');
       }
@@ -918,6 +1058,10 @@ export class RunCoordinator {
         payload: { event: toJsonValue(stageEvent) },
       };
       await this.store.append(event);
+      // The same projection `recoverSnapshot` would replay for this event.
+      this.rememberProjection(input.runId, {
+        snapshot: { ...current, lastSequence: event.sequence, updatedAt: event.occurredAt },
+      });
       this.publish(event);
       return event;
     });

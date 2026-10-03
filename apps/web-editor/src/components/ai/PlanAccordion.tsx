@@ -2,6 +2,7 @@ import type { PlanNode } from '@framepilot/ai-sdk';
 import { ArrowUpRight, ChevronDown, ICON_SIZE } from '../icons.js';
 import { PlanStepMark } from './PlanStepMark.js';
 import type { StepOutcome } from './EventNode.js';
+import { type PlanStepView, settlePlanSteps } from './planSteps.js';
 
 export interface PlanAccordionProps {
   readonly node: PlanNode;
@@ -19,15 +20,27 @@ export interface PlanAccordionProps {
   readonly outcomes?: ReadonlyMap<string, StepOutcome>;
   /** Move the playhead to where a step's change begins. */
   readonly onSeek?: (seconds: number) => void;
+  /**
+   * The run that owns this plan is over: an unfinished step reads as stopped, never as a
+   * spinner (see `planSteps.ts`).
+   */
+  readonly runEnded?: boolean;
 }
 
-/** Pick the step that best represents where the run is now. */
-export function recentPlanStep(node: PlanNode): PlanNode['steps'][number] | undefined {
+/**
+ * Pick the step that best represents where the run is now. A run that stopped reads like
+ * one that finished — its last completed step, with the header's count saying how far it
+ * got — and only a plan with nothing completed shows where it stopped.
+ */
+export function recentPlanStep(node: {
+  readonly steps: readonly PlanStepView[];
+}): PlanStepView | undefined {
   const reversed = [...node.steps].reverse();
   return (
     reversed.find((step) => step.status === 'running') ??
     reversed.find((step) => step.status === 'failed') ??
     reversed.find((step) => step.status === 'completed') ??
+    node.steps.find((step) => step.status === 'stopped') ??
     node.steps.find((step) => step.status === 'pending')
   );
 }
@@ -37,7 +50,7 @@ function PlanStepRow({
   outcome,
   onSeek,
 }: {
-  step: PlanNode['steps'][number];
+  step: PlanStepView;
   outcome?: StepOutcome;
   onSeek?: (seconds: number) => void;
 }): JSX.Element {
@@ -76,9 +89,11 @@ export function PlanAccordion({
   onExpandedChange,
   outcomes,
   onSeek,
+  runEnded,
 }: PlanAccordionProps): JSX.Element {
-  const doneCount = node.steps.filter((step) => step.status === 'completed').length;
-  const recent = recentPlanStep(node);
+  const steps = settlePlanSteps(node.steps, runEnded === true);
+  const doneCount = steps.filter((step) => step.status === 'completed').length;
+  const recent = recentPlanStep({ steps });
   const bodyId = `plan-steps-${node.id}`;
 
   return (
@@ -92,7 +107,7 @@ export function PlanAccordion({
       >
         <span className="ai-plan-title">Plan</span>
         <span className="ai-plan-progress tabular">
-          {doneCount}/{node.steps.length}
+          {doneCount}/{steps.length}
         </span>
         <ChevronDown size={ICON_SIZE.sm} aria-hidden="true" />
       </button>
@@ -101,7 +116,7 @@ export function PlanAccordion({
         className="ai-plan"
         aria-label={expanded ? 'All plan steps' : 'Current plan step'}
       >
-        {(expanded ? node.steps : recent ? [recent] : []).map((step) => (
+        {(expanded ? steps : recent ? [recent] : []).map((step) => (
           <PlanStepRow
             key={step.id}
             step={step}

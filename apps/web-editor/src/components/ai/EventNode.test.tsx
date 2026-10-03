@@ -318,6 +318,28 @@ describe('EventNode', () => {
     expect(screen.getByText('Caption')).toBeTruthy();
   });
 
+  it('settles a plan step that was running when its run ended (no spinner, not failed)', () => {
+    render(
+      <EventNode
+        runEnded
+        node={{
+          kind: 'plan',
+          id: 'p',
+          ts: 0,
+          turnId: 't',
+          steps: [
+            { id: 's1', label: 'Trim', status: 'completed' },
+            { id: 's2', label: 'Caption', status: 'running', detail: 'Writing cue 4' },
+          ],
+        }}
+      />,
+    );
+    expect(document.querySelector('.ai-spinner')).toBeNull();
+    expect(screen.getByLabelText('Not done')).toBeTruthy();
+    // The running step's live activity suffix belongs to a live step only.
+    expect(screen.queryByText('Writing cue 4')).toBeNull();
+  });
+
   it('tool card shows a status icon + runtime + summary and opens full details on demand (#9,#10)', () => {
     render(
       <EventNode

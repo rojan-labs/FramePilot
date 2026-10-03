@@ -16,6 +16,7 @@ import {
 import type { AiStreamEventMessage, AiStreamMode, AiStreamRequest } from '../ipc/contract.js';
 import {
   AiStreamHub,
+  PUBLISH_FAILURE_HEADLINE,
   type StreamSender,
   parseAgentOptions,
   parseAiStreamAnswer,
@@ -687,7 +688,7 @@ describe('runAiStream', () => {
     expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
-  it('maps acceptance targets through agentOptions and fails when duration remains unmet', async () => {
+  it('maps acceptance targets through agentOptions and reports an unmet duration', async () => {
     const events: AiEvent[] = [];
     await runAiStream(
       new Orchestrator(new MockProvider()),
@@ -695,7 +696,14 @@ describe('runAiStream', () => {
       (event) => events.push(event),
       new AbortController().signal,
     );
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // Both targets reach the self-check, which reports them. The run made its edit, so it
+    // completes; a finding no longer fails it (ADR 0199).
+    const texts = events.flatMap((e) =>
+      e.type === 'warning' || e.type === 'notification' ? [e.text] : [],
+    );
+    expect(texts.some((text) => text.includes('the target is 45s'))).toBe(true);
+    expect(texts.some((text) => text.includes('reels expects a vertical 9:16 frame'))).toBe(true);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   it('threads history + selection without error and completes', async () => {
@@ -1142,6 +1150,56 @@ describe('AiStreamHub', () => {
     await flush();
     await flush();
     expect(settlements).toEqual([expect.objectContaining({ status: 'completed' })]);
+  });
+
+  it('stops the run and pushes ONE plain error when publishing an event fails', async () => {
+    // Run f8574746: the host's durable log refused an event, the throw unwound out of the
+    // stream, the hub forgot the run — and the agent graph, which only stops on the run's
+    // signal, kept calling the model with nothing consuming its events.
+    let graphStopped = false;
+    class DetachedGraphOrchestrator extends Orchestrator {
+      public override async *streamChat(
+        _input: Parameters<Orchestrator['streamChat']>[0],
+        options: Parameters<Orchestrator['streamChat']>[1],
+      ): AsyncGenerator<AiEvent> {
+        // Work the stream does not own, like `graph.invoke`: only the signal stops it.
+        options.signal?.addEventListener('abort', () => {
+          graphStopped = true;
+        });
+        const base = { conversationId: options.conversationId, turnId: options.turnId, ts: 1 };
+        yield { ...base, id: 'thinking', type: 'status', status: 'thinking' };
+        yield { ...base, id: 'reply', type: 'assistant_message', text: 'never published' };
+      }
+    }
+    const sender = new FakeSender(1);
+    const settlements: { status: string; kind: string }[] = [];
+    const hub = new AiStreamHub(() => new DetachedGraphOrchestrator(new MockProvider()), {
+      eventChannel: 'evt',
+    });
+    hub.start(sender, request('chat'), {
+      beforePublish: () => {
+        throw new Error('Run "r1" exceeded the 67108864-character durable log limit.');
+      },
+      onSettled: (settlement) => {
+        settlements.push(settlement);
+      },
+    });
+    await flush();
+    await flush();
+
+    expect(graphStopped).toBe(true);
+    const errors = sender.messages.flatMap((message) =>
+      typeof message.error === 'string' ? [message.error] : [],
+    );
+    expect(errors).toHaveLength(1);
+    // The editor's sentence first; the store's own words only behind "Show details".
+    expect(errors[0]?.split('\n')[0]).toBe(PUBLISH_FAILURE_HEADLINE);
+    expect(errors[0]).toContain('durable log limit');
+    expect(sender.has((message) => message.event !== undefined)).toBe(false);
+    expect(settlements).toEqual([
+      expect.objectContaining({ status: 'failed', kind: 'interrupted' }),
+    ]);
+    expect(hub.activeCount()).toBe(0);
   });
 
   it('still settles a run stopped before it completed as cancelled', async () => {

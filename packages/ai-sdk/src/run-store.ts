@@ -22,6 +22,62 @@ export const MAX_DURABLE_RUN_WAL_CHARS = 64 * 1024 * 1024;
 export const MAX_CACHED_RUNS = 8;
 export const MAX_CACHED_WAL_CHARS = 128 * 1024 * 1024;
 
+/**
+ * How much of a run's durable log each kind of record may fill, as a share of the WAL
+ * limit. Recording a run is not allowed to end it: run f8574746 died mid-edit because its
+ * WAL — mostly superseded `run_state` ledgers and streamed tokens — reached the limit and
+ * the next append threw out of the host's publish path. So the limit is spent in tiers.
+ *
+ * - **Optional** stream events (tokens, reasoning, context gauges, progress, ledger
+ *   snapshots) stop being persisted at 75%. A renderer that re-attaches after that point
+ *   still gets the final messages, tool cards and diffs; it loses the token-by-token
+ *   replay, which the conversation log already holds.
+ * - **Other** stream events (tool cards, diffs, messages, statuses) stop at 90%.
+ * - **Integrity** records (commands, gates, effects, patch lifecycle, the terminal event)
+ *   always have the last 10% to themselves, so the run can still be settled and audited.
+ *   They are a few hundred bytes each; exhausting that reserve is still refused, because a
+ *   WAL past the limit is quarantined as corrupt on the next load.
+ *
+ * A skipped record consumes no sequence number, so the log stays contiguous.
+ */
+export const OPTIONAL_STREAM_WAL_SHARE = 0.75;
+export const STREAM_WAL_SHARE = 0.9;
+
+/**
+ * `run.stream_event` payload types a re-attaching renderer can do without. Each is either
+ * superseded by a later event (the final message, the settled reasoning, the next gauge)
+ * or diagnostic, and together they are almost all of a long run's log by volume.
+ */
+const OPTIONAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'assistant_delta',
+  'reasoning_delta',
+  'reasoning',
+  'context_usage',
+  'progress',
+  'effect_progress',
+  'run_state',
+]);
+
+/** Which WAL budget a record draws on (see {@link OPTIONAL_STREAM_WAL_SHARE}). */
+export type DurableRecordTier = 'optional' | 'stream' | 'integrity';
+
+/**
+ * Classify a durable record for the WAL budget.
+ *
+ * @param event - A validated run event envelope.
+ * @returns `integrity` for every non-stream record, `optional` for a stream event a
+ *   re-attaching renderer can do without, `stream` for the rest.
+ */
+export function durableRecordTier(event: RunEventEnvelope): DurableRecordTier {
+  if (event.kind !== 'run.stream_event') return 'integrity';
+  const payload = event.payload;
+  if (!isRecord(payload)) return 'stream';
+  const inner = payload['event'];
+  if (!isRecord(inner)) return 'stream';
+  const type = inner['type'];
+  return typeof type === 'string' && OPTIONAL_STREAM_EVENT_TYPES.has(type) ? 'optional' : 'stream';
+}
+
 export type RunRecordKind = 'event' | 'snapshot';
 
 export interface RunMigration {
@@ -117,6 +173,8 @@ interface CachedRun {
   readonly events: RunEventEnvelope[];
   readonly eventSignatures: Map<string, string>;
   walChars: number;
+  /** Budget tiers that have already skipped a record and said so (one warning each). */
+  readonly budgetWarned: Set<DurableRecordTier>;
 }
 
 interface PageValidationState {
@@ -212,6 +270,20 @@ export class RunStore {
     return this.withRunLane(runId, () => this.loadUnlocked(runId));
   }
 
+  /**
+   * Validate and persist one run event.
+   *
+   * Sequence, idempotency and project ownership are enforced for every record. When the
+   * record would push the run past its tier's share of the WAL limit (see
+   * {@link OPTIONAL_STREAM_WAL_SHARE}), a stream event is NOT persisted and the run's
+   * last persisted event is returned instead — callers detect the skip by comparing
+   * `eventId`, and must not publish or cursor on the skipped event. Only an integrity
+   * record past the hard limit is refused.
+   *
+   * @param value - The event envelope to append (validated here).
+   * @returns The persisted event, or the run's last persisted event when this one was
+   *   skipped to protect the budget.
+   */
   public append(value: unknown): Promise<RunEventEnvelope> {
     const event = parseRunEvent(value);
     assertSafeRunId(event.runId);
@@ -244,10 +316,15 @@ export class RunStore {
       }
 
       const record = `${eventSignature}\n`;
-      if (stored.walChars + record.length > this.maxWalChars) {
-        throw new RunStoreConflictError(
-          `Run "${event.runId}" exceeded the ${String(this.maxWalChars)}-character durable log limit.`,
-        );
+      const tier = durableRecordTier(event);
+      if (stored.walChars + record.length > this.walLimitFor(tier)) {
+        if (tier === 'integrity' || lastEvent === undefined) {
+          throw new RunStoreConflictError(
+            `Run "${event.runId}" exceeded the ${String(this.maxWalChars)}-character durable log limit.`,
+          );
+        }
+        this.warnBudgetOnce(stored, event, tier);
+        return lastEvent;
       }
       try {
         await this.io.appendWal(event.runId, record);
@@ -492,6 +569,7 @@ export class RunStore {
         events,
         eventSignatures: new Map(events.map((event) => [event.eventId, JSON.stringify(event)])),
         walChars: walRaw?.length ?? 0,
+        budgetWarned: new Set<DurableRecordTier>(),
       };
       this.pageValidation.delete(runId);
       this.cache.set(runId, stored);
@@ -500,6 +578,30 @@ export class RunStore {
     } catch (error) {
       return await this.quarantineCorruption(runId, error);
     }
+  }
+
+  /** The WAL size a record of `tier` may not push the run past. */
+  private walLimitFor(tier: DurableRecordTier): number {
+    if (tier === 'optional') return Math.floor(this.maxWalChars * OPTIONAL_STREAM_WAL_SHARE);
+    if (tier === 'stream') return Math.floor(this.maxWalChars * STREAM_WAL_SHARE);
+    return this.maxWalChars;
+  }
+
+  /** Say once per run and tier that its records are no longer being persisted. */
+  private warnBudgetOnce(
+    stored: CachedRun,
+    event: RunEventEnvelope,
+    tier: DurableRecordTier,
+  ): void {
+    if (stored.budgetWarned.has(tier)) return;
+    stored.budgetWarned.add(tier);
+    log.warn('durable run log budget reached; stream events are no longer persisted', {
+      runId: event.runId,
+      tier,
+      walChars: stored.walChars,
+      limit: this.walLimitFor(tier),
+      sequence: event.sequence,
+    });
   }
 
   private async quarantineCorruption(runId: string, error: unknown): Promise<never> {

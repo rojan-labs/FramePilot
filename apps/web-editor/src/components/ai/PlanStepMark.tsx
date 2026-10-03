@@ -1,14 +1,18 @@
-import type { PlanStep } from '@framepilot/ai-sdk';
-import { Check, ICON_SIZE, X } from '../icons.js';
+import { Check, ICON_SIZE, Minus, X } from '../icons.js';
 import { Tooltip } from '../Tooltip.js';
+import type { PlanStepStatus, PlanStepView } from './planSteps.js';
 
 /** Plain-language status for the mark's `aria-label` — color/shape carries this for
  *  sighted users, but nothing else in a plan row conveys status to a screen reader. */
-const STEP_STATUS_LABEL: Record<PlanStep['status'], string> = {
+const STEP_STATUS_LABEL: Record<PlanStepStatus, string> = {
   completed: 'Completed',
   failed: 'Failed',
   running: 'In progress',
   pending: 'Pending',
+  // The run ended before this step was done. Deliberately not "Failed": nothing went
+  // wrong with the step, and a cross on every unreached step of a stopped run would read
+  // as a list of errors.
+  stopped: 'Not done',
 };
 
 /**
@@ -16,7 +20,7 @@ const STEP_STATUS_LABEL: Record<PlanStep['status'], string> = {
  * `PlanChecklist`) and the header-docked plan ledger (`PlanAccordion`). Same mark,
  * two different placements, so it lives once here rather than twice.
  */
-export function PlanStepMark({ step }: { step: PlanStep }): JSX.Element {
+export function PlanStepMark({ step }: { step: PlanStepView }): JSX.Element {
   const mark =
     step.status === 'completed' ? (
       <Check size={ICON_SIZE.sm} aria-hidden="true" />
@@ -24,6 +28,8 @@ export function PlanStepMark({ step }: { step: PlanStep }): JSX.Element {
       <X size={ICON_SIZE.sm} aria-hidden="true" />
     ) : step.status === 'running' ? (
       <span className="ai-spinner" aria-hidden="true" />
+    ) : step.status === 'stopped' ? (
+      <Minus size={ICON_SIZE.sm} aria-hidden="true" />
     ) : (
       <span className="ai-dot" aria-hidden="true" />
     );

@@ -111,6 +111,15 @@ import { PlanAccordion } from './PlanAccordion.js';
 import { SelfCheckGroup } from './SelfCheckGroup.js';
 import { dropActionsListedByDiff } from './diffActionRows.js';
 import { type ActivityRow, groupSelfCheckNotices } from './selfCheckRows.js';
+import { type ActionGroupRow, groupTimelineActions } from './actionGroupRows.js';
+import { TimelineActionGroup } from './TimelineActionGroup.js';
+import {
+  EARLIER_TURNS_ROW_ID,
+  type EarlierTurnsRow,
+  INITIAL_VISIBLE_TURNS,
+  REVEAL_TURNS_STEP,
+  visibleWindowStart,
+} from './activityWindow.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
 import { QueuedMessage } from './QueuedMessage.js';
@@ -202,6 +211,31 @@ const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home
  * perf budget (M9). 60fps holds either way because rows are keyed and merge by id.
  */
 const VIRTUALIZE_THRESHOLD = 60;
+
+/** One row of the rendered activity stream. */
+type SidebarRow = ActivityRow | ActionGroupRow | EarlierTurnsRow;
+
+type DiffViewNode = Extract<ViewNode, { kind: 'diff' }>;
+
+/**
+ * `next`, or the previous array when it holds exactly the same elements.
+ *
+ * The fold keeps an unchanged node's identity across views, so a list derived from the
+ * nodes is "the same" whenever its elements are. Returning the old array then lets every
+ * memo keyed on it skip — the last run's summary is rebuilt per edit, not per token.
+ */
+function useStableList<T>(next: readonly T[]): readonly T[] {
+  const ref = useRef(next);
+  const previous = ref.current;
+  if (
+    previous !== next &&
+    (previous.length !== next.length || previous.some((item, index) => item !== next[index]))
+  ) {
+    ref.current = next;
+  }
+  return ref.current;
+}
+
 /** Text is visually smooth at 20 Hz; 60 Markdown/layout commits starve the editor. */
 const AI_STREAM_RENDER_SCHEDULER = createIntervalScheduler(50);
 
@@ -744,18 +778,29 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // orchestrator's runTurn), so an unplanned run — which renders no checklist — keeps its
   // standalone receipt cards and nothing disappears. A step whose edit failed to apply also
   // keeps its card: that is a problem to read, not a change count to fold away.
-  const planStepIds = useMemo(() => {
+  //
+  // One walk of the nodes per update collects everything the stream derives from the whole
+  // conversation; every later pass reads these short lists instead of the full node list.
+  const {
+    planStepIds,
+    diffs: allDiffNodes,
+    userTurns,
+  } = useMemo(() => {
     const ids = new Set<string>();
+    const diffs: DiffViewNode[] = [];
+    let users = 0;
     for (const node of view.nodes) {
       if (node.kind === 'plan') for (const step of node.steps) ids.add(step.id);
+      else if (node.kind === 'diff') diffs.push(node);
+      else if (node.kind === 'user') users += 1;
     }
-    return ids;
+    return { planStepIds: ids, diffs, userTurns: users };
   }, [view.nodes]);
+  const diffNodes = useStableList(allDiffNodes);
   const mergedDiffNodeIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const node of view.nodes) {
+    for (const node of diffNodes) {
       if (
-        node.kind === 'diff' &&
         node.planStepId !== undefined &&
         planStepIds.has(node.planStepId) &&
         node.edit.validation.valid &&
@@ -766,11 +811,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       }
     }
     return ids;
-  }, [view.nodes, planStepIds, appliedNodes]);
+  }, [diffNodes, planStepIds, appliedNodes]);
   const stepOutcomes = useMemo(() => {
     const outcomes = new Map<string, StepOutcome>();
-    for (const node of view.nodes) {
-      if (node.kind !== 'diff' || !mergedDiffNodeIds.has(node.id)) continue;
+    for (const node of diffNodes) {
+      if (!mergedDiffNodeIds.has(node.id)) continue;
       const stepId = node.planStepId;
       if (stepId === undefined) continue;
       const region = toReviewCard(node.edit).changedRegions[0];
@@ -781,14 +826,30 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       });
     }
     return outcomes;
-  }, [view.nodes, mergedDiffNodeIds]);
+  }, [diffNodes, mergedDiffNodeIds]);
+
+  // How many of the most recent turns are rendered (see `activityWindow.ts`). Keyed by
+  // conversation so opening another one starts from the default again.
+  const [revealedTurns, setRevealedTurns] = useState<{
+    readonly conversationId: string | null;
+    readonly turns: number;
+  }>({ conversationId: null, turns: INITIAL_VISIBLE_TURNS });
+  const visibleTurns =
+    revealedTurns.conversationId === (active?.id ?? null)
+      ? revealedTurns.turns
+      : INITIAL_VISIBLE_TURNS;
 
   const { latestPlan, activityNodes } = useMemo(() => {
     let latest: Extract<ViewNode, { kind: 'plan' }> | undefined;
     const activity: ViewNode[] = [];
+    // Only the most recent turns are laid out; everything above is one row away. The
+    // window starts at a user message, so the newest plan — which belongs to the last
+    // turn — is always inside it.
+    const windowStart = visibleWindowStart(view.nodes, visibleTurns);
+    const windowNodes = windowStart === 0 ? view.nodes : view.nodes.slice(windowStart);
     // A diff card already lists its operations; the loose action rows beside it repeated them.
     const rendered = dropActionsListedByDiff(
-      view.nodes,
+      windowNodes,
       (node) => node.kind === 'diff' && !mergedDiffNodeIds.has(node.id),
     );
     for (const node of rendered) {
@@ -801,9 +862,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       else if (!mergedDiffNodeIds.has(node.id)) activity.push(node);
     }
     // A self-check pass is one report: one collapsed row, not a stack of full-width notices.
-    const rows: ActivityRow[] = groupSelfCheckNotices(activity);
+    // A turn's run of identical actions is one counted row per kind (see `actionGroupRows.ts`).
+    const rows: SidebarRow[] = groupTimelineActions(groupSelfCheckNotices(activity));
+    if (windowStart > 0) {
+      rows.unshift({
+        kind: 'earlier_turns',
+        id: EARLIER_TURNS_ROW_ID,
+        hiddenTurns: Math.max(0, userTurns - visibleTurns),
+      });
+    }
     return { latestPlan: latest, activityNodes: rows };
-  }, [view.nodes, mergedDiffNodeIds]);
+  }, [view.nodes, mergedDiffNodeIds, visibleTurns, userTurns]);
   const virtualize = activityNodes.length > VIRTUALIZE_THRESHOLD;
   // D3a: the screen-reader live region lives OUTSIDE the (virtualized or plain)
   // list and announces only the latest streamed assistant text — not every row
@@ -880,12 +949,13 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
   // A diff already carrying `commit` was written by the desktop host as it streamed, so
   // this lane must leave it alone; what remains is the browser/dev session, which has no
   // host and where this effect IS the apply path.
-  const uncommittedDiffs = view.nodes.filter(
-    (n): n is Extract<typeof n, { kind: 'diff' }> =>
-      n.kind === 'diff' &&
-      n.edit.validation.valid &&
-      n.commit === undefined &&
-      appliedNodes[n.id] === undefined,
+  const uncommittedDiffs = useMemo(
+    () =>
+      diffNodes.filter(
+        (n) =>
+          n.edit.validation.valid && n.commit === undefined && appliedNodes[n.id] === undefined,
+      ),
+    [diffNodes, appliedNodes],
   );
   // Commit each valid edit the moment it arrives. There is no review mode to fall back
   // to: an edit that validates is applied, and Undo is how it is taken back.
@@ -2128,60 +2198,66 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
    * user's message to measure to.
    */
   const brewedMs = useMemo(() => {
-    const lastUser = [...view.nodes].reverse().find((node) => node.kind === 'user');
-    if (!lastUser) return undefined;
-    const after = view.nodes.filter((node) => node.ts > lastUser.ts);
-    if (after.length === 0) return undefined;
-    const end = after.reduce((max, node) => Math.max(max, node.ts), lastUser.ts);
+    // Walked back from the tail and stopped at the last message: the measurement only ever
+    // concerns the newest turn, so a long conversation must not pay for its history here.
+    const nodes = view.nodes;
+    let lastUserIndex = -1;
+    for (let index = nodes.length - 1; index >= 0; index -= 1) {
+      if (nodes[index]?.kind === 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
+    const lastUser = nodes[lastUserIndex];
+    if (lastUser === undefined) return undefined;
+    let end = lastUser.ts;
+    for (let index = lastUserIndex + 1; index < nodes.length; index += 1) {
+      end = Math.max(end, nodes[index]?.ts ?? end);
+    }
     const elapsed = end - lastUser.ts;
     return elapsed > 0 ? elapsed : undefined;
   }, [view.nodes]);
+
+  // The newest run's valid edits — the diffs of the last turn that produced any. Stable
+  // across streamed batches (see `useStableList`), so the summaries below are rebuilt when
+  // an edit lands, not on every token.
+  const lastRunDiffs = useStableList(
+    useMemo(() => {
+      const valid = diffNodes.filter((n) => n.edit.validation.valid);
+      const lastTurnId = valid.at(-1)?.turnId;
+      return lastTurnId === undefined ? [] : valid.filter((n) => n.turnId === lastTurnId);
+    }, [diffNodes]),
+  );
 
   // The run's own edits, newest run only: what "Undo run" would take back.
   //
   // Undo is the entire safety net now that edits apply as they land, so this is the one
   // place it is made visible rather than left as a keyboard shortcut the user has to know.
-  const lastRunPatchIds = useMemo(() => {
-    const diffs = view.nodes.filter(
-      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
-    );
-    const lastTurnId = diffs.at(-1)?.turnId;
-    return lastTurnId === undefined
-      ? []
-      : diffs.filter((n) => n.turnId === lastTurnId).map((n) => n.edit.patch.patchId);
-  }, [view.nodes]);
+  const lastRunPatchIds = useMemo(
+    () => lastRunDiffs.map((n) => n.edit.patch.patchId),
+    [lastRunDiffs],
+  );
   // What the last run changed, said in editing terms (P8.2 "changed"): the operations
   // grouped by semantic action and the programme-length delta. "Made N edits" is a
   // count of patches; this is an account of the cut.
   const lastRunSummary = useMemo(() => {
-    const diffs = view.nodes.filter(
-      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
-    );
-    const lastTurnId = diffs.at(-1)?.turnId;
-    if (lastTurnId === undefined) return null;
-    const edits = diffs
-      .filter((n) => n.turnId === lastTurnId)
-      .map((n) => {
-        const card = toReviewCard(n.edit);
-        return {
-          operations: n.edit.patch.operations as readonly AnyOperation[],
-          before: card.before,
-          after: card.after,
-        };
-      });
+    if (lastRunDiffs.length === 0) return null;
+    const edits = lastRunDiffs.map((n) => {
+      const card = toReviewCard(n.edit);
+      return {
+        operations: n.edit.patch.operations as readonly AnyOperation[],
+        before: card.before,
+        after: card.after,
+      };
+    });
     return summarizeRunChanges(edits, projectNames(project));
-  }, [view.nodes, project]);
+  }, [lastRunDiffs, project]);
   // Where the last run's edits landed (P8.2 "changed"): the first clip an operation
   // names, else the first track — enough for "Show on timeline" to put the editor's eyes
   // on the affected range instead of leaving them to hunt for what changed.
   const lastRunReference = useMemo<Reference | null>(() => {
-    const diffs = view.nodes.filter(
-      (n): n is Extract<typeof n, { kind: 'diff' }> => n.kind === 'diff' && n.edit.validation.valid,
-    );
-    const lastTurnId = diffs.at(-1)?.turnId;
-    if (lastTurnId === undefined) return null;
     let track: Reference | null = null;
-    for (const node of diffs.filter((n) => n.turnId === lastTurnId)) {
+    for (const node of lastRunDiffs) {
       for (const op of node.edit.patch.operations as unknown as readonly Record<
         string,
         unknown
@@ -2195,7 +2271,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       }
     }
     return track;
-  }, [view.nodes]);
+  }, [lastRunDiffs]);
   // How many entries at the TOP of the undo stack this run owns, counted contiguously
   // from the newest backwards.
   //
@@ -2264,7 +2340,55 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     setDismissedReferenceIds((ids) => (ids.includes(attachmentId) ? ids : [...ids, attachmentId]));
   }, []);
 
-  const renderNode = (node: ActivityRow): JSX.Element => {
+  // "Show earlier messages" renders more of the conversation ABOVE what the reader is
+  // looking at. Without a correction the view would jump by exactly the height of what was
+  // added, so the distance from the bottom is held across the reveal.
+  const revealAnchorRef = useRef<number | null>(null);
+  const showEarlierTurns = useCallback(() => {
+    const element = scrollRef.current;
+    if (element) revealAnchorRef.current = element.scrollHeight - element.scrollTop;
+    // Reading back through history is the reader's choice: following the stream now would
+    // drag them straight back down past what they asked to see.
+    stickRef.current = false;
+    setRevealedTurns({
+      conversationId: activeIdRef.current,
+      turns: visibleTurns + REVEAL_TURNS_STEP,
+    });
+  }, [visibleTurns]);
+  useLayoutEffect(() => {
+    const distanceFromBottom = revealAnchorRef.current;
+    if (distanceFromBottom === null) return;
+    revealAnchorRef.current = null;
+    const element = scrollRef.current;
+    if (element) element.scrollTop = Math.max(0, element.scrollHeight - distanceFromBottom);
+  }, [visibleTurns]);
+
+  const renderNode = (node: SidebarRow): JSX.Element => {
+    if (node.kind === 'earlier_turns') {
+      return (
+        <div className="ai-earlier-turns" role="listitem">
+          <button type="button" className="ai-btn ai-btn--quiet" onClick={showEarlierTurns}>
+            Show earlier messages
+            {node.hiddenTurns > 0 && (
+              <>
+                {/* A real space, so the accessible name reads "…messages 3 more". */}{' '}
+                <span className="ai-earlier-turns-count tabular">{node.hiddenTurns} more</span>
+              </>
+            )}
+          </button>
+        </div>
+      );
+    }
+    if (node.kind === 'action_group') {
+      return (
+        <TimelineActionGroup
+          group={node}
+          expanded={expandedNodes[node.id] ?? false}
+          onToggleExpanded={onToggleExpanded}
+          renderAction={renderNode}
+        />
+      );
+    }
     if (node.kind === 'self_check_group') {
       return (
         <SelfCheckGroup
@@ -2482,6 +2606,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                 onExpandedChange={(open) => onToggleExpanded(latestPlan.id, open)}
                 outcomes={stepOutcomes}
                 onSeek={onSeek}
+                runEnded={runEnded}
               />
             </div>
           )}
