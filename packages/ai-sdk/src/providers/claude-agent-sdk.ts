@@ -25,13 +25,16 @@
  *
  * So this adapter runs it in a deliberately degenerate mode, and {@link SANDBOX_OPTIONS}
  * is that contract in one object — asserted by `claude-agent-sdk.test.ts` because these
- * four fields are a security boundary, not a preference:
+ * fields are a security boundary, not a preference:
  *
  * - `tools: []` — no built-in tools. Verified: the init frame reports `tools: []`.
- * - `settingSources: []` — SDK isolation mode. Without it the user's personal
- *   `~/.claude/CLAUDE.md` is folded into the system prompt, making FramePilot's prompt a
+ * - `settingSources: []` — SDK isolation mode: no user, project or local settings files.
+ * - `verbatimPrompts: true` — no turn-start attachments. `settingSources: []` alone did NOT
+ *   keep the user's `~/.claude/CLAUDE.md` out: CLI 2.1.280 still attached it (and the
+ *   rules files) to the prompt as a `<system-reminder>`, making FramePilot's prompt a
  *   function of the developer's machine — non-deterministic input to a system whose
- *   golden manifests track prompt text byte for byte.
+ *   golden manifests track prompt text byte for byte — and spending ~4.5k tokens a call.
+ * - `persistSession: false` and a fixed `title` — no session files, no title request.
  * - `systemPrompt: {type:'custom'}` — never the `claude_code` preset.
  * - `permissionMode: 'default'` — never `bypassPermissions`.
  *
@@ -146,6 +149,42 @@ export const SANDBOX_OPTIONS = Object.freeze({
   maxTurns: 1,
   /** Only FramePilot's own MCP server; never one discovered from the user's machine. */
   strictMcpConfig: true,
+  /**
+   * The prompt goes out as written. Without this the CLI runs its turn-start attachment
+   * pass over FramePilot's prompt: it injected the user's `~/.claude/CLAUDE.md` and rules
+   * files (an 18k-character `<system-reminder>`, measured through a logging proxy on
+   * 2026-10-03, with `settingSources: []` set) and an environment block, and it would
+   * expand `@path` mentions and dispatch slash commands found in text the model and the
+   * project supplied — a transcript line reading `@~/.ssh/config` would become a file read.
+   */
+  verbatimPrompts: true,
+  /**
+   * Nothing written to `~/.claude/projects/`. Every call is a one-turn process the
+   * orchestrator discards; persisted, each one became a session in the user's Claude Code
+   * history (~25 per agent run).
+   */
+  persistSession: false,
+  /**
+   * A fixed session title, so the CLI does not generate one. Generating it is a second
+   * model request per call that carries the WHOLE prompt (measured: a ~40k-character
+   * "naming a coding session" request beside every FramePilot call), and its tokens are
+   * folded into the call's usage.
+   */
+  title: 'FramePilot',
+  /**
+   * Inline settings (the SDK's flag-settings tier), the one place the CLI's MEMORY files
+   * are switched off. `settingSources: []` stops settings files, and `verbatimPrompts`
+   * stops per-turn attachments, but neither stops the session's instruction memory:
+   * measured through a logging proxy on 2026-10-03, the user's `~/.claude/CLAUDE.md` and
+   * rules files still reached the model as an 18k-character `<system-reminder>` until
+   * every CLAUDE.md was excluded here. Auto-memory reads
+   * `~/.claude/projects/<cwd>/memory/`, which for a FramePilot run started from a checkout
+   * is that checkout's coding-agent memory.
+   */
+  settings: Object.freeze({
+    claudeMdExcludes: Object.freeze(['**']) as readonly string[],
+    autoMemoryEnabled: false,
+  }),
 });
 
 /** How long a pre-spawned process may wait for a prompt before it is abandoned. */
