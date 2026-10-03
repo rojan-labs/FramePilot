@@ -142,6 +142,7 @@ is one such spawn (3.7 s for 28 tokens); the median apply step carried one
 tool call; and 13 of the 128 calls were a read-back of the arrangement
 right after an applied edit. The last two are what `kernel/placement-note.ts`
 and the execution-stage pacing line address — re-measure with the same
-flags after real use on that build, and read the by-effort table for the
-effect of stage-scoped thinking effort.
+flags after real use on that build. (Stage-scoped thinking effort was removed by ADR 0199 —
+every step now thinks at one effort — so a by-effort table from a build after 2026-10-03 has
+one row.)
 

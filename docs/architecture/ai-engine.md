@@ -137,12 +137,13 @@ summaries. In particular, `detect_beats` passes every observed onset to the agen
 compact times-only digest. BPM is an average and must not be used to reconstruct missing
 timestamps from a non-uniform grid.
 
-Successful reads and analyses are memoized for the run. If a turn only repeats those
-memoized calls and no edit has landed, the Conductor grants one action-recovery turn:
-read/analysis descriptors are withheld, leaving mutation tools and `ask_user`. This
-prevents another redundant tool cycle while preserving an honest escape when a real
-creative decision is missing. A second failure converges normally; recovery is bounded.
-See [ADR 0068](../adr/0068-action-recovery-after-cached-reads.md).
+Successful reads and analyses are memoized for the run, so a repeated call returns the same
+answer and teaches the run nothing: the stall streak climbs, and `STALL_CONFIRM_TURNS` such
+turns in a row end the run. Nothing is withheld on the way. The one-turn action-recovery
+surface (ADR 0068), the stage-scoped tool surface and the research budget were removed by
+[ADR 0199](../adr/0199-the-model-decides-the-harness-informs.md): what a turn can call is what
+the run has loaded, every step thinks at one effort, and the deterministic checks are shown to
+the model after every edit (WHERE YOU STAND) instead of re-opening a finished reply.
 
 A refused call is remembered, and a call the run can PROVE will be refused again is not
 made twice. Two records back this. First, the run's operation ledger records a change the
