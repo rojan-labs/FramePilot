@@ -197,11 +197,12 @@ _SpliceId = Annotated[str, Field(min_length=1, max_length=256)]
 class AudioSplice(_ContractModel):
     """The source a splice is made of: the tracks whose clip edges meet at ``boundaryFrame``.
 
-    Mirrors ``temporal-review.ts#AudioSpliceSchema``. The engine measures ``track_ids`` alone
-    for the boundary jump, so a sound starting on ANOTHER track near the cut (run x59-1: a radio
-    call inside a continuous clip, 35 dB up, at the music bed's first frame) is not read as
-    this splice's discontinuity. The clip ids name the clips in the reviewer's finding; this
-    side only carries them.
+    Mirrors ``temporal-review.ts#AudioSpliceSchema``. The engine judges ``track_ids`` as the
+    source, heard over what the other tracks play held at its quieter side
+    (:func:`_boundary_levels`). A sound starting on ANOTHER track near the cut (run x59-1: a
+    radio call inside a continuous clip, 35 dB up, at the music bed's first frame) is not this
+    splice's discontinuity, and a stop that another track's sound masks is not one either. The
+    clip ids name the clips in the reviewer's finding; this side only carries them.
     """
 
     track_ids: list[_SpliceId] = Field(min_length=1, max_length=MAX_SPLICE_IDS)
@@ -300,9 +301,9 @@ class AudioSample(_ContractModel):
     peak_dbfs: float
     rms_dbfs: float
     boundary_jump_db: float | None = Field(default=None, ge=0)
-    #: The level each side of the boundary was compared at (dBFS RMS, raised to the audibility
-    #: floor): the side's mean for a cut between two sounds; for an entry from silence the
-    #: floor, then the sound's first moment (an exit mirrors it). ``None`` without a boundary.
+    #: The level heard each side of the boundary (dBFS RMS): the spliced source over the held
+    #: background, raised to the audibility floor (:func:`_boundary_levels`). ``None`` without
+    #: a boundary.
     boundary_before_dbfs: float | None = None
     boundary_after_dbfs: float | None = None
 
@@ -756,27 +757,33 @@ def _audio_sample(
     """Peak and RMS of the mix over the window, and the jump across its boundary, if named.
 
     ``spliced`` is the composition of the request's splice tracks alone
-    (:func:`_track_isolated_project`); the boundary is measured on it, so another source's
-    content near the cut is not this cut's discontinuity. Without it (a request from before
-    the splice was named) the boundary is measured on the mix, as it always was. The peak
-    stays the mix's either way: a sum over full scale is what that ceiling exists to catch.
+    (:func:`_track_isolated_project`). The boundary is judged on that source, heard over
+    everything else the programme plays there (:func:`_boundary_levels`). Without it (a request
+    from before the splice was named) the boundary is measured on the mix, as it always was.
+    The peak stays the mix's either way: a sum over full scale is what that ceiling catches.
+
+    The background is ``mix - source``, sample by sample, and that is exact, not an estimate.
+    MoviePy's ``CompositeAudioClip`` is a plain broadcast sum of its layers, with no limiter
+    and no clip (an over-full-scale mix is what ``LoudnessSample.sample_peak_dbfs`` reports).
+    Every clip's chain (normalize, EQ, dynamics, gain, fades) is its own. Ducking reads the
+    duck track's clip POSITIONS (``compiler._duck_intervals``), so muting the other tracks for
+    the isolated compile leaves the source's samples identical to its share of the mix. It costs
+    no compile beyond the isolated one.
     """
-    samples = _audio_frames(
-        composition, request.start_frame / fps, request.end_frame / fps, cancelled
-    )
+    start_seconds, end_seconds = request.start_frame / fps, request.end_frame / fps
+    samples = _audio_frames(composition, start_seconds, end_seconds, cancelled)
     amplitudes = np.abs(samples)
     peak = float(np.max(amplitudes))
     rms = float(np.sqrt(np.mean(np.square(samples))))
-    boundary_samples = samples
+    source, background = samples, None
     if spliced is not None and request.boundary_frame is not None:
-        boundary_samples = (
-            np.zeros_like(samples)
+        source = (
+            np.zeros((samples.shape[0], 1), dtype=np.float64)
             if spliced.audio is None
-            else _audio_frames(
-                spliced, request.start_frame / fps, request.end_frame / fps, cancelled
-            )
+            else _audio_frames(spliced, start_seconds, end_seconds, cancelled)
         )
-    levels = _boundary_levels(boundary_samples, request)
+        background = samples - source
+    levels = _boundary_levels(source, request, background)
     return AudioSample(
         start_frame=request.start_frame,
         end_frame=request.end_frame,
@@ -788,26 +795,38 @@ def _audio_sample(
     )
 
 
-def _rms_dbfs(samples: npt.NDArray[np.float64]) -> float:
-    """RMS of ``samples`` in dBFS, raised to :data:`AUDIBLE_RMS_FLOOR_DBFS`."""
-    if samples.size == 0:
-        return AUDIBLE_RMS_FLOOR_DBFS
-    return max(AUDIBLE_RMS_FLOOR_DBFS, _dbfs(float(np.sqrt(np.mean(np.square(samples))))))
+def _rms(samples: npt.NDArray[np.float64]) -> float:
+    """Linear RMS of ``samples`` (0 for none)."""
+    return float(np.sqrt(np.mean(np.square(samples)))) if samples.size else 0.0
+
+
+def _heard_dbfs(source_rms: float, background_rms: float) -> float:
+    """A source over a background, as power adds (dBFS), raised to the audibility floor."""
+    return max(AUDIBLE_RMS_FLOOR_DBFS, _dbfs(math.hypot(source_rms, background_rms)))
 
 
 def _boundary_levels(
-    samples: npt.NDArray[np.float64], request: AudioEvidenceRequest
+    samples: npt.NDArray[np.float64],
+    request: AudioEvidenceRequest,
+    background: npt.NDArray[np.float64] | None = None,
 ) -> tuple[float, float] | None:
-    """The level each side of the boundary is compared at, floored at the audibility floor.
+    """The level heard each side of the boundary, compared to give the jump.
 
-    Both sides audible: each side's mean RMS (2 frames before, 3 after, as the planner asks),
-    so the comparison is a cut's level change rather than one waveform cycle.
+    ``samples`` is the spliced source S, and ``background`` B is what everything else plays in
+    the window (``None``: nothing is set apart, as for a mix-measured request). Each side is
+    ``dB(sqrt(S² + B_ref²))``, raised to :data:`AUDIBLE_RMS_FLOOR_DBFS`:
 
-    One side below the floor: the boundary is an ENTRY from silence (or an EXIT into it), and
-    the sound is judged by its first (last) :data:`AUDIO_ONSET_SECONDS` at the splice. A clip
-    that starts at its level steps straight up from silence; one that fades in is still near
-    silence there and steps nowhere. The three-frame mean cannot tell them apart: a 0.5 s fade
-    is at a fifth of its level by the end of it.
+    - S is the source's RMS over its side: 2 frames before, 3 after, as the planner asks.
+      When the source is below the floor on one side only, the boundary is an ENTRY from
+      silence (or an EXIT into it). The other side is then read over its first (last)
+      :data:`AUDIO_ONSET_SECONDS` at the splice. A clip that starts at its level steps
+      straight up; one that fades in is still near silence there. The three-frame mean cannot
+      tell them apart, because a 0.5 s fade is at a fifth of its level by the end of it.
+    - B_ref is B's RMS on its QUIETER side, held on both. A sound already playing masks a
+      step under it: a lifted clip's stop under a cover shot's sound reads 3 dB, not 36. B's
+      own changes never count: the X-59 radio call starting on another track at the music
+      bed's first frame is B rising, and B is held at its level before. Taking the quieter
+      side makes the masking conservative.
 
     Both sides below the floor: nothing audible either side, no jump.
     """
@@ -817,22 +836,24 @@ def _boundary_levels(
     span = request.end_frame - request.start_frame
     split = round(samples.shape[0] * (boundary - request.start_frame) / span)
     split = min(max(split, 1), samples.shape[0] - 1)
-    before = _rms_dbfs(samples[:split])
-    after = _rms_dbfs(samples[split:])
+    before, after = _rms(samples[:split]), _rms(samples[split:])
     floor = AUDIBLE_RMS_FLOOR_DBFS
     onset = max(1, round(AUDIO_ONSET_SECONDS * _AUDIO_SAMPLE_RATE))
-    if before <= floor < after:
-        return floor, _rms_dbfs(samples[split : split + onset])
-    if after <= floor < before:
-        return _rms_dbfs(samples[max(0, split - onset) : split]), floor
-    return before, after
+    if _dbfs(before) <= floor < _dbfs(after):
+        after = _rms(samples[split : split + onset])
+    elif _dbfs(after) <= floor < _dbfs(before):
+        before = _rms(samples[max(0, split - onset) : split])
+    held = 0.0 if background is None else min(_rms(background[:split]), _rms(background[split:]))
+    return _heard_dbfs(before, held), _heard_dbfs(after, held)
 
 
 def _boundary_jump_db(
-    samples: npt.NDArray[np.float64], request: AudioEvidenceRequest
+    samples: npt.NDArray[np.float64],
+    request: AudioEvidenceRequest,
+    background: npt.NDArray[np.float64] | None = None,
 ) -> float | None:
-    """How far the level steps across the boundary, in dB (see :func:`_boundary_levels`)."""
-    levels = _boundary_levels(samples, request)
+    """How far the heard level steps across the boundary, in dB (:func:`_boundary_levels`)."""
+    levels = _boundary_levels(samples, request, background)
     return None if levels is None else abs(levels[1] - levels[0])
 
 

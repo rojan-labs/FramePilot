@@ -115,11 +115,14 @@ const MAX_SPLICE_IDS = 16;
  * What a boundary is made of: the tracks whose clip edges meet on `boundaryFrame`, and the
  * clips that end (`from`) and start (`to`) there.
  *
- * The engine measures `trackIds` ALONE for the jump. It used to measure the mix, so on run
- * x59-1 a radio call starting inside a continuous clip on the picture track (-55 → -20 dBFS)
- * read as the music bed's entry: "Audio discontinuity 21.7 dB" at a bed that faded in from
- * -86.6 dBFS, three turns of re-fading that never moved it. The clip ids are for the finding,
- * so it can say which clip to fade. Mirrors `temporal_evidence.py#AudioSplice`.
+ * The engine judges `trackIds` as a source heard over everything else, with that background
+ * held at its quieter side of the cut (`temporal_evidence.py#_boundary_levels`). It used to
+ * measure the mix, so on run x59-1 a radio call starting inside a continuous clip on the picture
+ * track (-55 → -20 dBFS) read as the music bed's entry: "Audio discontinuity 21.7 dB" at a bed
+ * that faded in from -86.6 dBFS, three turns of re-fading that never moved it. Measured on the
+ * track alone instead, a lifted clip's stop under a cover shot's continuing sound read 36 dB,
+ * a step no one hears. The clip ids are for the finding, so it can say which clip to fade.
+ * Mirrors `temporal_evidence.py#AudioSplice`.
  */
 const AudioSpliceSchema = z
   .object({
@@ -321,9 +324,9 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
             rmsDbfs: finite,
             boundaryJumpDb: fromEngine(finite.nonnegative()),
             /**
-             * The level each side of the boundary was compared at, dBFS RMS, raised to
-             * {@link AUDIBLE_RMS_FLOOR_DBFS}. A side AT the floor was silent, which is how the
-             * finding tells an entry or an exit from a cut.
+             * The level heard each side of the boundary, dBFS RMS: the spliced source over
+             * the held background, raised to {@link AUDIBLE_RMS_FLOOR_DBFS}. A side AT the
+             * floor had nothing audible on it.
              */
             boundaryBeforeDbfs: fromEngine(finite),
             boundaryAfterDbfs: fromEngine(finite),
@@ -470,22 +473,45 @@ const dbText = (value: number): string => (Math.round(value * 10) / 10).toFixed(
 const clipsText = (ids: readonly string[]): string =>
   ids.length === 0 ? '' : ` (${ids.slice(0, 3).join(', ')}${ids.length > 3 ? ', …' : ''})`;
 
+/** Whether a boundary is a sound entering, a sound stopping, or a cut between two. */
+type BoundaryKind = 'entry' | 'exit' | 'cut';
+
 /**
- * A boundary jump as a finding the model can act on: which track and clip, which side was
- * silent, the levels, and the fix.
+ * What kind of boundary this is: from the splice's clips when the planner named them (only
+ * clips starting there is an entry, only clips ending there an exit), else from the levels.
+ *
+ * The clips come first because the levels now carry the background (each side is the source
+ * heard over what else plays), so a hard stop under a quiet bed no longer lands on the floor.
+ * A mix-measured request has no clips, and there a side at {@link AUDIBLE_RMS_FLOOR_DBFS} was
+ * silent.
+ */
+function boundaryKind(request: AudioRequest, before?: number, after?: number): BoundaryKind {
+  const entering = request.splice?.toClipIds.length ?? 0;
+  const leaving = request.splice?.fromClipIds.length ?? 0;
+  if (entering > 0 && leaving === 0) return 'entry';
+  if (leaving > 0 && entering === 0) return 'exit';
+  if (entering > 0 || before === undefined || after === undefined) return 'cut';
+  if (before <= AUDIBLE_RMS_FLOOR_DBFS && after > AUDIBLE_RMS_FLOOR_DBFS) return 'entry';
+  if (after <= AUDIBLE_RMS_FLOOR_DBFS && before > AUDIBLE_RMS_FLOOR_DBFS) return 'exit';
+  return 'cut';
+}
+
+/**
+ * A boundary jump as a finding the model can act on: which track and clip, what kind of
+ * boundary, the heard levels, and the fix.
  *
  * "Audio discontinuity 21.7 dB exceeds 12 dB" named no source and no remedy, so the model
  * re-faded the only clip it could see starting there, three times, and the number never moved:
- * it came from a radio call on another track. The levels come from the engine; a side at
- * {@link AUDIBLE_RMS_FLOOR_DBFS} was silent, which makes the boundary an entry (judged by its
- * first {@link AUDIO_ONSET_SECONDS} s) or an exit (by its last) rather than a cut.
+ * it came from a radio call on another track. The engine now judges the spliced source over
+ * what the other tracks play there, so a step that is masked is never reported. An entry is
+ * read over its first {@link AUDIO_ONSET_SECONDS} s, an exit over its last.
  */
 function describeBoundaryJump(
   request: AudioRequest,
   boundary: number,
   sample: AudioSample,
 ): string {
-  const jump = sample.boundaryJumpDb ?? 0;
+  const jump = dbText(sample.boundaryJumpDb ?? 0);
   const limit = `limit ${String(request.maxBoundaryJumpDb)} dB`;
   const splice = request.splice;
   const where =
@@ -494,31 +520,32 @@ function describeBoundaryJump(
       : `at frame ${String(boundary)} on track ${splice.trackIds.join(', ')}`;
   const before = sample.boundaryBeforeDbfs;
   const after = sample.boundaryAfterDbfs;
-  const onsetMs = String(Math.round(AUDIO_ONSET_SECONDS * 1000));
-  if (before !== undefined && after !== undefined && before <= AUDIBLE_RMS_FLOOR_DBFS) {
-    return (
-      `Audio enters abruptly ${where}${clipsText(splice?.toClipIds ?? [])}: its first ` +
-      `${onsetMs} ms are at ${dbText(after)} dBFS, ${dbText(jump)} dB over silence (${limit}). ` +
-      'Fade it in (professional_audio level fadeInFrames) unless a hard entry is meant.'
-    );
-  }
-  if (before !== undefined && after !== undefined && after <= AUDIBLE_RMS_FLOOR_DBFS) {
-    return (
-      `Audio stops abruptly ${where}${clipsText(splice?.fromClipIds ?? [])}: its last ` +
-      `${onsetMs} ms are at ${dbText(before)} dBFS, ${dbText(jump)} dB over silence (${limit}). ` +
-      'Fade it out (professional_audio level fadeOutFrames) unless a hard stop is meant.'
-    );
-  }
   const levels =
     before !== undefined && after !== undefined
-      ? `, ${dbText(before)} → ${dbText(after)} dBFS`
+      ? `, ${dbText(before)} → ${dbText(after)} dBFS as heard`
       : '';
-  const clips = clipsText([...(splice?.fromClipIds ?? []), ...(splice?.toClipIds ?? [])]);
-  return (
-    `Audio level steps ${dbText(jump)} dB across the cut ${where}${clips}${levels} (${limit}). ` +
-    'Fade the clips into each other (fadeOutFrames / fadeInFrames) or match their gain ' +
-    '(adjust_audio).'
-  );
+  const onsetMs = String(Math.round(AUDIO_ONSET_SECONDS * 1000));
+  switch (boundaryKind(request, before, after)) {
+    case 'entry':
+      return (
+        `Audio enters abruptly ${where}${clipsText(splice?.toClipIds ?? [])}: ${jump} dB up ` +
+        `in its first ${onsetMs} ms${levels} (${limit}). Fade it in (professional_audio ` +
+        'level fadeInFrames) unless a hard entry is meant.'
+      );
+    case 'exit':
+      return (
+        `Audio stops abruptly ${where}${clipsText(splice?.fromClipIds ?? [])}: ${jump} dB ` +
+        `down from its last ${onsetMs} ms${levels} (${limit}). Fade it out (professional_audio ` +
+        'level fadeOutFrames) unless a hard stop is meant.'
+      );
+    case 'cut':
+      return (
+        `Audio level steps ${jump} dB across the cut ${where}` +
+        `${clipsText([...(splice?.fromClipIds ?? []), ...(splice?.toClipIds ?? [])])}${levels} ` +
+        `(${limit}). Fade the clips into each other (fadeOutFrames / fadeInFrames) or match ` +
+        'their gain (adjust_audio).'
+      );
+  }
 }
 
 function issuesFor(
@@ -1097,7 +1124,7 @@ export function planTemporalEvidenceForEdit(
   const trackIds = [...new Set([...beforeTracks.keys(), ...afterTracks.keys()])].sort();
   const visualFrames = new Set<number>();
   // Each audio window's centre, and — when a clip edge on an audio track makes it a cut — the
-  // tracks that cut is made of. The engine measures those tracks alone for the jump.
+  // tracks that cut is made of. The engine judges those tracks over what else plays there.
   const audioFrames = new Map<number, AudioBoundary | undefined>();
   const addAudioFrame = (rawFrame: number, spliceTrackId?: string): void => {
     const centre = Math.max(0, Math.min(input.durationFrames - 1, rawFrame));

@@ -1,9 +1,13 @@
-"""The audio boundary check measures the spliced source, above an audibility floor.
+"""The audio boundary check judges the spliced source over what else plays, above a floor.
 
 Run x59-1 reported "Audio discontinuity 21.7 dB exceeds 12 dB" at a music bed's first frame,
 three times, while the model re-faded the music. The bed faded in correctly (-86.6 dBFS at its
 first frame); the jump was a radio call starting inside the continuous clip on ANOTHER track,
 read off the mix. And the music's own fade measured as a step up from digital silence.
+
+The mirror image followed: measured on its track ALONE, a lifted clip's stop under a cover
+shot's continuing sound read 36 dB, a step no one hears. So the source is judged over the
+background the other tracks play, held at its quieter side.
 """
 
 from __future__ import annotations
@@ -167,8 +171,53 @@ RADIO_CALL = _cut(10 ** (-55 / 20), 0.1)
 MUSIC_FADE = _fade_in(0.05, 3.0)
 
 
-class TestTheSplicedSourceIsMeasured:
-    def test_another_tracks_content_change_at_the_cut_is_not_this_cuts_jump(self) -> None:
+def _heard_jump(source: Signal, background: Signal | None, **request: Any) -> float:
+    """The jump `_audio_sample` reports for ``source`` spliced over ``background``.
+
+    The mix handed in is their sum, as the renderer's ``CompositeAudioClip`` makes it, so the
+    background the engine derives (mix - source) is exactly ``background``.
+    """
+    mix = _Composition(source if background is None else (lambda t: source(t) + background(t)))
+    sample = _audio_sample(
+        mix,  # type: ignore[arg-type]
+        _request(splice=MUSIC_SPLICE, **request),
+        FPS,
+        None,
+        _Composition(source),  # type: ignore[arg-type]
+    )
+    assert sample.boundary_jump_db is not None
+    return sample.boundary_jump_db
+
+
+LEVEL_24 = 10 ** (-24 / 20)
+
+
+class TestTheSourceIsJudgedOverWhatElsePlays:
+    """Jump = |dB(sqrt(S_before² + B_ref²)) - dB(sqrt(S_after² + B_ref²))|, B_ref = quieter B."""
+
+    def test_x59_the_music_entry_under_a_radio_call_passes(self) -> None:
+        # B steps -55 → -20 (the radio call on v1). It is held at -55, and the bed's first
+        # 10 ms are far under it, so nothing steps.
+        assert _heard_jump(MUSIC_FADE, RADIO_CALL) < 2.0
+
+    def test_a_lifted_clip_stopping_under_a_cover_shots_sound_passes(self) -> None:
+        # The lift fixture: a1 stops at -24 dBFS while v2's cover plays -24 straight across.
+        # -21 → -24 dBFS: the stop is a 3 dB dip, not the 36 dB the source alone reads.
+        jump = _heard_jump(_until(LEVEL_24), lambda t: np.full_like(t, LEVEL_24))
+        assert jump == pytest.approx(3.01, abs=0.05)
+
+    def test_the_same_stop_with_nothing_else_playing_flags(self) -> None:
+        assert _heard_jump(_until(LEVEL_24), None) == pytest.approx(36.0, abs=0.05)
+
+    def test_a_hard_cut_between_two_levels_on_one_track_flags(self) -> None:
+        # -10.5 → -30.5 dBFS on the source, silence everywhere else.
+        assert _heard_jump(_cut(0.3, 0.03), None) == pytest.approx(20.0, abs=0.05)
+
+    def test_the_backgrounds_own_change_never_counts(self) -> None:
+        # A steady -30 dBFS source under which the radio call starts: B rising is not this cut.
+        assert _heard_jump(lambda t: np.full_like(t, 10 ** (-30 / 20)), RADIO_CALL) < 0.1
+
+    def test_the_peak_is_still_the_mixs(self) -> None:
         mix = _Composition(lambda t: RADIO_CALL(t) + MUSIC_FADE(t))
         sample = _audio_sample(
             mix,  # type: ignore[arg-type]
@@ -177,9 +226,7 @@ class TestTheSplicedSourceIsMeasured:
             None,
             _Composition(MUSIC_FADE),  # type: ignore[arg-type]
         )
-        assert sample.boundary_jump_db is not None and sample.boundary_jump_db < MAX_JUMP_DB
-        # The peak is still the MIX's (the radio call plus the fade's last sample), not the
-        # music's -55 dBFS: the mix is what could clip.
+        # The radio call plus the fade's last sample, not the music's -55 dBFS.
         assert sample.peak_dbfs == pytest.approx(-19.86, abs=0.01)
 
     def test_without_a_splice_the_mix_is_measured_as_before(self) -> None:

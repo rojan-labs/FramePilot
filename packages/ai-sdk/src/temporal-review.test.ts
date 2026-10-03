@@ -787,7 +787,7 @@ describe('reviewTemporalEvidence', () => {
     );
   });
 
-  describe('a boundary jump names its source, which side was silent, and the fix', () => {
+  describe('a boundary jump names its source, the kind of boundary, and the fix', () => {
     const spliced = (splice: Record<string, unknown> = {}) => ({
       ...requestBase,
       kind: 'audio',
@@ -817,17 +817,27 @@ describe('reviewTemporalEvidence', () => {
     const issue = (request: unknown, result: unknown): string =>
       reviewTemporalEvidence([request], [result]).checks[0]?.issues.join(' ') ?? '';
 
-    it('an entry from silence: the track, the clip, its first 10 ms, and fade it in', () => {
+    it('an entry: the track, the clip, its first 10 ms as heard, and fade it in', () => {
       const text = issue(spliced(), measured(-60, -12, 48));
       expect(text).toContain('Audio enters abruptly at frame 540 on track music_1 (bed)');
-      expect(text).toContain('first 10 ms are at -12.0 dBFS, 48.0 dB over silence (limit 12 dB)');
+      expect(text).toContain('48.0 dB up in its first 10 ms, -60.0 → -12.0 dBFS as heard');
+      expect(text).toContain('(limit 12 dB)');
       expect(text).toContain('fadeInFrames');
     });
 
-    it('an exit into silence: the clip that stops and fade it out', () => {
-      const text = issue(spliced({ fromClipIds: ['bed'], toClipIds: [] }), measured(-15, -60, 45));
+    it('an exit: the clip that stops and fade it out, also over a quiet background', () => {
+      const exit = spliced({ fromClipIds: ['bed'], toClipIds: [] });
+      const text = issue(exit, measured(-15, -60, 45));
       expect(text).toContain('Audio stops abruptly at frame 540 on track music_1 (bed)');
       expect(text).toContain('fadeOutFrames');
+      // Heard over a -45 dBFS bed the stop lands above the floor, and is still a stop.
+      expect(issue(exit, measured(-24, -45, 21))).toContain('Audio stops abruptly');
+    });
+
+    it('without clip names, a side at the floor still reads as an entry or exit', () => {
+      const unnamed = spliced({ fromClipIds: [], toClipIds: [] });
+      expect(issue(unnamed, measured(-60, -12, 48))).toContain('Audio enters abruptly');
+      expect(issue(unnamed, measured(-12, -60, 48))).toContain('Audio stops abruptly');
     });
 
     it('a cut between two sounds: both clips, both levels, crossfade or match gain', () => {
