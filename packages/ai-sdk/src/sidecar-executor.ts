@@ -242,11 +242,33 @@ async function takeRouteTurn(
   return releaseTurn;
 }
 
+/**
+ * `transcribe`'s ceiling per second of the asset's audio. The engine bounds whisper-cli
+ * at 2 s per audio second (`WHISPER_SECONDS_PER_AUDIO_SECOND`, engine `audio/asr.py`);
+ * this host ceiling must stay above it, or a long voiceover the engine would finish is
+ * aborted here first. Measured: 263 s for a 415 s voiceover.
+ */
+const TRANSCRIBE_MS_PER_AUDIO_SECOND = 2_000;
+/** Room above the engine's whisper bound for the audio decode and the round trip. */
+const TRANSCRIBE_HEADROOM_MS = 120_000;
+
+/** Seconds of media `transcribe` will read, when the call names a known asset. */
+function transcribeMediaSeconds(call: ToolCall, project: Project): number | undefined {
+  const assetId = call.arguments?.assetId;
+  if (typeof assetId !== 'string') return undefined;
+  return project.assets.find((asset) => asset.id === assetId)?.durationSeconds;
+}
+
 /** The abort ceiling for one call: the tool's own budget, else the default. */
-function timeoutForTool(toolName: string, configured: number | undefined): number {
+function timeoutForTool(call: ToolCall, project: Project, configured: number | undefined): number {
   // An explicitly configured timeout is a deliberate override (tests, embedders)
   // and wins over the table, so behaviour stays predictable where it is set.
-  return configured ?? TOOL_TIMEOUT_MS[toolName] ?? DEFAULT_TIMEOUT_MS;
+  if (configured !== undefined) return configured;
+  const budget = TOOL_TIMEOUT_MS[call.name] ?? DEFAULT_TIMEOUT_MS;
+  if (call.name !== 'transcribe') return budget;
+  const mediaSeconds = transcribeMediaSeconds(call, project);
+  if (mediaSeconds === undefined) return budget;
+  return Math.max(budget, mediaSeconds * TRANSCRIBE_MS_PER_AUDIO_SECOND + TRANSCRIBE_HEADROOM_MS);
 }
 
 export interface SidecarExecutorOptions {
@@ -1920,7 +1942,7 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
       ctx: HostExecutionContext,
       signal?: AbortSignal,
     ): Promise<HostToolOutcome> {
-      const timeoutMs = timeoutForTool(call.name, options.timeoutMs);
+      const timeoutMs = timeoutForTool(call, ctx.project, options.timeoutMs);
       // index_media is not a single POST — it drives a paced multi-slice job. Handle it
       // before the single-request scaffolding below (it owns its own per-slice timeout
       // and signal handling via runVisualIndexLoop). Every branch returns an outcome.
