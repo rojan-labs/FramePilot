@@ -86,6 +86,18 @@ export type ModelAsset = Omit<Asset, 'media' | 'source'> & {
    * Only picture carries it. Audio has no shape, so a missing one there is not a gap.
    */
   readonly shape?: 'unmeasured';
+  /**
+   * Whether a VIDEO file carries sound — `true` when the engine measured an audio stream
+   * (it draws waveform peaks only for one), `false` when it probed the file and found none.
+   * Omitted when the file was never probed.
+   *
+   * WHY: desktop run `001be135`'s brief called its footage "video only (no sound)", but the
+   * file in the bin was the finished recap with the narration baked in. Nothing the model
+   * could read said so, and the transcript, the visual search and the word-cut check all
+   * quietly answered from that soundtrack. One boolean lets a run notice that a file is not
+   * what the brief says it is.
+   */
+  readonly sound?: boolean;
 };
 
 /**
@@ -116,8 +128,12 @@ function shapeOf(
 export function toModelAsset(asset: Asset): ModelAsset {
   const { media, source, ...rest } = asset;
   const shape = shapeOf(media);
+  // Same rule as the render (`compiler.py#_audio_content_end`): a video has sound exactly
+  // when the engine drew peaks for it. Only stated for a file the engine probed.
+  const probed = media !== null && media !== undefined && shape !== undefined;
   return {
     ...rest,
+    ...(asset.kind === 'video' && probed ? { sound: (media.peaks?.length ?? 0) > 0 } : {}),
     ...(source?.attributionRequired === true ? { attributionRequired: true } : {}),
     // Measured shape, or an explicit statement that nobody measured it. Never both, and
     // never neither for picture — see `ModelAsset.shape`.

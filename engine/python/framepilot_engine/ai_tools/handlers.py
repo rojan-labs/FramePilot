@@ -1347,10 +1347,20 @@ def _model_asset(asset: Asset) -> dict[str, Any]:
     same shape.
     """
     dumped = asset.model_dump(by_alias=True)
-    dumped.pop("media", None)
+    media = dumped.pop("media", None)
     source = dumped.pop("source", None)
     if isinstance(source, dict) and source.get("attributionRequired") is True:
         dumped["attributionRequired"] = True
+    # Whether a probed VIDEO carries sound: the engine draws peaks only for an audio stream
+    # (the same rule `compiler.py#_audio_content_end` renders by). Mirrors `sound` in
+    # model-view.ts.
+    if (
+        asset.kind == "video"
+        and isinstance(media, dict)
+        and media.get("width") is not None
+        and media.get("height") is not None
+    ):
+        dumped["sound"] = bool(media.get("peaks"))
     return dumped
 
 
