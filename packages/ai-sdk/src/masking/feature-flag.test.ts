@@ -22,7 +22,6 @@ const everyDomain = new Set(LOADABLE_DOMAINS);
 const offered = (unroutable: readonly string[]) =>
   new Orchestrator(new MockProvider(), { executor: executor(unroutable) }).agentTools(
     'agent',
-    undefined,
     everyDomain,
   );
 
@@ -121,7 +120,7 @@ describe('the kill switch on a host with no executor (the browser without a side
 
   it('withholds the tools and shrinks the index from disabledTools alone', () => {
     const orchestrator = new Orchestrator(new MockProvider(), { disabledTools: off });
-    const tools = orchestrator.agentTools('agent', undefined, everyDomain);
+    const tools = orchestrator.agentTools('agent', everyDomain);
     for (const name of AI_MASKING_TOOL_NAMES) {
       expect(tools.map((tool) => tool.name)).not.toContain(name);
     }

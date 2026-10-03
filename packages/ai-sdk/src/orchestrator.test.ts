@@ -35,8 +35,6 @@ import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './pr
 import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
-import { toolContract } from './tool-contract.js';
-import { EDIT_LOOK_TOOL_NAMES, toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { describeTransportFailure } from './sidecar-executor.js';
@@ -3152,67 +3150,20 @@ describe('route-scoped tool surface (E5)', () => {
     expect(names).toContain('get_timeline');
   });
 
-  it('action recovery advertises mutation, ask, and recall — never a fresh read', () => {
-    const names = orchestrator.agentTools('action-recovery').map((tool) => tool.name);
-    expect(names).toContain('add_clip');
-    expect(names).toContain('ask_user');
-    // The turn asserts the run already has its evidence; that is only true if it can
-    // reach it. A real montage run was told to recall rather than re-read, found no
-    // recall tool, and placed forty-six clips on asset durations it had inferred from
-    // clip-id suffixes because the media bin it had read twice was unreachable.
-    expect(names).toContain('recall_evidence');
-    // A download IS the action this turn demands. These two read as analysis by registry
-    // kind and were filtered out on that basis, so a run that had already found its
-    // footage was refused the only call that could fetch it — and told the call was
-    // redundant. This assertion is why the filter reads `effectClass` now.
-    expect(names).toContain('add_stock');
-    expect(names).toContain('add_music');
-    // …and the search that mints the `remoteId` those two require comes with them. The
-    // previous rule let `add_stock` through while withholding `search_stock`, which is a
-    // complete surface only for a run that had already searched. A run on an EMPTY
-    // project had no legal move at all: it could reach `recall_evidence` (a memo hit,
-    // scored as no progress) and nothing else, so the recovery turn ended the run it was
-    // meant to rescue.
-    expect(names).toContain('search_stock');
-    expect(names).toContain('search_music');
-    // A look at the run's OWN edit is not reconnaissance: the preview the editor asked
-    // for, the transition check, the word-boundary read a Critic remedy names. Run
-    // `cc907070` called render_preview once, on a recovery turn, and was refused.
-    expect(names).toContain('render_preview');
-    expect(names).toContain('verify_transitions');
-    expect(names).toContain('get_mapped_transcript');
-    expect(names).toContain('get_frame');
-    // Reconnaissance over the project the run already has stays out — that is what the
-    // turn exists to stop.
-    expect(names).not.toContain('get_timeline');
-    expect(names).not.toContain('list_assets');
-    expect(names).not.toContain('detect_beats');
-    expect(names).not.toContain('get_transcript');
-    expect(names).not.toContain('map_footage');
-    // `load_tools` rides along: the recovery turn keeps progressive disclosure (a domain
-    // the run never loaded is as absent here as anywhere), so the one way to reach a
-    // withheld mutation has to stay open. It gathers nothing about the footage.
-    expect(names).toContain('load_tools');
-    // …and so does `update_plan`: marking an item done, or blocked with the reason, is how a
-    // run that has done what it can says so. It gathers nothing either.
-    expect(names).toContain('update_plan');
-    for (const name of names) {
-      if (
-        name === 'recall_evidence' ||
-        name === 'load_tools' ||
-        name === 'update_plan' ||
-        EDIT_LOOK_TOOL_NAMES.has(name)
-      )
-        continue;
-      const tool = getTool(name)!;
-      // The contract and the sourcing role, not the registry kind — that is the whole
-      // correction, in its two halves (ADR 0143, then ADR 0147).
-      expect(
-        toolContract(tool).effectClass === 'mutation' ||
-          tool.kind === 'ask' ||
-          toolRole(tool.name, tool.mutates) === 'sourcing',
-        `${name} is neither a mutation, an ask, nor sourcing`,
-      ).toBe(true);
+  it('an agent turn advertises its reads alongside its edits — no recovery surface (ADR 0199)', () => {
+    // The one-turn "action recovery" surface withheld every read once the harness decided a
+    // run had looked enough, and grew exemptions each time that stranded a run (recall,
+    // add_stock, search_stock, render_preview, get_mapped_transcript…). It is gone: the
+    // agent surface is the same on every turn.
+    const names = orchestrator.agentTools('agent').map((tool) => tool.name);
+    for (const name of ['add_clip', 'ask_user', 'recall_evidence', 'get_timeline']) {
+      expect(names).toContain(name);
+    }
+    for (const name of ['list_assets', 'get_transcript', 'get_mapped_transcript', 'get_frame']) {
+      expect(names).toContain(name);
+    }
+    for (const name of ['detect_beats', 'map_footage', 'search_stock', 'add_stock']) {
+      expect(names).toContain(name);
     }
   });
 

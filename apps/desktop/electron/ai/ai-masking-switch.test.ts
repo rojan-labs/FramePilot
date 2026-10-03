@@ -29,9 +29,7 @@ describe('desktopAiMaskingDisabledTools (RD2.1)', () => {
     // With the masking domain pinned, so "not offered" is the switch and not progressive
     // disclosure.
     const offered = () =>
-      orchestrator
-        .agentTools('agent', undefined, new Set(['masking']) as never)
-        .map((tool) => tool.name);
+      orchestrator.agentTools('agent', new Set(['masking']) as never).map((tool) => tool.name);
     const loadTools = () =>
       orchestrator.agentTools('agent').find((tool) => tool.name === 'load_tools')!.description;
     expect(loadTools()).toContain('remove backgrounds');

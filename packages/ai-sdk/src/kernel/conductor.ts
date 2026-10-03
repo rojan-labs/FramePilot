@@ -779,6 +779,14 @@ export interface AgentTurnResult {
   readonly deadlineExpired?: boolean;
   /** The model made no tool calls — it considers the goal met. */
   readonly done: boolean;
+  /**
+   * The turn ended the run WITHOUT a reply from the model: the provider cut every attempt
+   * off, returned nothing, or the run's ledger could not be trusted to call it at all. Set
+   * only with {@link done}. Such a turn is not "the model finished" — it ends the run
+   * straight away, and a run that changed nothing this way settles as failed rather than as
+   * an answer (ADR 0199).
+   */
+  readonly unanswered?: boolean;
   /** A host tool was cancelled mid-turn (⇒ a `failed` 'Stopped by user' plan + cancel). */
   readonly anyToolCancelled: boolean;
   /** A host tool genuinely failed (drives a real-work turn's plan-step status). */
@@ -1994,6 +2002,10 @@ export function onTurnResult(
   // is not met yet — continuing" five times over, about a check that was measuring a muted
   // soundtrack, until the run failed with its edit on the timeline.
   if (r.done) {
+    // No reply to honour: the warning the runtime already raised is the account.
+    if (r.unanswered === true) {
+      return toVerify({ ...base, modelDeclaredDone: false }, em, events);
+    }
     // The review of the last edit, first. It landed while the model was saying it had
     // finished, and it is the only account of that edit's pixels the run will ever get; the
     // finding is already queued on the steering channel, so the next turn reads it. One

@@ -9727,6 +9727,7 @@ export class Orchestrator {
           // reaches them.
           return turnBase(index, emit.seq(), {
             done: true,
+            unanswered: true,
             note: 'Run paused because its objective or committed plan could not be recovered.',
           });
         }
@@ -9871,6 +9872,7 @@ export class Orchestrator {
           );
           return turnBase(index, emit.seq(), {
             done: true,
+            unanswered: true,
             note: applied
               ? 'The model response was truncated; the run stopped early with the earlier edits kept.'
               : 'The model response was truncated before it proposed anything.',
@@ -9912,7 +9914,7 @@ export class Orchestrator {
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
-              return turnBase(index, emit.seq(), { done: true, note: detail });
+              return turnBase(index, emit.seq(), { done: true, unanswered: true, note: detail });
             }
             log.push(`Step ${index}: empty model response — nothing to apply.`);
             // `detail` is already the editor's sentence (it names the cause and the next

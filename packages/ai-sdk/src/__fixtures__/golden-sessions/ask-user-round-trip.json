@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14937,
+      "usedTokens": 14934,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2612,
+            "tokenEstimate": 2609,
             "included": true
           },
           {
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14937,
+          "estimatedInputTokensBeforeSend": 14934,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 176871,
+          "estimatedRemainingCapacity": 176874,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -396,7 +396,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14999,
+      "usedTokens": 14996,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -464,7 +464,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2612,
+            "tokenEstimate": 2609,
             "included": true
           },
           {
@@ -493,9 +493,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14999,
+          "estimatedInputTokensBeforeSend": 14996,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 176809,
+          "estimatedRemainingCapacity": 176812,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -630,14 +630,6 @@
       }
     },
     {
-      "id": "turn_golden:notice:7",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "warning",
-      "text": "This run ended without applying anything — it could not verify that it had done what you asked, so your timeline is unchanged. Retry, or ask for a smaller, more specific edit."
-    },
-    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -651,7 +643,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 4,
         "objective": {
           "request": "make it punchier",
           "outcome": "make it punchier",
@@ -692,7 +684,7 @@
           ]
         },
         "execution": {
-          "authorized": false
+          "authorized": true
         },
         "evidence": [],
         "objectives": [
@@ -707,29 +699,17 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "A validated edit landed and the run’s deterministic checks passed",
+            "criterion": "A validated edit landed on the timeline",
             "passed": false,
             "atRevision": 0,
             "detail": "No traceable project mutation for the committed plan."
           }
         ],
         "nextAction": null,
-        "blockedOn": {
-          "reason": "Verification found: No traceable project mutation for the committed plan.",
-          "missing": "VERIFICATION_INCONCLUSIVE",
-          "atStage": "inspect"
-        },
+        "blockedOn": null,
         "integrity": {
-          "status": "needs_review",
-          "diagnostics": [
-            {
-              "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found: No traceable project mutation for the committed plan.",
-              "stage": "verify",
-              "blocking": true,
-              "atVersion": 4
-            }
-          ]
+          "status": "valid",
+          "diagnostics": []
         },
         "baseProjectRevision": 0,
         "currentProjectRevision": 0,
@@ -743,7 +723,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:8",
+      "id": "turn_golden:usage:7",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -756,14 +736,14 @@
       "cacheWriteTokens": 0
     },
     {
-      "id": "turn_golden:status:9",
+      "id": "turn_golden:status:8",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "status",
-      "status": "failed"
+      "status": "completed"
     }
   ],
   "operations": [],
-  "terminalStatus": "failed"
+  "terminalStatus": "completed"
 }

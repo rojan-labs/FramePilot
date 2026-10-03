@@ -50,29 +50,22 @@ describe('TOOL_CLASSIFICATION parity with TOOL_REGISTRY', () => {
  * `analysis` + `timeline_dependent` is a self-contradictory pair, and it has now
  * shipped three times.
  *
- * `stageAllowsRole` withholds every `analysis` tool in an execution stage, on the
- * stated premise that its evidence is already stored and can be recalled instead.
  * `EvidenceStore.invalidate` drops every `timeline_dependent` payload — from both
- * `byKey` and `byId`, so the `recall_evidence` handle dies with it — on every
- * applied patch. A tool carrying both labels is therefore unreadable AND
- * unrecallable in exactly the situation that makes a re-read legitimate: the cut
- * just changed the answer.
- *
- * `get_frame` was patched for this by name (`VERIFICATION_LOOK_TOOL_NAMES`), then
- * `get_mapped_transcript` hit it again in run 7d159862 and cost 16 model calls.
- * Listing the pair here does not fix it — it forces the next one to be a decision
- * somebody wrote down rather than a label nobody questioned.
+ * `byKey` and `byId`, so the `recall_evidence` handle dies with it — on every applied
+ * patch, so an `analysis` tool whose answer ages with the timeline can only be re-read,
+ * never recalled. While a stage gate withheld `analysis` tools in execution stages
+ * (removed by ADR 0199) such a tool was unreadable AND unrecallable; `get_mapped_transcript`
+ * cost run 7d159862 16 model calls that way. Listing the pair keeps the classification a
+ * decision somebody wrote down rather than a label nobody questioned.
  */
 describe('analysis tools whose answer ages with the timeline', () => {
   // Every entry is a deliberate, reviewed choice. Adding a tool here means: it is
-  // acceptable that an execution stage can neither call it nor recall it.
+  // acceptable that its answer can only be re-read, never recalled.
   const KNOWN: ReadonlySet<string> = new Set([
-    // Exempted by name in `VERIFICATION_LOOK_TOOL_NAMES` — reachable in every stage.
+    // Looks at the picture: always re-read, since the picture is what changed.
     'get_frame',
     'measure_subject',
-    // Genuinely expensive sidecar work whose result the run is expected to gather
-    // before it starts cutting. Each remains a candidate for the same exemption if
-    // a run is ever observed needing it mid-apply.
+    // Sidecar work whose result changes with the cut.
     'search_media',
     'read_edit_signals',
     'measure_color',

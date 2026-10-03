@@ -40,7 +40,7 @@ describe('agentModeInstruction', () => {
     expect(text).toContain('AGENT mode');
     expect(text).toContain('RUN STATE');
     expect(text).toContain('DO THIS NOW');
-    expect(text).toContain('inspect only evidence missing');
+    expect(text).toContain('inspect what you still need to decide well');
     expect(text).not.toContain('Read the timeline and assets first');
   });
 

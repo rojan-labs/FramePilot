@@ -23,11 +23,6 @@ import {
 import { BUNDLED_SKILLS } from './skills.js';
 import { toolSchemaCost } from './kernel/context/manifest.js';
 import { AGENT_MAX_OPS_PER_TURN } from './kernel/conductor.js';
-import {
-  PRECONDITION_TOOL_NAMES,
-  EXECUTION_MEASUREMENT_TOOL_NAMES,
-  VERIFICATION_LOOK_TOOL_NAMES,
-} from './kernel/stage-policy.js';
 
 const NONE = new Set<ToolDomain>();
 
@@ -185,17 +180,21 @@ describe('derived fan-out is a short, justified list', () => {
  * not good enough for `get_frame` in particular: an agent checks its own work only if the
  * means to is in front of it, so hiding it turns the self-check into an opt-in.
  */
-describe('a tool the stage policy always allows is always advertised', () => {
+describe('the looks and measurements every edit reaches for are always advertised', () => {
+  // The edit-look and mid-run measurement tools: how the agent sees its own edit
+  // (`get_frame`), measures the picture (`measure_color`, `measure_subject`) and the music
+  // it places (`detect_beats`), and what a caption tool's precondition names (`transcribe`).
   const alwaysReachable = [
-    ...VERIFICATION_LOOK_TOOL_NAMES,
-    ...EXECUTION_MEASUREMENT_TOOL_NAMES,
-    ...PRECONDITION_TOOL_NAMES,
+    'get_frame',
+    'measure_color',
+    'measure_subject',
+    'detect_beats',
+    'transcribe',
   ];
 
-  it('keeps every stage-policy exemption in the core set', () => {
-    expect(alwaysReachable.length).toBeGreaterThan(0);
+  it('keeps every one of them in the core set', () => {
     for (const name of alwaysReachable) {
-      expect(toolDomain(name), `${name} is exempt from stage narrowing but not core`).toBe('core');
+      expect(toolDomain(name), `${name} must be core`).toBe('core');
     }
   });
 
@@ -236,4 +235,3 @@ describe('domainsForSkill — a playbook arrives with the tools it names', () =>
     expect(domainsForSkill(colorSkill!.name, colorSkill!.tools)).toContain('color');
   });
 });
-

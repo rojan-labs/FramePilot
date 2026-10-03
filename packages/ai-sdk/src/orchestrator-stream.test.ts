@@ -19,7 +19,11 @@ import { ProviderError } from './reliability/types.js';
 import type { TimerApi } from './reliability/timeout.js';
 import { MODEL_WAIT_HEARTBEAT_MS } from './reliability/wait-heartbeat.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
-import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
+import {
+  DIMINISHING_RETURNS_TURNS,
+  PLAN_APPROVAL_STEP_THRESHOLD,
+  STALL_CONFIRM_TURNS,
+} from './kernel/conductor.js';
 
 /** A drafted-plan text with one more line than the approval gate's threshold. */
 const overThresholdPlanText = Array.from(
@@ -344,11 +348,6 @@ const deleteRange = (id: string, start: number, end: number) => ({
   name: 'delete_range',
   arguments: { trackId: 'video_1', start, end },
 });
-
-/** Is this the advisory fix turn (AL37) — the one that states the self-check's advice? */
-function isAdvisoryTurn(request: AiCompletionRequest): boolean {
-  return JSON.stringify(request.messages).includes('SELF-CHECK ADVICE');
-}
 
 async function drain(stream: AsyncGenerator<AiEvent>): Promise<AiEvent[]> {
   const out: AiEvent[] = [];
@@ -1059,9 +1058,9 @@ describe('streamAgent', () => {
         },
       }).streamAgent(input, opts()),
     );
-    // The model called no tools and no edit landed — ADR 0081 ends the run `failed`;
+    // The model called no tools and finished on its own, so the run completes (ADR 0199);
     // the observer wiring under test here fires regardless of the terminal verdict.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
     expect(seen).toContain('requested');
     expect(seen).toContain('settled');
   });
@@ -1076,9 +1075,9 @@ describe('streamAgent', () => {
         },
       }).streamAgent(input, opts()),
     );
-    // No edit landed — ADR 0081 ends the run `failed`; the recording under test here
-    // still captures every effect regardless of the terminal verdict.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // The model finished on its own, so the run completes (ADR 0199); the recording under
+    // test here still captures every effect regardless of the terminal verdict.
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
     expect(recording).toMatchObject({ effects: expect.any(Array) });
     expect((recording as { effects: unknown[] }).effects.length).toBeGreaterThan(0);
   });
@@ -1088,9 +1087,9 @@ describe('streamAgent', () => {
       new Orchestrator(new FakeProvider({ text: 'all done' })).streamAgent(input, opts()),
     );
     expect(events.find((e) => e.type === 'assistant_message')).toMatchObject({ text: 'all done' });
-    // The model's own summary is still shown, but no edit landed — ADR 0081 ends the
-    // run `failed`, not `completed`.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // No edit landed, but the model finished on its own and nothing was refused — its
+    // summary is the answer, so the run completes (ADR 0199, superseding ADR 0081 here).
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   it('fails honestly when the model returns nothing at all (no text, no tool call)', async () => {
@@ -1172,10 +1171,9 @@ describe('streamAgent', () => {
       ],
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
-    // AL37: deleting a range from the only picture track leaves black the self-check warns
-    // about ("Picture covers the programme"), and a run that delivered work and ends with an
-    // advisory spends its one fix turn hearing it — one more model call, the last one.
-    expect(provider.calls).toBe(3);
+    // Two calls: the edit, then the cut-off summary that ends the run. (The advisory fix turn
+    // that used to follow is gone — ADR 0199; the self-check only reports.)
+    expect(provider.calls).toBe(2);
     expect(events.some((e) => e.type === 'warning' && /ran out of output room/.test(e.text))).toBe(
       false,
     );
@@ -1270,8 +1268,8 @@ describe('streamAgent', () => {
         (e) => e.type === 'tool_call' && e.toolName === 'load_skill' && e.status === 'completed',
       ),
     ).toBe(true);
-    // `load_skill` is a read tool — no edit landed, so ADR 0081 ends the run `failed`.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // `load_skill` is a read tool; the model then finished on its own (ADR 0199).
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   describe('ask_user — the model asks, the run waits (P12)', () => {
@@ -1326,9 +1324,9 @@ describe('streamAgent', () => {
       // …and the ANSWER reaches the model's next turn.
       const secondTurn = (provider.requests[1]?.messages ?? []).map((m) => m.content).join('\n');
       expect(secondTurn).toContain('Punch in on the centre');
-      // Neither turn made an edit (`ask_user` then a plain "done") — ADR 0081 ends the
-      // run `failed`, not `completed`.
-      expect(events.at(-1)).toMatchObject({ status: 'failed' });
+      // Neither turn made an edit (`ask_user` then a plain "done"); the model finished on
+      // its own, so the run completes (ADR 0199).
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
     });
 
     it('treats a dismissed question as a stop, never as an answer', async () => {
@@ -1374,9 +1372,8 @@ describe('streamAgent', () => {
         ),
       ).toBe(true);
       // The malformed `ask_user` call fails its own card and the run continues (that is
-      // the point of this test), but neither turn ever lands an edit — ADR 0081 ends the
-      // run `failed` overall, not `completed`.
-      expect(events.at(-1)).toMatchObject({ status: 'failed' });
+      // the point of this test); the model then finishes on its own (ADR 0199).
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
     });
 
     it('ignores an answer to a question that is no longer pending', async () => {
@@ -2314,23 +2311,19 @@ describe('streamAgent', () => {
     // edit. The model gets another turn; only when it repeats the same no-progress
     // call (spinning) does the loop stop.
     //
-    // Two steps. It was three while the Conductor's `stageAdvanced` was an object
-    // comparison that missed turn 1's real interpret → inspect advance: the run was
-    // credited with no progress, tripped the meaningful-progress guard on turn 2, and
-    // spent a deterministic recovery turn before giving up. Turn 1 genuinely advanced a
-    // stage, so no-progress does not start accruing there, and turn 2 — the identical
-    // call again — is caught by the exact-repeat guard instead. Same outcome (`failed`,
-    // no edit), one fewer wasted turn. The recovery push itself is unchanged and still
-    // fires for the run it exists for: one that keeps gathering without editing.
+    // Each repeat learns nothing, so the stall streak climbs and STALL_CONFIRM_TURNS of them
+    // end the run (ADR 0199 removed the exact-repeat stop that used to end it on turn two).
     const provider = new FakeProvider({
       text: 'try',
       toolCalls: [{ id: 'u', name: 'no_such_tool', arguments: {} }],
     });
     const events = await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 5 }),
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 8 }),
     );
-    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(2);
-    // An unknown no-op tool never lands an edit — ADR 0081 ends the run `failed`.
+    expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(
+      STALL_CONFIRM_TURNS,
+    );
+    // Stopped by the stall streak with nothing landed: failed.
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
     // …and an invented name is not a step of the brief left undone: the receipt does not
     // list "No such tool — never succeeded" (run `cc907070` invented `get_track_flags`).
@@ -2397,10 +2390,7 @@ describe('streamAgent', () => {
     // (the guard folds the result, it does not withhold the call), so the question is
     // whether the run got a fifth turn. Under the old signature it did not — the fold
     // terminated it and the model was never asked again.
-    // AL37: the sixth is the advisory fix turn — the self-check passed with advice, and a
-    // run that delivered work hears it once before it ends.
-    expect(provider.requests).toHaveLength(6);
-    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
+    expect(provider.requests).toHaveLength(5);
     expect(
       events.some(
         (e) => e.type === 'notification' && e.text.includes('already made against this same'),
@@ -2646,19 +2636,16 @@ describe('streamAgent robustness (parity with agent())', () => {
       }),
     );
 
-    // AL37: deleting a range from the only picture track leaves black the self-check warns
-    // about ("Picture covers the programme"), and a run that delivered work and ends with an
-    // advisory spends its one fix turn hearing it — one more model call, the last one.
-    expect(provider.requests).toHaveLength(6);
-    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
+    expect(provider.requests).toHaveLength(5);
     expect(
       events.some(
         (event) => event.type === 'notification' && event.text.includes('unfinished work'),
       ),
     ).toBe(true);
-    const recoveryRequest = provider.requests[3]!;
-    expect(recoveryRequest.tools?.map((tool) => tool.name)).toContain('delete_range');
-    expect(recoveryRequest.tools?.map((tool) => tool.name)).not.toContain('get_timeline');
+    // The continuation names the next step and withholds nothing (ADR 0199).
+    const continuation = provider.requests[3]!;
+    expect(continuation.tools?.map((tool) => tool.name)).toContain('delete_range');
+    expect(continuation.tools?.map((tool) => tool.name)).toContain('get_timeline');
     const lastPlan = events.filter((event) => event.type === 'plan').at(-1);
     expect(
       lastPlan?.type === 'plan' && lastPlan.steps.every((step) => step.status === 'completed'),
@@ -2813,30 +2800,25 @@ describe('streamAgent robustness (parity with agent())', () => {
     expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
-  it('a failed run that applied edits gets one error card and still gets its receipt', async () => {
+  it('a run that applied edits but misses a stated target completes, and says so (ADR 0199)', async () => {
     // A 1s duration target the edited fixture cannot meet: request-derived, never inherited.
+    // It used to fail the run under "Applied 1 change, but the run could not finish". The
+    // finding was in front of the model under WHERE YOU STAND; the end of the run reports it.
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
       { text: 'done' },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), {
-        durationTargetSeconds: 1,
-        autoRepair: false,
-      }),
+      new Orchestrator(provider).streamAgent(input, opts(), { durationTargetSeconds: 1 }),
     );
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
-    const errors = events.filter((e) => e.type === 'error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({
-      message: expect.stringContaining('Applied 1 change, but the run could not finish'),
-      retryable: false,
-    });
-    expect(errors[0]).toMatchObject({ message: expect.stringContaining('undo reverts them') });
-    const receipt = events.filter((e) => e.type === 'assistant_message').at(-1);
-    expect(receipt).toMatchObject({
-      text: expect.stringContaining('but the run did not finish cleanly'),
-    });
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(0);
+    // The duration finding is reported as a self-check warning…
+    expect(
+      events.some((e) => e.type === 'warning' && /target/i.test(e.text) && /1s|1 s/.test(e.text)),
+    ).toBe(true);
+    // …and the second request had already shown it to the model.
+    expect(provider.requests[1]!.messages.at(-1)!.content).toContain('WHERE YOU STAND');
   });
 
   // goal.md Workstream D: a run is bounded by a wall-clock budget. It is NOT announced —
@@ -2940,16 +2922,13 @@ describe('streamAgent robustness (parity with agent())', () => {
       expect(timers.pending()).toBe(0);
     });
 
-    it('still verifies and repairs after the deadline — the stop must not kill the report', async () => {
+    it('still verifies after the deadline — the stop must not kill the report', async () => {
       // The trap: `toVerify` does not finish a run, it ISSUES a verify effect. A deadline
       // that aborted the run-wide signal would abort the verification it just triggered, and
       // the run would report nothing — the captured failure, reproduced by its own fix.
       const timers = handFiredTimers();
       const provider = new StallingProvider(
-        [
-          { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-          { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // the repair pass, post-deadline
-        ],
+        [{ text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }], // turn 1 applies
         1,
         () => timers.fire(),
       );
@@ -2957,16 +2936,21 @@ describe('streamAgent robustness (parity with agent())', () => {
         new Orchestrator(provider).streamAgent(
           input,
           opts(),
-          // An unmeetable duration target, so verification fails and the repair pass runs.
+          // An unmeetable duration target, so the self-check has a finding to report.
           { maxMinutes: 37, durationTargetSeconds: 1 },
           { timers: timers.api },
         ),
       );
-      // The repair pass ran (its own turn-scoped diff) — verification was not aborted.
-      expect(events.filter((e) => e.type === 'diff').length).toBeGreaterThanOrEqual(2);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
       expect(
         events.filter((e) => e.type === 'notification' && e.text.includes('37-minute limit')),
       ).toHaveLength(1);
+      // Verification ran and reported — it was not aborted by the clock that sent the run to it.
+      expect(
+        events.some(
+          (e) => e.type === 'notification' && e.text.startsWith('Deterministic self-check'),
+        ),
+      ).toBe(true);
       expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
         text: expect.stringContaining('Applied'),
       });
@@ -3172,12 +3156,11 @@ describe('streamAgent robustness (parity with agent())', () => {
     });
   });
 
-  it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {
+  it('never runs a hidden repair pass — the self-check reports (ADR 0199)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 declares done — the 1s target is unmet, so one recovery
-      { text: 'done' }, // turn 3 declares done again; the latch settles it to verify
-      { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // repair applies a new op
+      { text: 'done' }, // turn 2 ends the run, the 1s target unmet
+      { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // never asked for
     ]);
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), {
@@ -3185,44 +3168,15 @@ describe('streamAgent robustness (parity with agent())', () => {
         maxSteps: 4,
       }),
     );
-    // Six model calls: the edit, the two declarations, the repair pass — and, because the
-    // 1s target is still unmet after the repair, the P4.3 findings-scoped fix turn plus the
-    // repair pass of its re-verify (the script is exhausted, so both replay 'fix'). The
-    // middle declaration is the bounded unmet-request recovery turn.
-    expect(provider.requests).toHaveLength(6);
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
-      true,
-    );
-    // Both the loop edit and the repair edit surface as action cards.
-    expect(events.filter((e) => e.type === 'timeline_action').length).toBeGreaterThanOrEqual(2);
-    // ADR 0056: the loop turn AND the repair pass each emit their own turn-scoped diff.
-    const diffs = events.filter((e) => e.type === 'diff');
-    expect(diffs).toHaveLength(2);
-    for (const d of diffs) expect(d).toMatchObject({ scope: 'turn' });
-    const totalOps = diffs.reduce(
-      (n, d) => n + (d.type === 'diff' ? d.edit.patch.operations.length : 0),
-      0,
-    );
-    expect(totalOps).toBeGreaterThanOrEqual(2);
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
-  });
-
-  it('does not run a repair pass when the model cannot propose a fix', async () => {
-    const provider = new ScriptedProvider([
-      { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 ends the loop
-      { text: 'cannot fix that' }, // repair pass proposes no tool → no repair
-    ]);
-    const events = await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), {
-        durationTargetSeconds: 1,
-        maxSteps: 3,
-      }),
-    );
+    // Two model calls: the edit and the finished reply. No re-opened turn, no repair model
+    // call, no fix turn.
+    expect(provider.requests).toHaveLength(2);
     expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
       false,
     );
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    const diffs = events.filter((e) => e.type === 'diff');
+    expect(diffs).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   it('settles as cancelled (not failed) when Stop aborts the up-front plan call', async () => {
@@ -3269,13 +3223,12 @@ describe('streamAgent robustness (parity with agent())', () => {
   // Asserted as behaviour, not identity. The turn loop's signal is derived, so it is no
   // longer `controller.signal` by reference — what must stay true is that Stop still reaches
   // every call.
-  it('every complete() aborts on Stop; the repair pass runs on the editor signal alone', async () => {
+  it('every turn’s complete() is handed the run signal — Stop or the deadline', async () => {
     const controller = new AbortController();
     const signals: (AbortSignal | undefined)[] = [];
     const responses: AiResponse[] = [
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 ends the loop
-      { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // repair pass
+      { text: 'done' }, // turn 2 ends the run
     ];
     let index = 0;
     const provider: AiProvider = {
@@ -3294,16 +3247,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         { durationTargetSeconds: 1, maxSteps: 3 },
       ),
     );
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
-    expect(signals.length).toBeGreaterThanOrEqual(3);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    expect(signals.length).toBeGreaterThanOrEqual(2);
     expect(signals.every((s) => s !== undefined)).toBe(true);
-    // The repair pass — the last call — is handed the editor's own signal, unwrapped. This
-    // is the property that keeps a deadline stop able to report: verification is not
-    // abortable by the clock that sent the run to it.
-    expect(signals.at(-1)).toBe(controller.signal);
-    // The turn loop's calls get the derived run signal instead — Stop OR the deadline. That
-    // Stop still reaches them is proved live by the deadline suite's Stop case, where an
-    // abort raised inside a turn's `complete()` settles the run `cancelled`.
+    // The turn loop's calls get the derived run signal — Stop OR the deadline. That Stop
+    // still reaches them is proved live by the deadline suite's Stop case.
     expect(signals[0]).not.toBe(controller.signal);
   });
 
@@ -3392,9 +3340,9 @@ describe('streamAgent plan-approval gate (P11.3)', () => {
     );
     const assistantIdx = events.findIndex((e) => e.type === 'assistant_message');
     expect(assistantIdx).toBeGreaterThan(awaitingIdx);
-    // The approved turn made no tool calls and landed no edit — ADR 0081: a run without
-    // a successful traceable operation ends `failed`, not `completed`.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // The approved turn made no tool calls and landed no edit; the model finished on its
+    // own, so the run completes (ADR 0199).
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   it('cancelling the gate ends the run immediately — no turn ran, no ops applied', async () => {
@@ -3485,8 +3433,8 @@ describe('streamAgent plan-approval gate (P11.3)', () => {
     expect(
       events.some((e) => e.type === 'warning' && e.text.includes('no approval handler was wired')),
     ).toBe(true);
-    // The defaulted-approved turn made no tool calls and landed no edit — ADR 0081.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // The defaulted-approved turn made no tool calls; the model finished (ADR 0199).
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 });
 
@@ -3507,8 +3455,8 @@ describe('streamAgent mid-run steering (P11.4)', () => {
       ),
     ).toBe(true);
     // Both turns were read-only (a `get_timeline` inspection, then a no-tool-calls
-    // finish) — no edit landed, so the run ends `failed` per ADR 0081.
-    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // finish) — the model finished on its own (ADR 0199).
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
   });
 
   it('is silent when nothing was queued (no steering notice)', async () => {
@@ -3793,9 +3741,8 @@ describe('streamAgent host tool execution (Phase T)', () => {
     // The card detail carries the FULL result for the details popup.
     const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'a1');
     expect(result).toMatchObject({ summary: 'Found 2 silent ranges' });
-    // `analyze_silence` is read-only — no edit ever landed, so ADR 0081's causal
-    // completion gate ends this run `failed`, not `completed`.
-    expect(reduceEvents(events).status).toBe('failed');
+    // `analyze_silence` is read-only and the model then finished on its own (ADR 0199).
+    expect(reduceEvents(events).status).toBe('completed');
   });
 
   it('attaches a get_frame result as image content on the NEXT request, not the log text', async () => {
@@ -4641,40 +4588,9 @@ describe('streamAgent usage (C1)', () => {
     );
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
     const usage = usageOf(events);
-    // (100 + 20) + (30 + 10), plus the advisory fix turn (AL37) — a real model call, so it is
-    // billed; the scripted provider answers it with its last reply, (30 + 10) again.
-    expect(usage?.tokens).toBe(200);
+    // (100 + 20) + (30 + 10): the two turns the run made, and nothing else.
+    expect(usage?.tokens).toBe(160);
     expect(usage?.usd).toBeGreaterThan(0);
-  });
-
-  it("folds the Critic repair pass's real usage into the terminal usage event (R3 C3)", async () => {
-    const provider = new ScriptedProvider([
-      {
-        text: 'edit',
-        toolCalls: [deleteRange('a', 0, 3)],
-        usage: { inputTokens: 10, outputTokens: 2 },
-      }, // turn 1 applies
-      { text: 'done' }, // turn 2 declares done — reports no usage
-      { text: 'done' }, // turn 3 settles the unmet-request recovery — reports no usage
-      {
-        text: 'fix',
-        toolCalls: [deleteRange('b', 8, 9)],
-        usage: { inputTokens: 40, outputTokens: 8 },
-      }, // repair pass applies
-    ]);
-    const events = await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), {
-        durationTargetSeconds: 1,
-        maxSteps: 4,
-      }),
-    );
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith('Repair pass'))).toBe(
-      true,
-    );
-    const usage = usageOf(events);
-    // turn 1 (12) + the repair pass (48) + the P4.3 fix turn and its re-verify repair pass,
-    // which replay the exhausted script's last entry (48 each).
-    expect(usage?.tokens).toBe(156);
   });
 
   it("defaults a missing side of a turn's partial usage to 0 (complete()-drain fallback)", async () => {
@@ -4880,9 +4796,8 @@ describe('streamAgent concurrent read batches (E1)', () => {
       'a1:completed',
       'result:a1',
     ]);
-    // Every call in the batch is read/analysis-only — no edit landed, so ADR 0081 ends
-    // this run `failed`, not `completed`.
-    expect(reduceEvents(events).status).toBe('failed');
+    // Every call in the batch is read/analysis-only, then the model finishes (ADR 0199).
+    expect(reduceEvents(events).status).toBe('completed');
   });
 
   it('actually overlaps sidecar round-trips inside a safe batch (bounded pool)', async () => {
@@ -5085,38 +5000,6 @@ describe('streamAgent prompt-prefix stability (E3)', () => {
     expect(headMessageOf(turn1!.messages)).toEqual(headMessageOf(turn2!.messages));
     expect(headMessageOf(turn1!.messages).content).not.toContain('keep the intro');
     expect(turn1!.messages.at(-1)!.content).toContain('keep the intro');
-  });
-
-  it('the repair pass reproduces the same run-stable prefix as the turns (shared helper)', async () => {
-    const provider = new ScriptedProvider([
-      { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
-      { text: 'done' }, // turn 2 declares done — the 1s target is unmet, so one recovery
-      { text: 'done' }, // turn 3 settles it
-      { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // repair pass
-    ]);
-    await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), {
-        durationTargetSeconds: 1,
-        maxSteps: 4,
-      }),
-    );
-    expect(provider.requests.length).toBe(6);
-    const turn2 = provider.requests[2]!;
-    const repair = provider.requests[3]!;
-    // Repair = the same agentMessages + one extra instruction message on the end.
-    expect(repair.messages.length).toBe(turn2.messages.length + 1);
-    // Same post-edit working copy → the base context is byte-identical…
-    for (let i = 0; i < turn2.messages.length - 1; i += 1) {
-      expect(repair.messages[i]).toEqual(turn2.messages[i]);
-    }
-    // …and the repair pass reproduces the identical cached head message. The repair adds
-    // one extra instruction message on the end, so its head sits one further back.
-    expect(headMessageOf(repair.messages.slice(0, -1))).toEqual(headMessageOf(turn2.messages));
-    // Against a NORMAL turn, not the recovery one immediately before it: an unmet-request
-    // recovery turn is deliberately given a narrowed, mutation-only surface, so comparing
-    // the repair's tools to that turn's would assert the recovery bound away rather than
-    // the prefix stability this test is about.
-    expect(JSON.stringify(repair.tools)).toBe(JSON.stringify(provider.requests[1]!.tools));
   });
 
   it('pinning a skill re-derives the head once, then it is stable again (memo revalidation)', async () => {
@@ -5555,9 +5438,9 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
       new Orchestrator(provider, { executor }).streamAgent(cramped, opts(), { maxSteps: 8 }),
     );
     // The run converged normally under compaction — honestly `failed`, not `completed`:
-    // every call in the run was read-only `analyze_silence`, so no edit ever landed
-    // (ADR 0081's causal completion gate).
-    expect(reduceEvents(events).status).toBe('failed');
+    // every call in the run was read-only `analyze_silence`, then the model finished
+    // (ADR 0199).
+    expect(reduceEvents(events).status).toBe('completed');
     // By turn 5 the log crossed the threshold: old entries carry the cleared marker,
     // their "what was called" prefixes intact, while the freshest keep real payloads.
     const turn5Log = provider.requests[4]!.messages.at(-1)!.content;
@@ -5595,8 +5478,11 @@ describe('streamAgent evidence index', () => {
   });
 });
 
-describe('streamAgent cached-read action recovery', () => {
-  it('withholds redundant reads on the recovery turn and lands the pending edit', async () => {
+describe('streamAgent repeated reads keep the full surface (ADR 0199)', () => {
+  it('a run that re-reads keeps every tool and lands its edit', async () => {
+    // The re-read used to arm a one-turn "action recovery" that withheld every read. ADR
+    // 0199 removed it: the repeat is served from the memo, the stall streak climbs, and the
+    // model decides what to do next with its whole surface.
     const reads = (suffix: string) => [
       { id: `timeline-${suffix}`, name: 'get_timeline', arguments: {} },
       { id: `assets-${suffix}`, name: 'list_assets', arguments: {} },
@@ -5630,13 +5516,12 @@ describe('streamAgent cached-read action recovery', () => {
       ),
     );
 
-    const recovery = provider.requests[2]!;
-    const recoveryNames = recovery.tools?.map((tool) => tool.name) ?? [];
-    expect(recoveryNames).toContain('add_clip');
-    expect(recoveryNames).toContain('ask_user');
-    expect(recoveryNames).not.toContain('get_timeline');
-    expect(recoveryNames).not.toContain('list_assets');
-    expect(recovery.messages.at(-1)!.content).toContain('ACTION RECOVERY');
+    const third = provider.requests[2]!;
+    const names = third.tools?.map((tool) => tool.name) ?? [];
+    expect(names).toContain('add_clip');
+    expect(names).toContain('get_timeline');
+    expect(names).toContain('list_assets');
+    expect(third.messages.at(-1)!.content).not.toContain('ACTION RECOVERY');
     expect(events.some((event) => event.type === 'diff')).toBe(true);
     expect(
       events.some(
@@ -5671,21 +5556,6 @@ describe('streamAgent cached-read action recovery', () => {
 
   // GAP-003. The cache trigger had no sentence: the surface changed, a card went red for
   // a reason the harness had chosen, and nothing said so.
-  it('explains the switch when a turn re-read what the run already had', async () => {
-    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
-    const provider = new ScriptedProvider([
-      { text: 'read', toolCalls: [read('r1')] },
-      { text: 'read again', toolCalls: [read('r2')] },
-      { text: 'done', toolCalls: [] },
-    ]);
-    const events = await drain(
-      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
-    );
-    expect(
-      events.some((event) => event.type === 'notification' && event.text.includes('nothing new')),
-    ).toBe(true);
-  });
-
   // GAP-002. The same branch served both cases with one sentence, and for a call the run
   // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
   // "redundant — its result is already in this run"; nothing had been downloaded, and the
@@ -5721,7 +5591,7 @@ describe('streamAgent cached-read action recovery', () => {
     expect(note).toMatch(/add_stock/);
   });
 
-  it('still refuses by the stage when the asset exists — the rule itself is unchanged', async () => {
+  it('never holds a call back after a repeated read', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([
       { text: 'read', toolCalls: [read('r1')] },
@@ -5735,9 +5605,10 @@ describe('streamAgent cached-read action recovery', () => {
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
     );
-    const refused = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
-    const summary = refused?.type === 'tool_result' ? refused.summary : '';
-    expect(summary).toContain('held back');
+    const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
+    const summary = result?.type === 'tool_result' ? result.summary : '';
+    expect(summary).not.toContain('held back');
+    expect(summary).not.toContain('acting on what has been gathered');
   });
 
   it('refuses the same invented asset a second time as a repeat, not a fresh refusal', async () => {
@@ -5762,60 +5633,46 @@ describe('streamAgent cached-read action recovery', () => {
     expect(summary).toMatch(/Refused repeat|already failed/i);
   });
 
-  it('says a withheld tool is unavailable, not redundant, when it holds no such result', async () => {
+  it('a measurement asked for after a repeated read is run, not withheld', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([
       { text: 'read', toolCalls: [read('r1')] },
       { text: 'read again', toolCalls: [read('r2')] },
-      // Never called before, so the run has no stored result to be redundant with.
       { text: 'analyse instead', toolCalls: [{ id: 'b1', name: 'detect_beats', arguments: {} }] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
     );
-    const refused = events.find(
+    expect(
+      events.some(
+        (event) => event.type === 'tool_call' && event.id === 'b1' && event.status === 'withheld',
+      ),
+    ).toBe(false);
+    const result = events.find(
       (event) => event.type === 'tool_result' && event.toolCallId === 'b1',
     );
-    const summary = refused?.type === 'tool_result' ? refused.summary : '';
-    // The card says it was HELD BACK and why — not that it was redundant, which is the
-    // distinction this test exists for. The wording changed on 2026-09-05: "unavailable
-    // this turn" told the editor nothing about the reason or the duration, and run
-    // `137d8fd0` showed five of them stacked with no explanation on any.
-    expect(summary).toContain('held back');
-    expect(summary).toContain('acting on what has been gathered');
-    expect(summary).not.toContain('redundant');
-    // And the model is told what the turn IS for, so it has somewhere to go.
-    const note = JSON.stringify(provider.requests[3]?.messages ?? []);
-    expect(note).toMatch(/acting on what the run has already gathered/);
+    expect(result?.type === 'tool_result' ? result.summary : '').not.toContain('held back');
   });
 
-  it('host-refuses a read hallucinated outside the recovery tool surface', async () => {
+  it('a third identical read runs like the first — the stall streak, not a refusal, bounds it', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([
       { text: 'read', toolCalls: [read('r1')] },
       { text: 'read again', toolCalls: [read('r2')] },
-      // Deliberately violates the advertised mutation/ask-only recovery surface.
-      { text: 'read despite scope', toolCalls: [read('r3')] },
-      { text: 'must not run', toolCalls: [] },
+      { text: 'and again', toolCalls: [read('r3')] },
+      { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
       new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
     );
-
-    expect(provider.requests).toHaveLength(3);
-    expect(provider.requests[2]!.tools?.some((tool) => tool.name === 'get_timeline')).toBe(false);
-    const refused = events.find(
-      (event) => event.type === 'tool_result' && event.toolCallId === 'r3',
-    );
-    expect(refused?.type === 'tool_result' ? refused.summary : '').toContain(
-      'Skipped redundant get_timeline',
-    );
+    expect(provider.requests).toHaveLength(4);
+    expect(provider.requests[2]!.tools?.some((tool) => tool.name === 'get_timeline')).toBe(true);
     expect(
       events.some(
         (event) => event.type === 'tool_call' && event.id === 'r3' && event.status === 'completed',
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -6095,25 +5952,15 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
 
-    // Four model calls: the early reply did not end the run; the reply on a blocked plan
-    // bought the one blocked-item turn (AL39) because `color` was never loaded, and the same
-    // reply again ended it — then the advisory fix turn (AL37): the delete left a picture gap
-    // the self-check warns about.
-    expect(provider.requests).toHaveLength(6);
-    expect(isAdvisoryTurn(provider.requests[5]!)).toBe(true);
-    // The blocked-item turn names the item, the domains never loaded, and both answers.
-    const retry = provider.requests[4]!.messages.at(-1)!.content;
-    expect(retry).toContain(
-      'DO THIS NOW\nYour plan leaves “Warm grade across every shot” blocked, and this run never loaded these tool domains:',
-    );
-    expect(retry).toContain('color (grade the picture');
-    expect(retry).toContain('reply without a tool call and the item stays blocked.');
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'notification',
-        text: expect.stringContaining('Blocked plan items, with tools never loaded ('),
-      }),
-    );
+    // Four model calls: the early reply did not end the run (its own plan had open items),
+    // and the reply on a plan whose remaining item is blocked ended it — no extra turn is
+    // bought to second-guess "blocked" (ADR 0199 removed AL39 and the advisory turn).
+    expect(provider.requests).toHaveLength(4);
+    expect(
+      events.some(
+        (event) => event.type === 'notification' && event.text.includes('Blocked plan items'),
+      ),
+    ).toBe(false);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'notification',
@@ -6171,9 +6018,7 @@ describe('update_plan keeps a run going while its plan has open items (run d8d2e
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
 
     // One continuation, then the second identical reply settles it — progress, not a latch.
-    // The fourth call is the advisory fix turn (AL37), which only reports afterwards.
-    expect(provider.requests).toHaveLength(4);
-    expect(isAdvisoryTurn(provider.requests[3]!)).toBe(true);
+    expect(provider.requests).toHaveLength(3);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'notification',

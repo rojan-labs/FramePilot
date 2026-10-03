@@ -1,28 +1,12 @@
 /**
- * Tests for stage policy (plan/AGENT-TASK-MEMORY.md §3.2/§3.6, ADR 0075).
+ * Tests for stage policy (plan/AGENT-TASK-MEMORY.md §3.2, ADR 0075).
  *
- * Two rules carry the weight here and both are asserted directly: the stage is derived
- * from what a turn DID rather than what it said, and an executing run cannot reach the
- * tools that would restart reconnaissance.
+ * The rule that carries the weight: the stage is derived from what a turn DID rather than
+ * what it said. It is bookkeeping only — ADR 0199 removed every way it used to narrow the
+ * tools a turn could call or how hard a step thinks.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  PRECONDITION_TOOL_NAMES,
-  EXECUTION_MEASUREMENT_TOOL_NAMES,
-  agentStepReasoningEffort,
-  executedAnEdit,
-  settledStageFor,
-  stageAdvanceFor,
-  stageAllowsRole,
-  stageAllowsTool,
-  VERIFICATION_LOOK_TOOL_NAMES,
-  toolRole,
-} from './stage-policy.js';
-import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
-import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
+import { executedAnEdit, settledStageFor, stageAdvanceFor, toolRole } from './stage-policy.js';
 
 describe('toolRole', () => {
   it('separates reading the arrangement from reading the content', () => {
@@ -71,224 +55,6 @@ describe('toolRole', () => {
 
   it('treats remembered preferences as guidance, not analysis', () => {
     expect(toolRole('session_context', false)).toBe('guidance');
-  });
-});
-
-describe('the locked plan is actually closed to re-analysis', () => {
-  // The point of the classification fix, expressed as behaviour: an executing run can no
-  // longer be offered `detect_beats`, so it cannot re-derive the beat map mid-montage.
-  it.each(['apply', 'enhance', 'repair'] as const)('withholds re-analysis during %s', (stage) => {
-    for (const tool of ['detect_beats', 'index_media', 'describe_footage', 'transcribe']) {
-      expect(stageAllowsRole(stage, toolRole(tool, false))).toBe(false);
-    }
-    // Guidance is NOT closed (GAP-006's sibling, GAP-008). It is static reference data —
-    // the shipped effect and transition catalogs, the playbooks, the remembered
-    // preferences — not observation of the material, so there is nothing stored to recall
-    // in its place. Withholding it took `discover_transitions` away from an executing run
-    // while leaving `add_transition`, whose own description says the ids are not guessable.
-    expect(stageAllowsRole(stage, toolRole('discover_transitions', false))).toBe(true);
-    expect(stageAllowsRole(stage, toolRole('discover_effects', false))).toBe(true);
-    expect(stageAllowsRole(stage, toolRole('load_skill', false))).toBe(true);
-    // But the CURRENT arrangement stays readable: a patch needs live clip ids.
-    expect(stageAllowsRole(stage, toolRole('get_timeline', false))).toBe(true);
-    // And recall always works — that is the way back to the stored payload.
-    expect(stageAllowsRole(stage, toolRole('recall_evidence', false))).toBe(true);
-  });
-
-  /**
-   * The invariant behind GAP-008, asserted against the registry rather than against a
-   * hand-written list.
-   *
-   * A tool description that says "call X first" is a contract with the model. If the
-   * stage policy can offer the tool while withholding X, the contract is unkeepable and
-   * the model is left to invent an id that the validator will refuse — which is exactly
-   * what an executing run faced with `add_transition` and no `discover_transitions` had
-   * to do. Whenever a prerequisite is NAMED in a description, it must be reachable in
-   * every stage the tool itself is reachable in.
-   */
-  /**
-   * The same contract, read from where the incident actually came from.
-   *
-   * The description scan below is phrasing-dependent by construction — it has to guess
-   * which sentences state an order — and it has already been widened twice after missing
-   * the real thing. But run 7d159862's deadlock was not in a description at all: it was a
-   * THROWN string, `"This project has no transcript yet ... Run transcribe first."`, from
-   * inside `caption_the_edit`'s handler. A thrown remedy is a stronger promise than a
-   * description: the model has just been refused and told exactly what to do about it.
-   *
-   * So this reads the handlers' source and needs no phrasing rule at all. Any registry
-   * tool name appearing in a message a domain tool throws is a remedy that tool is
-   * pointing at, and it must be reachable wherever the tool that names it is.
-   *
-   * Attributed per FILE rather than per handler: a file's tools share a domain, and
-   * over-constraining within one domain is the safe direction for a guard whose whole
-   * job is to fail closed.
-   */
-  it('never throws a remedy naming a tool the same stage withholds', () => {
-    const domainToolsDir = fileURLToPath(new URL('../domain-tools', import.meta.url));
-    const registryNames = TOOL_REGISTRY.map((t) => t.name);
-    // Message text of every `throw new Error(...)` in the file, template literals and
-    // concatenations included — the argument list up to the closing paren.
-    const THROWN = /throw new Error\(([\s\S]*?)\);/g;
-
-    for (const file of readdirSync(domainToolsDir)) {
-      if (!file.endsWith('.ts') || file.includes('.test.')) continue;
-      const source = readFileSync(join(domainToolsDir, file), 'utf8');
-      const thrown = [...source.matchAll(THROWN)].map((m) => m[1] ?? '').join('\n');
-      if (thrown === '') continue;
-      const remedies = registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(thrown));
-      if (remedies.length === 0) continue;
-      // The tools this file defines, by the `name:` field of each spec in it.
-      const defined = [...source.matchAll(/name: '([a-z_]+)'/g)]
-        .map((m) => m[1]!)
-        .filter((name) => registryNames.includes(name));
-
-      for (const toolName of defined) {
-        const tool = getTool(toolName);
-        if (!tool) continue;
-        for (const remedy of remedies) {
-          if (remedy === toolName) continue;
-          const remedySpec = getTool(remedy);
-          if (!remedySpec) continue;
-          for (const stage of RUN_STAGES) {
-            if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
-            expect(
-              stageAllowsTool(stage, remedy, remedySpec.mutates),
-              `${file}: ${tool.name} is offered in "${stage}" and its handlers throw a message naming ${remedy}, which is withheld there`,
-            ).toBe(true);
-          }
-        }
-      }
-    }
-  });
-
-  it('never offers a tool in a stage that withholds the tool its description requires', () => {
-    // Both halves of this check used to be hand-written and both had holes wide
-    // enough to miss the real thing. "First read get_mapped_transcript" and "it
-    // needs get_mapped_transcript first" matched neither phrasing alternative,
-    // and even if they had, the name extractor only recognised `discover_*`,
-    // `get_timeline` and `search_*` — so the tool at the centre of run 7d159862
-    // was invisible to the guard written to catch exactly its failure.
-    //
-    // Match any phrasing that states an order, and extract against the REGISTRY
-    // rather than a pattern, so a newly named prerequisite cannot slip past.
-    const PREREQUISITE =
-      /(?:call (?:this|\w+) before|(?:use|read|run|call) \w+ first|needs \w+ first|first (?:read|run|call)|\bbefore you\b)/i;
-    const registryNames = TOOL_REGISTRY.map((t) => t.name);
-    const named = (description: string): readonly string[] =>
-      registryNames.filter((name) => new RegExp(`\\b${name}\\b`).test(description));
-    for (const tool of TOOL_REGISTRY) {
-      if (!PREREQUISITE.test(tool.description)) continue;
-      for (const prerequisite of named(tool.description)) {
-        if (prerequisite === tool.name) continue;
-        const prerequisiteSpec = getTool(prerequisite);
-        if (!prerequisiteSpec) continue;
-        for (const stage of RUN_STAGES) {
-          // Ask the question the runtime actually asks — `stageAllowsTool`, not the
-          // role alone — so a documented exemption counts as reachability and an
-          // undocumented gap still fails.
-          if (!stageAllowsTool(stage, tool.name, tool.mutates)) continue;
-          expect(
-            stageAllowsTool(stage, prerequisite, prerequisiteSpec.mutates),
-            `${tool.name} is offered in "${stage}" but its stated prerequisite ${prerequisite} is not`,
-          ).toBe(true);
-        }
-      }
-    }
-  });
-
-  it('leaves every role open while the run is still planning', () => {
-    for (const stage of ['interpret', 'inspect', 'analyze', 'plan'] as const) {
-      expect(stageAllowsRole(stage, toolRole('detect_beats', false))).toBe(true);
-    }
-  });
-
-  /**
-   * The invariant behind run `ea8e46ec`: a run chooses and places its music while it
-   * edits, so the measurement of that music has to stay reachable after the first cut
-   * lands. The run said "let me detect beats on the placed music" and was refused, twice.
-   */
-  it('never withholds the measurement of media the run places during execution', () => {
-    expect(EXECUTION_MEASUREMENT_TOOL_NAMES.has('detect_beats')).toBe(true);
-    for (const name of EXECUTION_MEASUREMENT_TOOL_NAMES) {
-      const spec = getTool(name);
-      expect(spec, `${name} must be a registered tool`).toBeDefined();
-      for (const stage of RUN_STAGES) {
-        expect(
-          stageAllowsTool(stage, name, spec?.mutates === true),
-          `${name} feeds a runtime validator but is withheld in "${stage}"`,
-        ).toBe(true);
-      }
-    }
-  });
-
-  it('finds and places elements in every stage: a sticker on a word is an edit', () => {
-    // search_elements reads a catalogue, not the footage (guidance); add_sticker sources and
-    // places; the shape and animation tools mutate. None is re-analysis, so no stage may
-    // withhold one (plan/elements 12 F).
-    for (const name of [
-      'search_elements',
-      'add_sticker',
-      'add_shape',
-      'set_shape_style',
-      'set_element_animation',
-    ]) {
-      const spec = getTool(name);
-      expect(spec, `${name} must be a registered tool`).toBeDefined();
-      for (const stage of RUN_STAGES) {
-        expect(
-          stageAllowsTool(stage, name, spec?.mutates === true),
-          `${name} is withheld in "${stage}"`,
-        ).toBe(true);
-      }
-    }
-    expect(toolRole('search_elements', false)).toBe('guidance');
-    expect(toolRole('add_sticker', false)).toBe('sourcing');
-    expect(toolRole('add_shape', true)).toBe('mutation');
-  });
-
-  it('exempts only the named carve-outs — every other analysis tool still closes', () => {
-    const analysisTools = TOOL_REGISTRY.filter(
-      (tool) => toolRole(tool.name, tool.mutates) === 'analysis',
-    );
-    // Three named carve-outs, each with a written incident: the measurement of media the
-    // run places while editing, the picture look that verifies an edit, and the
-    // precondition a mutation's own refusal names. The lockout is the whole point of the execution stages, so the
-    // exempted set must stay a small minority of the analysis surface.
-    const exempt = new Set([
-      ...EXECUTION_MEASUREMENT_TOOL_NAMES,
-      ...VERIFICATION_LOOK_TOOL_NAMES,
-      ...PRECONDITION_TOOL_NAMES,
-    ]);
-    expect(analysisTools.length).toBeGreaterThan(exempt.size * 2);
-    for (const tool of analysisTools) {
-      if (exempt.has(tool.name)) continue;
-      for (const stage of RUN_STAGES.filter(isExecutionStage)) {
-        expect(
-          stageAllowsTool(stage, tool.name, tool.mutates),
-          `${tool.name} is not a named carve-out and must stay withheld in "${stage}"`,
-        ).toBe(false);
-      }
-    }
-  });
-
-  it('reaches every precondition tool in every stage', () => {
-    // The property that makes the set legitimate rather than a convenience list:
-    // some registered mutation must name the tool as the remedy for its own refusal.
-    for (const name of PRECONDITION_TOOL_NAMES) {
-      const spec = getTool(name);
-      expect(spec, `${name} must be a registered tool`).toBeDefined();
-      const demanded = TOOL_REGISTRY.some(
-        (tool) => tool.mutates && new RegExp(`\\b${name}\\b`).test(tool.description),
-      );
-      expect(demanded, `${name} is exempt but no mutation names it as a precondition`).toBe(true);
-      for (const stage of RUN_STAGES) {
-        expect(
-          stageAllowsTool(stage, name, spec?.mutates === true),
-          `${name} is a stated precondition but is withheld in "${stage}"`,
-        ).toBe(true);
-      }
-    }
   });
 });
 
@@ -350,33 +116,6 @@ describe('stageAdvanceFor — evidence, not narration', () => {
   });
 });
 
-describe('stageAllowsRole — the boundary is structural', () => {
-  it('leaves every tool available while the run is still deciding', () => {
-    for (const stage of ['interpret', 'inspect', 'analyze', 'plan'] as const) {
-      expect(stageAllowsRole(stage, 'analysis')).toBe(true);
-      expect(stageAllowsRole(stage, 'guidance')).toBe(true);
-    }
-  });
-
-  it('closes fresh reconnaissance of the MATERIAL once the plan is locked', () => {
-    for (const stage of ['apply', 'enhance', 'repair'] as const) {
-      expect(stageAllowsRole(stage, 'analysis')).toBe(false);
-      // Reference data is not reconnaissance: a catalog the run never read has nothing
-      // stored to recall, and the mutators that require its ids stay on offer.
-      expect(stageAllowsRole(stage, 'guidance')).toBe(true);
-    }
-  });
-
-  it('keeps inspection, mutation and recall open during execution', () => {
-    // Writing a patch needs the CURRENT arrangement — the last cut may have moved the
-    // ids it is written against — and recall is reading back, not researching.
-    expect(stageAllowsRole('apply', 'inspection')).toBe(true);
-    expect(stageAllowsRole('apply', 'mutation')).toBe(true);
-    expect(stageAllowsRole('apply', 'recall')).toBe(true);
-    expect(stageAllowsRole('apply', 'other')).toBe(true);
-  });
-});
-
 describe('settledStageFor — every transition a turn earns', () => {
   it('closes analysis and opens execution on the turn that first applies a patch', () => {
     // One turn, two closed stages. Advancing one edge per turn would leave the run
@@ -395,31 +134,6 @@ describe('settledStageFor — every transition a turn earns', () => {
   });
 });
 
-describe('verification looks in execution stages (plan/system-mission P1.1b)', () => {
-  it('offers get_frame in apply/enhance/repair so a run can check the edit it just made', () => {
-    for (const stage of ['apply', 'enhance', 'repair'] as const) {
-      expect(stageAllowsTool(stage, 'get_frame', false)).toBe(true);
-      // Same tool with numbers instead of pixels — `tool-contract.ts` gives the two an
-      // identical entry. Run `137d8fd0` asked to "measure what's actually on screen",
-      // called this twice in `apply`, and was refused both times; the grade went in blind.
-      expect(stageAllowsTool(stage, 'measure_color', false)).toBe(true);
-      // The rule is narrow: other analysis stays withheld in execution stages.
-      expect(stageAllowsTool(stage, 'map_footage', false)).toBe(false);
-      expect(stageAllowsTool(stage, 'describe_footage', false)).toBe(false);
-    }
-  });
-
-  it('keeps the set minimal — the picture look, in pixels and in numbers', () => {
-    // `measure_subject` is the third look: where the subject sits, measured right before a
-    // title is placed — always after the first patch, so always in `apply`.
-    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual([
-      'get_frame',
-      'measure_color',
-      'measure_subject',
-    ]);
-  });
-});
-
 describe('executedAnEdit — bookkeeping is not execution', () => {
   // Run `df81d58e`: `add_track` + `transcribe` landed as the second turn and opened
   // `apply`, which withheld every analysis tool before a clip was placed.
@@ -432,45 +146,5 @@ describe('executedAnEdit — bookkeeping is not execution', () => {
     expect(executedAnEdit([{ type: 'add_layer' }, { type: 'add_clip' }])).toBe(true);
     expect(executedAnEdit([{ type: 'set_track_caption_style' }])).toBe(true);
     expect(executedAnEdit([])).toBe(true);
-  });
-});
-
-describe('agentStepReasoningEffort (TRACKING.md §U1)', () => {
-  // The whole table, so a stage added to RUN_STAGES has to be placed deliberately.
-  const EXPECTED_WITHOUT_RECOVERY: Record<RunStage, 'low' | 'medium'> = {
-    interpret: 'medium',
-    inspect: 'medium',
-    analyze: 'medium',
-    plan: 'medium',
-    apply: 'low',
-    enhance: 'low',
-    verify: 'medium',
-    repair: 'medium',
-    complete: 'medium',
-  };
-
-  it('thinks at low only while executing a locked plan (apply/enhance)', () => {
-    for (const stage of RUN_STAGES) {
-      expect(agentStepReasoningEffort({ stage }), stage).toBe(EXPECTED_WITHOUT_RECOVERY[stage]);
-      expect(agentStepReasoningEffort({ stage, actionRecovery: false }), stage).toBe(
-        EXPECTED_WITHOUT_RECOVERY[stage],
-      );
-    }
-  });
-
-  it('keeps repair at medium even though it is an execution stage', () => {
-    expect(isExecutionStage('repair')).toBe(true);
-    expect(agentStepReasoningEffort({ stage: 'repair' })).toBe('medium');
-  });
-
-  it('thinks at medium on every action-recovery step, whatever the stage', () => {
-    for (const stage of RUN_STAGES) {
-      expect(agentStepReasoningEffort({ stage, actionRecovery: true }), stage).toBe('medium');
-    }
-    expect(agentStepReasoningEffort({ actionRecovery: true })).toBe('medium');
-  });
-
-  it('keeps medium when the handler was told no stage', () => {
-    expect(agentStepReasoningEffort({})).toBe('medium');
   });
 });
