@@ -99,7 +99,6 @@ import {
   DETECT_SUBJECTS_TOOL_NAME,
   type ChunkTranscriber,
   type AsrResult,
-  type VisualIndexRequestInput,
   type AiProvider,
   type ModelTier,
   type ProviderConfig,
@@ -111,6 +110,10 @@ import { createEngineCropColourSource } from './ai/crop-colour-client.js';
 import { createCropReranker } from './ai/crop-reranker.js';
 import { desktopAiMaskingDisabledTools } from './ai/ai-masking-switch.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
+import {
+  visualIndexCredentialsFor,
+  type VisualIndexCredentials,
+} from './ai/visual-index-credentials.js';
 import {
   IpcChannels,
   type AiConfig,
@@ -2233,49 +2236,10 @@ function registerIpcHandlers(): void {
   // Analysis/action tools (analyze_silence, detect_scenes, detect_beats) execute
   // against the local render sidecar — truthful host execution, never fabricated
   // (plan AGENT-NATIVE-UX T3). Shared across providers; the sidecar is per-app.
-  const visualIndexCredentials = (): Pick<
-    VisualIndexRequestInput,
-    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider' | 'visualEmbedPack' | 'visualDescribePack'
-  > => {
-    const providerName = aiConfig.visualCaptionProvider();
-    const provider = aiConfig.resolveConfig(providerName);
-    const defaults: Partial<Record<AiProviderName, string>> = {
-      nvidia: 'https://integrate.api.nvidia.com/v1',
-      openrouter: 'https://openrouter.ai/api/v1',
-      'vercel-gateway': 'https://ai-gateway.vercel.sh/v1',
-      groq: 'https://api.groq.com/openai/v1',
-      google: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      ollama: 'http://127.0.0.1:11434/v1',
-      deepseek: 'https://api.deepseek.com/v1',
-    };
-    const baseUrl = provider.baseUrl ?? defaults[providerName];
-    // `claude-agent-sdk` lands in the no-key branch, and that is correct rather than a
-    // gap: scene captioning runs in the Python sidecar, which authenticates with a key it
-    // is handed. That provider has no key to hand over — its credential is an OS-keychain
-    // login usable only by the `claude` binary in this process — so there is nothing to
-    // forward and captioning stays off. Do NOT "fix" this by adding it to the `ollama`
-    // exemption: that would send `apiKey: ''` and the sidecar would fail per media file.
-    const captionProvider =
-      providerName === 'mock' || (providerName !== 'ollama' && !provider.apiKey)
-        ? undefined
-        : {
-            kind: providerName === 'anthropic' ? ('anthropic' as const) : ('openai' as const),
-            model: provider.model ?? 'vision-model',
-            apiKey: provider.apiKey ?? '',
-            ...(baseUrl !== undefined ? { baseUrl } : {}),
-          };
-    const nvidiaKeys = aiConfig.resolveEmbeddingsKeys();
-    const twelveLabsKey = aiConfig.resolveTwelveLabsKey();
-    return {
-      ...(nvidiaKeys !== undefined ? { nvidiaKeys } : {}),
-      ...(twelveLabsKey !== undefined ? { twelveLabsKey } : {}),
-      ...(captionProvider !== undefined ? { captionProvider } : {}),
-      // Installed local perception packs (ADR 0176). Resolved asynchronously from the pack
-      // store whenever it changes; read synchronously here because the executor calls this
-      // per tool call.
-      ...visualPackHandles,
-    };
-  };
+  // Read per call: installed local perception packs (ADR 0176) resolve asynchronously from
+  // the pack store whenever it changes, and the executor asks for credentials per tool call.
+  const visualIndexCredentials = (): VisualIndexCredentials =>
+    visualIndexCredentialsFor(aiConfig, visualPackHandles);
   // Hosted-ASR request window: clips longer than this are decoded to a mono-16k WAV
   // and split into ≤30s chunks before upload, so a minutes-long file is never POSTed
   // to the hosted API in one huge request (plan H0.1). ≤30s is sent whole.

@@ -61,7 +61,7 @@
  * tree at 2.7-3.1 GB and 74 % free. The free-memory floor is the direct signal, so the swap bound
  * can be loosened on such a machine without running blind.
  */
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
@@ -69,7 +69,6 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   writeFileSync,
@@ -79,6 +78,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { startHarnessSidecar, stopHarnessSidecar } from './harness-sidecar.js';
 
 // ---------------------------------------------------------------------------------------------
 // Environment first: nothing below may spawn before the agent-session variables are gone.
@@ -140,7 +140,6 @@ const MAX_SWAP_GROWTH_MB = Number(args['max-swap-growth-gb']) * 1024;
 const MIN_FREE_MEMORY_PERCENT = 40;
 const RUN_MIN_FREE_PERCENT = Number(args['min-free-percent']);
 const WATCHDOG_INTERVAL_MS = 5_000;
-const SIDECAR_BOOT_TIMEOUT_MS = 180_000;
 /** Files are cloned below this size is irrelevant — clonefile costs nothing either way. */
 const ENGINE_BASE_URL = `http://127.0.0.1:${String(PORT)}`;
 
@@ -328,49 +327,18 @@ function prepareProjectsRoot(): string {
 // Sidecar: `sidecar/spawn.ts`'s dev branch, on our own port and root.
 // ---------------------------------------------------------------------------------------------
 
-async function isEngineUp(): Promise<boolean> {
-  try {
-    const response = await fetch(`${ENGINE_BASE_URL}/health`, { signal: AbortSignal.timeout(2_000) });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 async function startSidecar(): Promise<ChildProcess> {
-  if (await isEngineUp()) {
-    throw new Error(`Something already answers on ${ENGINE_BASE_URL}; pick another --port.`);
-  }
-  const logFd = openSync(path.join(OUT, 'sidecar.log'), 'a');
-  const child = spawn('uv', ['run', 'framepilot', 'serve', '--host', '127.0.0.1', '--port', String(PORT)], {
-    cwd: path.join(REPO_ROOT, 'engine/python'),
-    env: {
-      ...process.env,
-      FRAMEPILOT_PROJECTS_ROOT: PROJECTS_ROOT,
-      ...(process.env.FRAMEPILOT_PARENT_PID ? {} : { FRAMEPILOT_PARENT_PID: String(process.pid) }),
-    },
-    stdio: ['ignore', logFd, logFd],
-    detached: true,
+  return startHarnessSidecar({
+    repoRoot: REPO_ROOT,
+    port: PORT,
+    projectsRoot: PROJECTS_ROOT,
+    logPath: path.join(OUT, 'sidecar.log'),
+    onHealthy: (info) => say('sidecar healthy', info),
   });
-  const deadline = Date.now() + SIDECAR_BOOT_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Sidecar exited with ${String(child.exitCode)}; see sidecar.log.`);
-    if (await isEngineUp()) {
-      say('sidecar healthy', { pid: child.pid, url: ENGINE_BASE_URL });
-      return child;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  throw new Error('Sidecar did not become healthy in time; see sidecar.log.');
 }
 
 function stopSidecar(child: ChildProcess | undefined): void {
-  if (child?.pid === undefined || child.exitCode !== null) return;
-  try {
-    process.kill(-child.pid, 'SIGTERM');
-  } catch {
-    // Already gone.
-  }
+  stopHarnessSidecar(child);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -418,6 +386,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
   );
   const { resolveWithin } = await import('@framepilot/shared-types/safety');
   const { AiConfigStore } = await import('../electron/ai/ai-config.js');
+  const { visualIndexCredentialsFor } = await import('../electron/ai/visual-index-credentials.js');
   const { AiStreamHub, parseAiStreamRequest, prepareAiEventForTransport } = await import(
     '../electron/ai/ai-stream.js'
   );
@@ -547,36 +516,7 @@ async function runTurn(scratchProjectPath: string): Promise<void> {
   });
 
   // ---- visual credentials (main.ts `visualIndexCredentials`, no pack handles) -------------
-  const visualIndexCredentials = () => {
-    const providerName = aiConfig.visualCaptionProvider();
-    const provider = aiConfig.resolveConfig(providerName);
-    const defaults: Partial<Record<AiProviderName, string>> = {
-      nvidia: 'https://integrate.api.nvidia.com/v1',
-      openrouter: 'https://openrouter.ai/api/v1',
-      'vercel-gateway': 'https://ai-gateway.vercel.sh/v1',
-      groq: 'https://api.groq.com/openai/v1',
-      google: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      ollama: 'http://127.0.0.1:11434/v1',
-      deepseek: 'https://api.deepseek.com/v1',
-    };
-    const baseUrl = provider.baseUrl ?? defaults[providerName];
-    const captionProvider =
-      providerName === 'mock' || (providerName !== 'ollama' && !provider.apiKey)
-        ? undefined
-        : {
-            kind: providerName === 'anthropic' ? ('anthropic' as const) : ('openai' as const),
-            model: provider.model ?? 'vision-model',
-            apiKey: provider.apiKey ?? '',
-            ...(baseUrl !== undefined ? { baseUrl } : {}),
-          };
-    const nvidiaKeys = aiConfig.resolveEmbeddingsKeys();
-    const twelveLabsKey = aiConfig.resolveTwelveLabsKey();
-    return {
-      ...(nvidiaKeys !== undefined ? { nvidiaKeys } : {}),
-      ...(twelveLabsKey !== undefined ? { twelveLabsKey } : {}),
-      ...(captionProvider !== undefined ? { captionProvider } : {}),
-    };
-  };
+  const visualIndexCredentials = () => visualIndexCredentialsFor(aiConfig);
 
   // ---- transcription (main.ts `hostTranscribe`) --------------------------------------------
   const HOSTED_ASR_CHUNK_SECONDS = 30;
