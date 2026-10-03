@@ -1684,10 +1684,9 @@ const SIGNATURE_PREFIX_CHARS = MAX_IDENTITY_KEY_CHARS - IDENTITY_PREFIX_RESERVE_
  *   question forever.
  * - A MUTATION is an intent, not a question. Re-proposing the same edit turn after turn is
  *   repeating yourself whether or not earlier ones landed, and stamping the revision would
- *   make an applying-but-runaway agent look novel every turn. A rejected edit does not move
- *   the revision, so the exact-repeat guard still catches the re-proposed bad edit it was
- *   written for; and an edit that DOES land is credited by `progressedMeaningfully`, which
- *   is where "this turn achieved something" belongs.
+ *   make an applying-but-runaway agent look novel every turn to the browser loop's
+ *   exact-repeat guard. The streamed run has no such guard (ADR 0199); its repeat skip
+ *   compares the revision itself, so the same mutation after another edit still runs.
  */
 function turnSignature(calls: readonly ToolCall[], revision: number): string {
   const full = calls
@@ -10016,26 +10015,31 @@ export class Orchestrator {
           taskMemory.operations.some(
             (operation) =>
               operation.status === 'succeeded' &&
-              operation.idempotencyKey.startsWith(idempotencyPrefix),
+              operation.idempotencyKey.startsWith(idempotencyPrefix) &&
+              // Only while the timeline is still exactly as that call left it. A mutation's
+              // arguments resolve against the CURRENT timeline, so the same call after any
+              // other edit is a different edit: re-captioning after a recut has to rebuild
+              // the cues for the new cut. The signature leaves the revision out of a
+              // mutation (see `turnSignature`), so the revision is checked here, against the
+              // run's applied-work counter the row recorded when it landed.
+              operation.projectRevisionAfter === taskMemory.currentProjectRevision,
           )
         ) {
-          // A turn that repeats, byte for byte, a turn that already landed is a repeat —
-          // not the end of the request. This path used to settle the run (`done: true`):
-          // run `df81d58e` (2026-09-08) ended at turn 31 with b-roll, music, colour and the
-          // report never attempted, and run `1603cd9c` the next hour ended at turn 10 —
-          // right after verify_captions had reported 202 problems and the model had said
-          // "I'm tightening the caption system first" — because its next batch of markers
-          // was the batch it had just placed. The right answer is the one an applied
-          // no-op already gets (`AgentTurnResult.satisfied`): nothing landed, nothing
-          // failed, and the no-progress guard decides whether the run is actually stuck.
+          // The same calls re-sent with nothing landed since would only repeat that edit:
+          // run `1603cd9c` re-sent the batch of markers it had just placed. This used to
+          // settle the run (`done: true`, runs `df81d58e` and `1603cd9c`, 2026-09-08); it
+          // answers as an applied no-op does (`AgentTurnResult.satisfied`), and the stall
+          // streak decides whether the run is stuck. It used to skip the call whatever had
+          // changed since, and told the editor "moving on to what the request still needs"
+          // — a promise, repeated under a caption regeneration in run `001be135`.
           const repeatNote =
-            'Those exact calls already landed earlier in this run, so they were not run ' +
-            'again. Do the NEXT part of the request — something the timeline does not ' +
-            'have yet — or, if every part is done, finish with a short summary and no tool call.';
+            'Not run: these exact calls already landed earlier in this run and no edit has ' +
+            'landed since, so the timeline already holds their result — running them again ' +
+            'would only repeat that edit.';
           log.push(`Step ${index}: repeated an already-applied turn — skipped. ${repeatNote}`);
           yield emit.notification(
-            'That set of edits already landed earlier in this run, so it was not applied ' +
-              'again — moving on to what the request still needs.',
+            'Not run again: the same edits already landed earlier in this run, and nothing ' +
+              'has changed since.',
           );
           return turnBase(index, emit.seq(), {
             satisfied: true,

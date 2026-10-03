@@ -1022,6 +1022,54 @@ describe('editVariations (H1.5/P13.1 — non-streaming batch entry point)', () =
   });
 });
 
+describe('streamAgent — an identical edit re-sent (run 001be135)', () => {
+  const deletedRanges = (events: AiEvent[]): string[] =>
+    events.flatMap((e) =>
+      e.type === 'timeline_action' && e.action === 'Deleted range' ? [e.detail ?? ''] : [],
+    );
+
+  it('does not run the same edit again while nothing has landed since', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'Trimming the first second.', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'Trimming the first second.', toolCalls: [deleteRange('b', 0, 1)] },
+      { text: 'Done.' },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    expect(deletedRanges(events)).toHaveLength(1);
+    expect(events.some((e) => e.type === 'tool_call' && e.id === 'b')).toBe(false);
+    // The editor hears what happened, without a promise about what comes next.
+    const notices = events.flatMap((e) => (e.type === 'notification' ? [e.text] : []));
+    expect(notices).toContain(
+      'Not run again: the same edits already landed earlier in this run, and nothing has changed since.',
+    );
+    expect(notices.join(' ')).not.toContain('moving on');
+    // The model is told why the call did not run.
+    const told = JSON.stringify(provider.requests.at(-1)?.messages ?? []);
+    expect(told).toContain('these exact calls already landed earlier in this run');
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+  });
+
+  it('runs the same call again once another edit has landed: it is a different edit now', async () => {
+    // Re-captioning after a recut is the real case: `caption_the_edit` with the same
+    // arguments must rebuild the cues for the new cut, not be skipped as "already landed".
+    const provider = new ScriptedProvider([
+      { text: 'Trimming the first second.', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'Trimming the tail.', toolCalls: [deleteRange('b', 7, 8)] },
+      { text: 'Trimming the first second again.', toolCalls: [deleteRange('c', 0, 1)] },
+      { text: 'Done.' },
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+    // The third call RAN against the timeline as it is now. (A lifted range leaves a gap,
+    // so this one really moves nothing, and the per-call outcome, measured off the project,
+    // says so; a recut under a caption track is where the same call rebuilds new cues.)
+    const ran = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'c');
+    expect(ran).toMatchObject({ summary: expect.stringContaining('doing it again moved nothing') });
+    expect(
+      events.some((e) => e.type === 'notification' && e.text.startsWith('Not run again')),
+    ).toBe(false);
+  });
+});
+
 describe('streamAgent', () => {
   it('streams per-step reasoning/tool/action events and a terminal diff + completed', async () => {
     const events = await drain(new Orchestrator(new MockProvider()).streamAgent(input, opts()));
