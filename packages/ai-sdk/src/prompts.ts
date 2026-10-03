@@ -399,18 +399,6 @@ export function agentSteeringBlock(message: string | undefined): string {
 }
 
 /**
- * Deterministic recovery when further research cannot help: either the preceding turn
- * only repeated memo-served reads, or the run has spent its research budget
- * (`RESEARCH_BUDGET_TURNS`). The next provider call receives a mutation/ask-only tool
- * surface, so this text describes an executable constraint rather than merely asking the
- * model not to loop.
- *
- * Worded for BOTH causes. It previously asserted the last turn "only requested
- * information already present", which is untrue of the budget case — that run's reads
- * were novel, just unproductive — and stating a false premise invites the model to argue
- * with it instead of acting on it.
- */
-/**
  * The playbooks the agent loaded this run (ADR 0057), pinned verbatim.
  *
  * Pinned here rather than left in the action log because the log is a rolling
