@@ -610,6 +610,18 @@ class AsrSetupTracker:
 
 #: whisper.cpp's special/control tokens look like `[_BEG_]`, `[_TT_123]`, or the
 #: GPT-style `<|...|>` markers — never real words, always dropped.
+def _complete_utf8(text: str) -> str:
+    """Rejoin a word's raw token bytes into characters, dropping any left incomplete.
+
+    Whisper JSON is read with ``surrogateescape`` (see :func:`transcribe_local`), so the
+    bytes of a character split across two tokens arrive as escaped surrogates and are
+    whole again once the word's tokens are concatenated. A fragment whose remaining
+    bytes whisper never emitted (it restarts decoding mid-character) cannot be any
+    character, so it is dropped rather than shown as a replacement glyph.
+    """
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "ignore")
+
+
 def _is_special_token(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
@@ -651,7 +663,7 @@ def _merge_tokens_to_words(tokens: list[dict[str, Any]]) -> list[tuple[str, floa
 
     def flush() -> None:
         nonlocal current_text, current_start, current_end
-        stripped = current_text.strip()
+        stripped = _complete_utf8(current_text).strip()
         if stripped and current_start is not None and current_end is not None:
             words.append((stripped, current_start, current_end))
         current_text = ""
@@ -797,7 +809,7 @@ def parse_whisper_json(data: dict[str, Any]) -> list[TranscriptWord]:
         if isinstance(tokens, list) and tokens:
             entries.extend(_merge_tokens_to_words(tokens))
             continue
-        text = str(segment.get("text", "")).strip()
+        text = _complete_utf8(str(segment.get("text", ""))).strip()
         if text and len(text.split()) == 1:
             offsets = segment.get("offsets")
             if isinstance(offsets, dict):
@@ -844,6 +856,45 @@ _DTW_PRESETS: dict[str, str] = {
     "base.en": "base.en",
     "large-v3-turbo-q5_0": "large.v3.turbo",
 }
+
+
+#: whisper-cli seconds allowed per second of audio. Measured: large-v3-turbo-q5_0 with
+#: DTW word timing took 263 s for a 415 s voiceover on an M-series Mac (~0.63x real
+#: time); 2x leaves room for a loaded or slower machine. A single bound shared with the
+#: 60 s media-probe timeout killed every clip longer than about a minute and a half.
+WHISPER_SECONDS_PER_AUDIO_SECOND = 2.0
+
+#: Lowest whisper-cli bound: model load and DTW setup cost the same for a 3 s clip.
+WHISPER_MIN_TIMEOUT_SECONDS = 300.0
+
+#: Bytes per second of the mono 16 kHz 16-bit PCM WAV :func:`_prepare_mono16k_wav` writes.
+_MONO16K_BYTES_PER_SECOND = 16000 * 2
+
+#: Size of the canonical RIFF/WAVE header ffmpeg writes before the samples.
+_WAV_HEADER_BYTES = 44
+
+
+def whisper_timeout_seconds(audio_seconds: float, *, floor: float | None = None) -> float:
+    """The whisper-cli time bound for ``audio_seconds`` of audio (pure).
+
+    Recognition time grows with the audio's length, so the bound does too; it is a
+    ceiling for a hung process, not an estimate.
+
+    :param audio_seconds: Length of the decoded audio.
+    :param floor: A caller's own minimum (its configured media timeout), if any.
+    :returns: Seconds — never below :data:`WHISPER_MIN_TIMEOUT_SECONDS` or ``floor``.
+    """
+    scaled = max(audio_seconds, 0.0) * WHISPER_SECONDS_PER_AUDIO_SECOND
+    return max(WHISPER_MIN_TIMEOUT_SECONDS, floor or 0.0, scaled)
+
+
+def _wav_duration_seconds(wav_path: Path) -> float:
+    """Length of a mono 16 kHz PCM WAV written by :func:`_prepare_mono16k_wav`."""
+    try:
+        size = wav_path.stat().st_size
+    except OSError:
+        return 0.0
+    return max(size - _WAV_HEADER_BYTES, 0) / _MONO16K_BYTES_PER_SECOND
 
 
 def _prepare_mono16k_wav(
@@ -946,7 +997,9 @@ def transcribe_local(
     :param media_path: Already sandbox-resolved media file to transcribe.
     :param model: Model name (must already be installed via :func:`setup_model`).
     :param run: Injectable subprocess runner (tests supply a fake).
-    :param timeout: Per-subprocess timeout in seconds (bounds ffmpeg + whisper-cli).
+    :param timeout: Timeout in seconds for the ffmpeg audio decode, and the floor of
+        whisper-cli's own bound, which scales with the audio's length
+        (:func:`whisper_timeout_seconds`).
     :returns: Word-level transcript entries in chronological order.
     :raises WhisperCliNotFoundError: If the binary cannot be located.
     :raises AsrModelMissingError: If the model is not installed locally.
@@ -990,7 +1043,7 @@ def transcribe_local(
             str(out_prefix),
             "-np",
         ]
-        runner(argv, timeout)
+        runner(argv, whisper_timeout_seconds(_wav_duration_seconds(wav_path), floor=timeout))
 
         json_path = out_prefix.with_suffix(".json")
         if not json_path.is_file():
@@ -998,7 +1051,11 @@ def transcribe_local(
                 f"whisper-cli did not produce the expected JSON output at {json_path}."
             )
         try:
-            data = json.loads(json_path.read_text(encoding="utf-8"))
+            # whisper.cpp writes token text as raw bytes, and a token can end inside a
+            # multi-byte character (Devanagari, CJK, emoji). A strict decode failed the
+            # whole transcript on one such token; the bytes are kept here and rejoined
+            # into characters when tokens are merged into words (`_complete_utf8`).
+            data = json.loads(json_path.read_text(encoding="utf-8", errors="surrogateescape"))
         except (OSError, json.JSONDecodeError) as exc:
             raise AsrTranscriptionError(f"Failed to read whisper-cli output: {exc}") from exc
 

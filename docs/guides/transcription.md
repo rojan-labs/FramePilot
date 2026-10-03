@@ -60,6 +60,12 @@ If either the binary or the model is missing, `/transcribe` (and the `transcribe
 upstream provider call) reports **honest-unavailable** with an actionable message — it never
 fabricates a transcript.
 
+**How long it may take.** Recognition time grows with the audio: `large-v3-turbo-q5_0` took
+263 s for a 415 s voiceover on an M-series Mac. The audio decode is bounded by
+`FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS` (60 s); whisper-cli itself is bounded at 2 s per second
+of audio, never below 5 minutes. The AI agent's `transcribe` call waits the larger of 15 minutes
+and that bound plus 2 minutes, so it never gives up before the engine does.
+
 ## TwelveLabs setup (opt-in)
 
 1. Add a TwelveLabs API key in Settings → AI → Speech-to-text, or reuse the key under
@@ -67,9 +73,16 @@ fabricates a transcript.
 2. Choose **TwelveLabs** as the transcription provider.
 3. Transcribe normally. FramePilot uploads the selected file through TwelveLabs' media-asset API,
    waits for the upload to become ready, attaches it to the project's Marengo + Pegasus index,
-   then reads TwelveLabs' native timed words from the indexed asset. This two-stage path preserves
-   the file's real media type, so WAV, MP3, and FLAC are handled as audio rather than being sent to
-   the legacy video-only task API.
+   then reads TwelveLabs' native timed words from the indexed asset.
+
+   **Audio-only files** (a voiceover, a song; cover art does not count as picture) are uploaded
+   under a plain black picture. WHY: TwelveLabs' media-asset API accepts an audio file, but its
+   index refuses to attach one — every audio container (MP3, WAV, M4A, even on an audio-only
+   Marengo index) answers `404 resource_not_exists` — while the same sound under a picture indexes
+   and transcribes normally (verified live, 2026-10-03). The engine encodes that carrier with
+   ffmpeg (1 fps, 640×360, AAC) into a temporary folder, never beside your footage, and deletes it
+   after the upload; the brain keeps the mapping keyed to the original file's hash. Background
+   indexing never uploads audio-only assets — only an explicit transcription does.
 
 There is no silent fallback. If indexing, authentication, or the network fails, the existing
 transcript is preserved and the editor shows the real failure. **Try again** starts a fresh upload

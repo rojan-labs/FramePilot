@@ -9,11 +9,14 @@ from pathlib import Path
 import pytest
 
 from framepilot_engine.media.derive import (
+    AUDIO_CARRIER_FPS,
+    AUDIO_CARRIER_SIZE,
     DEFAULT_PROXY_FPS,
     extract_frame,
     generate_proxy,
     generate_thumbnails,
     thumbnail_timestamps,
+    wrap_audio_in_video,
 )
 from framepilot_engine.media.ffmpeg import FFmpegError
 from framepilot_engine.media.probe import inspect_media
@@ -229,3 +232,33 @@ def test_generate_thumbnails_bounds_probe_with_timeout(
 
     generate_thumbnails(source, tmp_path / "thumbs", count=2, runner=_runner, timeout=17.0)
     assert seen["timeout"] == 17.0
+
+
+# --- audio carrier for video-only indexers --------------------------------------
+
+
+def test_wrap_audio_in_video_maps_black_picture_and_the_audio(tmp_path: Path) -> None:
+    source = tmp_path / "voiceover.m4a"
+    source.write_bytes(b"\x00")
+    captured: dict[str, Sequence[str]] = {}
+
+    def runner(argv: Sequence[str]) -> str:
+        captured["argv"] = argv
+        return ""
+
+    out = wrap_audio_in_video(source, tmp_path / "out" / "carrier.mp4", runner=runner)
+
+    assert out == tmp_path / "out" / "carrier.mp4"
+    assert out.parent.is_dir()
+    argv = list(captured["argv"])
+    assert f"color=c=black:s={AUDIO_CARRIER_SIZE}:r={AUDIO_CARRIER_FPS}" in argv
+    # Only the colour source's picture and the input's first audio: cover art is dropped.
+    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "-map"] == ["0:v:0", "1:a:0"]
+    # The endless colour source must not run past the audio.
+    assert "-shortest" in argv
+    assert _argv_pairs(argv)["-c:a"] == "aac"
+
+
+def test_wrap_audio_in_video_rejects_missing_source(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        wrap_audio_in_video(tmp_path / "missing.m4a", tmp_path / "carrier.mp4")

@@ -1947,6 +1947,41 @@ describe('createSidecarExecutor', () => {
     expect(budgets).toContain(120_000);
   });
 
+  it("scales transcribe's budget with the asset's length, above the engine's whisper bound", async () => {
+    // Recognition time grows with the audio: 263 s for a 415 s voiceover. The engine
+    // bounds whisper at 2 s per audio second, so a fixed 900 s here would abort a
+    // 20-minute interview the engine was still correctly transcribing.
+    const fetchFn = (async () =>
+      ({
+        ok: true,
+        json: async () => ({ words: [{ word: 'hi', start: 0, end: 0.5 }] }),
+      }) as Response) as unknown as typeof fetch;
+    const longProject = makeProject();
+    longProject.assets.push({
+      id: 'asset_interview',
+      path: 'media/interview.m4a',
+      kind: 'audio',
+      durationSeconds: 1_200,
+    });
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const executor = createSidecarExecutor({ baseUrl: 'http://x', fetchFn });
+    const budgetFor = async (assetId: string): Promise<number> => {
+      timers.mockClear();
+      await executor.run(call('transcribe', { assetId }), { project: longProject });
+      return Math.max(
+        ...timers.mock.calls
+          .map((invocation) => invocation[1])
+          .filter((ms): ms is number => typeof ms === 'number' && ms >= 120_000),
+      );
+    };
+    const longBudget = await budgetFor('asset_interview');
+    const shortBudget = await budgetFor('asset_1');
+    timers.mockRestore();
+    expect(longBudget).toBe(1_200 * 2_000 + 120_000);
+    // A short clip keeps the fixed ceiling rather than a smaller one.
+    expect(shortBudget).toBe(900_000);
+  });
+
   it('surfaces a network error as a failed call with the cause', async () => {
     const fetchFn = (async () => {
       throw new Error('ECONNREFUSED');
