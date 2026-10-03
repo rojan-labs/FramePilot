@@ -11477,10 +11477,16 @@ Runs: `apps/desktop/scripts/agent-run.ts`, claude-agent-sdk + claude-opus-5-5.
   despite `settingSources: []`, and saved every call as a session. `title`, `persistSession:
   false`, `verbatimPrompts: true`, inline `claudeMdExcludes`/`autoMemoryEnabled: false`; verified
   through a body-layout proxy.
-- [~] **MD21** Checks that measured the wrong thing in a B-roll film: the edit-boundary audio jump
+- [x] **MD21** Checks that measured the wrong thing in a B-roll film: the edit-boundary audio jump
   measured the MIX (a radio call inside a continuous clip read as the music entry's discontinuity),
-  and dead air counted words, not sound. Source-isolated boundary + audibility floor; dead air from
-  asset peaks.
+  and dead air counted words, not sound. The boundary is measured on the spliced source above a
+  -60 dBFS RMS floor, with entries judged by their onset (159c180e, ADR 0115 amended); dead air is
+  no words AND nothing above -30 dBFS peak in the clips' waveform peaks (5ade63f0). X-59: the music
+  entry 21.7 dB → 0.0 dB; the 7.5 s "dead air" tail (music + crowd) passes.
+- [x] **MD23** Footage map on long media: Pegasus `/analyze` ran under a flat 120 s read timeout
+  (the 58:51 reel timed out at 121 s) and the route held the request for every asset's three calls.
+  Duration-scaled Pegasus timeout + a `SliceWork` unit per asset with a 90 s route budget and
+  `pendingAssets` ("still being generated… call again"); verified on the reel (6c74c65a).
 - [ ] **MD22** Re-run both edits on the fixed build and compare against NASA's cuts; record the
   token profile per request.
 

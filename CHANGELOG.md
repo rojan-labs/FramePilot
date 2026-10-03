@@ -126,6 +126,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   used to leave it with no shot list and nothing searchable: the measurement step gave up after a
   minute, and the upload to the visual index was cut off after five. Long files are now measured
   and indexed in steps, whatever their length or your connection speed.
+- **The footage overview works on long recordings.** Asking for the chapter map of footage most of
+  an hour long used to fail after two minutes. It now comes back as soon as it is ready; until then
+  the assistant is told it is still being prepared and carries on with its other work.
+- **The edit checks no longer flag things that are fine in a film with music.** A music bed fading
+  in was reported as an audio jump when the jump was a voice starting in another clip, and the
+  music and crowd sound at the end of a film were reported as dead air because nobody was talking.
+  Both now measure the sound you actually hear.
 - **Word timings are where the words are.** With the local transcriber, a word next to a long
   stretch of noise or silence could be timed as lasting 20 seconds or more, so cuts and captions
   aimed at it landed in the wrong place. Words are now timed from where they are spoken.
