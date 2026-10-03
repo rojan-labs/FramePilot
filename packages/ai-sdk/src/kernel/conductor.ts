@@ -1098,6 +1098,46 @@ function failedRunMessage(): string {
   );
 }
 
+/**
+ * The kinds of action one applied patch made, each with its count, in first-seen order.
+ *
+ * The run's ledger used to take one row per applied OPERATION, and the whole ledger rides in
+ * every `run_state` event the run streams and persists. Desktop run `001be135` regenerated
+ * its captions a few times — about a thousand operations each — so its ledger reached 5,730
+ * rows, every `run_state` event carried ~3 MB of it, and the run died at the 64 MiB
+ * durable-log limit. A row per kind per patch keeps everything the briefing's ALREADY
+ * APPLIED section and a host refusal need (`recordHostRefusal` corrects rows by patch id).
+ */
+function actionTally(
+  actions: readonly DescribedAction[],
+): readonly { readonly action: string; readonly count: number }[] {
+  const counts = new Map<string, number>();
+  for (const { action } of actions) counts.set(action, (counts.get(action) ?? 0) + 1);
+  return [...counts].map(([action, count]) => ({ action, count }));
+}
+
+/** Past this many actions in one patch, the action cards are grouped by kind. */
+const ACTION_CARDS_SHOWN = 24;
+
+/**
+ * The `timeline_action` cards for one applied patch: one per action, or — for a patch too
+ * big to list — one per kind, with its count and the first and last of its details. A
+ * caption regeneration used to put a thousand rows in the sidebar.
+ */
+function actionCards(actions: readonly DescribedAction[]): readonly DescribedAction[] {
+  if (actions.length <= ACTION_CARDS_SHOWN) return actions;
+  return actionTally(actions).map(({ action, count }) => {
+    const ofKind = actions.filter((a) => a.action === action);
+    const first = ofKind[0]!;
+    const last = ofKind.at(-1)!;
+    return {
+      action: count > 1 ? `${action} ×${String(count)}` : action,
+      detail: count > 1 ? `${first.detail} … ${last.detail}` : first.detail,
+      ...(first.refs ? { refs: first.refs } : {}),
+    };
+  });
+}
+
 /** Replace one ledger step immutably. */
 function withStep(steps: readonly PlanStep[], index: number, next: PlanStep): readonly PlanStep[] {
   return steps.map((s, i) => (i === index ? next : s));
@@ -2128,7 +2168,7 @@ export function onTurnResult(
   // The turn validated and applied — surface its `timeline_action` cards (only now
   // that it landed) and accumulate its ops.
   if (r.applied) {
-    for (const a of r.describedActions) {
+    for (const a of actionCards(r.describedActions)) {
       events.push(em.timelineAction(a.action, a.detail, a.refs));
     }
     const cumulativeOps = [...state.cumulativeOps, ...r.appliedOps];
@@ -2181,10 +2221,10 @@ export function onTurnResult(
     const verifiedWorking = r.pictureVerification
       ? recordPictureVerification(advancedWorking, r.pictureVerification)
       : advancedWorking;
-    const working = r.describedActions.reduce(
+    const working = actionTally(r.describedActions).reduce(
       (ledger, action, index) =>
         recordOperation(ledger, {
-          intent: action.action,
+          intent: action.count > 1 ? `${action.action} ×${String(action.count)}` : action.action,
           status: 'succeeded',
           planId,
           decisionId,

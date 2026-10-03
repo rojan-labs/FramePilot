@@ -900,6 +900,54 @@ describe('onEffectResult — turn stop/continue decisions', () => {
   // to learn what it just did is asking it to pay for knowledge it already has. That run
   // alternated apply / re-read for its whole second half, and the re-read is also what
   // collided with the spin guard.
+  it('keeps one ledger row per kind of action, however many operations a patch applied', () => {
+    // Desktop run 001be135: a caption regeneration is ~1,000 operations, the ledger took a
+    // row for each (5,730 by the end), and every run_state event carried all of them until
+    // the run died at the durable-log limit.
+    const actions = [
+      ...Array.from({ length: 300 }, (_, i) => ({
+        action: 'Deleted range',
+        detail: `Caption 1 · ${String(i)}s`,
+      })),
+      ...Array.from({ length: 340 }, (_, i) => ({
+        action: 'Added captions',
+        detail: `Caption 1 · ${String(i)}s`,
+      })),
+    ];
+    const { state, events } = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(640), turnOpCount: 640, describedActions: actions }),
+    );
+    expect(state.working.operations.map((o) => o.intent)).toEqual([
+      'Deleted range ×300',
+      'Added captions ×340',
+    ]);
+    // …and the sidebar gets a card per kind, not 640 rows.
+    const cards = events.filter((e) => e.type === 'timeline_action');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toMatchObject({
+      action: 'Deleted range ×300',
+      detail: 'Caption 1 · 0s … Caption 1 · 299s',
+    });
+  });
+
+  it('still lists every action of an ordinary patch', () => {
+    const actions = [
+      { action: 'Added clip', detail: 'Video 1 · 0s–3s' },
+      { action: 'Added clip', detail: 'Video 1 · 3s–6s' },
+      { action: 'Trimmed clip', detail: 'clip_1' },
+    ];
+    const { state, events } = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(3), turnOpCount: 3, describedActions: actions }),
+    );
+    expect(events.filter((e) => e.type === 'timeline_action')).toHaveLength(3);
+    expect(state.working.operations.map((o) => o.intent)).toEqual([
+      'Added clip ×2',
+      'Trimmed clip',
+    ]);
+  });
+
   it('records the arrangement it just made, so the next turn need not re-read it', () => {
     const { state } = onEffectResult(
       started(),
