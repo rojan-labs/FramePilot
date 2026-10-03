@@ -122,6 +122,21 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Long footage gets indexed.** Importing an interview or event recording of most of an hour
+  used to leave it with no shot list and nothing searchable: the measurement step gave up after a
+  minute, and the upload to the visual index was cut off after five. Long files are now measured
+  and indexed in steps, whatever their length or your connection speed.
+- **Word timings are where the words are.** With the local transcriber, a word next to a long
+  stretch of noise or silence could be timed as lasting 20 seconds or more, so cuts and captions
+  aimed at it landed in the wrong place. Words are now timed from where they are spoken.
+  Transcribing takes about twice as long as before.
+- **"Claude (existing login)" no longer sends your Claude Code setup to the model.** Each request
+  used to carry your personal Claude Code instructions, make a second hidden request to name a
+  session, and save itself in your Claude Code history. It now sends only FramePilot's prompt,
+  which uses noticeably fewer tokens per step.
+- **A run that could not do anything says so.** If the assistant's last attempt failed (a media
+  engine that did not answer, a request in a shape no tool accepts) and it then stopped, the run
+  is reported as failed instead of finished.
 - **Captions and word timings follow what you hear.** Speech on a muted track, or on a clip you
   muted, is no longer captioned, read back as narration, or used to judge where a cut falls.
   Before, footage muted under a separate voiceover had its own soundtrack captioned, and those

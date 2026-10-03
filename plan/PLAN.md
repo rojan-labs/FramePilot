@@ -11453,6 +11453,37 @@ change explicitly ("do the necessary changes even if its structural").
 - [x] **MD15** ai-sdk dist rebuilt; tool-description mirror, golden corpus, frozen stream snapshot
   and langchain parity sessions regenerated with reviewed diffs.
 
+**End-to-end verification on large raw projects (2026-10-03, maintainer: "pull massive raw
+projects … use framepilot to do the complete edit … compare and contrast").** Raw footage and the
+official edits from NASA's public-domain library, kept outside the repo: the 58:51 / 1.05 GB
+"Artemis II Orion MER Interview and B-Roll Reel" against NASA's "Moon Watch – Jeb Stefan" cut, and
+the X-59 first-flight B-roll (7:47 + 0:47) against NASA's "X-59 Completes Historic First Flight".
+Runs: `apps/desktop/scripts/agent-run.ts`, claude-agent-sdk + claude-opus-5-5.
+- [x] **MD16** `scripts/import-project.ts`: a project from raw files through the desktop import
+  path (proxy, peaks, brain row, visual-index enrolment); shared `visual-index-credentials.ts`
+  and `harness-sidecar.ts` instead of third copies.
+- [x] **MD17** A reply after a failed call is the model reporting a failure, not an answer
+  (`lastToolTurnFailed`); CI's runtime-conformance scenarios caught the gap in ADR 0199 §5.
+- [x] **MD18** Visual index on long media: tier 0's whole-file decode had a flat 60 s timeout
+  (72.7 s needed for the reel → no shot ledger) and the TwelveLabs upload ran inside one request
+  (Node gave up at 300 s → never indexed). `brain/slice_work.py` + bounded slices; verified: the
+  reel indexes (165 shots, TwelveLabs ready) with no request over 49 s.
+- [x] **MD19** Local whisper word timing: DTW never ran (flash attention on by default) and the
+  parser ignored it, so words absorbed silence ("." 0.02–24.96 s). `-nfa` when supported, DTW
+  starts, median-relative caps, punctuation is not a word; caches versioned. Verified on the X-59
+  audio: words over 2 s 12 → 0.
+- [x] **MD20** claude-agent-sdk provider: the CLI sent a second "naming a coding session" request
+  per call with the whole prompt, attached the user's `~/.claude/CLAUDE.md` + rules (18k chars)
+  despite `settingSources: []`, and saved every call as a session. `title`, `persistSession:
+  false`, `verbatimPrompts: true`, inline `claudeMdExcludes`/`autoMemoryEnabled: false`; verified
+  through a body-layout proxy.
+- [~] **MD21** Checks that measured the wrong thing in a B-roll film: the edit-boundary audio jump
+  measured the MIX (a radio call inside a continuous clip read as the music entry's discontinuity),
+  and dead air counted words, not sound. Source-isolated boundary + audibility floor; dead air from
+  asset peaks.
+- [ ] **MD22** Re-run both edits on the fixed build and compare against NASA's cuts; record the
+  token profile per request.
+
 **Last updated:** 2026-10-03
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
