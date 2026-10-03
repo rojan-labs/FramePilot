@@ -37,6 +37,36 @@ describe('summarizeFootageMap', () => {
     expect(summarizeFootageMap(map)).toBeUndefined();
   });
 
+  it('says a map with nothing ready yet is on its way, naming the footage', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      reason: 'mapping',
+      pendingAssets: ['asset_moon'],
+      chapters: [],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('still being generated');
+    expect(digest).toContain('asset_moon');
+    expect(digest).toContain('Call map_footage again in a minute');
+    expect(digest).toContain('every other tool works meanwhile');
+  });
+
+  it('notes the assets a partial map does not cover yet', () => {
+    const map = footageMapSchema.parse({
+      available: true,
+      pendingAssets: ['asset_moon'],
+      chapters: [chapter(0, 30, 'Taxi', '', 'asset_x59')],
+    });
+    const digest = summarizeFootageMap(map)!;
+    expect(digest).toContain('Taxi');
+    expect(digest).toContain('still being generated for asset_moon');
+  });
+
+  it('reads an older engine without pendingAssets as nothing pending', () => {
+    const map = footageMapSchema.parse({ available: true, chapters: [] });
+    expect(map.pendingAssets).toEqual([]);
+  });
+
   it('renders the total duration, overview, and chapters', () => {
     const map = footageMapSchema.parse({
       available: true,

@@ -664,6 +664,46 @@ describe('visual grounding (MI6.1)', () => {
       expect(outcome.summary).toContain('get_frame');
     });
 
+    it('reads a map still being generated as on its way, naming the footage', () => {
+      // The 58:51 reel: Pegasus reads the whole video before answering, so the engine
+      // waits a bounded time and says which assets are still mapping. `not_indexed`
+      // guidance here would tell the model to give up on footage minutes from a map.
+      const outcome = unwrapFootageMap({
+        available: true,
+        backend: 'twelvelabs',
+        reason: 'mapping',
+        pendingAssets: ['asset_moon'],
+        chapters: [],
+      });
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).toContain('still being generated for asset_moon');
+      expect(outcome.summary).toContain('Call map_footage again in a minute');
+      expect(outcome.summary).toContain('every other tool works meanwhile');
+      expect(outcome.summary).not.toContain('do not call this again');
+      expect((outcome.data as { pendingAssets: string[] }).pendingAssets).toEqual(['asset_moon']);
+    });
+
+    it('serves a partial map and says which footage is still mapping', () => {
+      const outcome = unwrapFootageMap({
+        available: true,
+        backend: 'twelvelabs',
+        pendingAssets: ['asset_moon'],
+        chapters: [{ t0: 0, t1: 30, title: 'Taxi', assetId: 'asset_x59' }],
+        highlights: [],
+      });
+      expect(outcome.status).toBe('completed');
+      expect(outcome.summary).toContain('Mapped 1 chapter and 0 highlights');
+      expect(outcome.summary).toContain('still being generated for asset_moon');
+      expect((outcome.data as { pendingAssets: string[] }).pendingAssets).toEqual(['asset_moon']);
+    });
+
+    it('expands the bare mapping reason into an instruction when no asset is named', () => {
+      const outcome = unwrapFootageMap({ available: true, reason: 'mapping', chapters: [] });
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).toContain('still being generated');
+      expect(outcome.summary).toContain('Call map_footage again in a minute');
+    });
+
     it('treats missing chapters/highlights keys as empty, not a crash', () => {
       const outcome = unwrapFootageMap({ available: true });
       expect(outcome.status).toBe('warning');
@@ -774,6 +814,19 @@ describe('visual grounding (MI6.1)', () => {
         packets: [packet('a1', 1, 3, 'only one')],
       });
       expect(outcome.summary).toContain('Described 1 scene in order');
+    });
+
+    it('reads a description still being generated as on its way, not absent', () => {
+      const outcome = unwrapDescribeFootage({
+        available: true,
+        backend: 'twelvelabs',
+        reason: 'mapping',
+        packets: [],
+      });
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).toContain('still being generated');
+      expect(outcome.summary).toContain('Call describe_footage again in a minute');
+      expect(outcome.summary).not.toContain('do not call this again');
     });
 
     it('passes a failure / honest no-op through unchanged', () => {

@@ -117,6 +117,16 @@ export const footageMapSchema = z.object({
    * even under `timeBase: 'timeline'`, because there is no position to project onto.
    */
   unplacedAssets: z.array(z.string()).default([]),
+  /**
+   * Assets whose map is still being generated, so they are NOT in this map yet (mirrors
+   * `FootageMapResponse.pending_assets`).
+   *
+   * Pegasus reads a whole video before it answers — minutes for an hour of footage — so
+   * the engine waits a bounded time and answers with what it has. The work continues
+   * between calls; asking again collects it. Defaults to empty so an older engine reads
+   * as "nothing pending", which is what it meant.
+   */
+  pendingAssets: z.array(z.string()).default([]),
   /** Total footage duration in seconds. */
   durationSec: z.number().default(0),
   chapters: z.array(footageChapterSchema).default([]),
@@ -282,9 +292,28 @@ export function compactFootageChapters(
   );
 }
 
+/**
+ * The sentence that tells the model a map is on its way rather than absent.
+ *
+ * Inform, never block (ADR 0199): it names what to do next and that nothing else waits on
+ * it, and no rule makes the model act on it.
+ */
+export function pendingFootageMapNote(assetIds: readonly string[]): string {
+  const which = assetIds.join(', ');
+  return (
+    `The footage map is still being generated for ${which} (a long video takes a few ` +
+    'minutes). Call map_footage again in a minute to collect it; every other tool works ' +
+    'meanwhile.'
+  );
+}
+
 export function summarizeFootageMap(map: FootageMap | undefined): string | undefined {
   if (!map || map.available !== true) return undefined;
-  if (map.chapters.length === 0) return undefined;
+  if (map.chapters.length === 0) {
+    // A map on its way is worth one line: without it the reader cannot tell "nothing
+    // to show yet" from "this footage has no structure".
+    return map.pendingAssets.length > 0 ? pendingFootageMapNote(map.pendingAssets) : undefined;
+  }
   const lines: string[] = [];
   const total = map.durationSec > 0 ? ` (${clock(map.durationSec)} total)` : '';
   lines.push(`Footage map${total} — the structure of what is IN the footage, in order.`);
@@ -301,6 +330,7 @@ export function summarizeFootageMap(map: FootageMap | undefined): string | undef
       `Built from ${coverage.prepared} of ${coverage.total} assets prepared so far — the rest is still being read, not absent.`,
     );
   }
+  if (map.pendingAssets.length > 0) lines.push(pendingFootageMapNote(map.pendingAssets));
   if (map.summary.trim() !== '') lines.push(`Overview: ${trim(map.summary, 240)}`);
   if (map.chapters.some((c) => typeof c.similarGroup === 'number')) {
     lines.push('Rows sharing a [~n] mark look the same — use one, not both.');

@@ -115,15 +115,15 @@ class _FakeTL:
         if self.pegasus_unavailable:
             raise TwelveLabsPegasusUnavailableError("no entitlement")
 
-    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
+    def summarize_chapters(self, asset_ref: str, **_kw: Any) -> list[TLChapter]:
         self._pegasus_guard()
         return self.chapters
 
-    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
+    def summarize_highlights(self, asset_ref: str, **_kw: Any) -> list[TLHighlight]:
         self._pegasus_guard()
         return self.highlights
 
-    def summarize_gist(self, asset_ref: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str, **_kw: Any) -> TLGist:
         self._pegasus_guard()
         return TLGist(summary=self.gist)
 
@@ -887,17 +887,17 @@ class _CountingTL(_FakeTL):
         super().__init__(**kwargs)
         self.pegasus_calls = 0
 
-    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
+    def summarize_chapters(self, asset_ref: str, **_kw: Any) -> list[TLChapter]:
         self.pegasus_calls += 1
-        return super().summarize_chapters(asset_ref)
+        return super().summarize_chapters(asset_ref, **_kw)
 
-    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
+    def summarize_highlights(self, asset_ref: str, **_kw: Any) -> list[TLHighlight]:
         self.pegasus_calls += 1
-        return super().summarize_highlights(asset_ref)
+        return super().summarize_highlights(asset_ref, **_kw)
 
-    def summarize_gist(self, asset_ref: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str, **_kw: Any) -> TLGist:
         self.pegasus_calls += 1
-        return super().summarize_gist(asset_ref)
+        return super().summarize_gist(asset_ref, **_kw)
 
 
 def _seed_ready_mapping(root: Path) -> None:

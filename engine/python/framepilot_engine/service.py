@@ -207,9 +207,11 @@ from framepilot_engine.brain.store import (
     shot_cursor,
 )
 from framepilot_engine.brain.twelvelabs import (
+    PEGASUS_MAP_PROMPT_VERSION,
     PEGASUS_UNAVAILABLE_REASON,
     VISUAL_SEARCH_OPTIONS,
     TLChapter,
+    TLHighlight,
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
@@ -1597,6 +1599,19 @@ NOT_REQUESTED_REASON = "tier not requested"
 #: longer exists: descriptions are a tier of the shot ledger with their own producers
 #: (VU6), so a vision provider on its own — or a local pack on its own — is enough.
 NO_VISION_PRODUCER_REASON = "no local visual-describe pack and no vision provider"
+#: How long one footage-map or TwelveLabs describe request waits on Pegasus before it
+#: answers with what it has. Pegasus reads the whole video before it answers, so its time
+#: scales with the footage: a 58:51 reel's chapters alone outlasted a 120 s bound, and the
+#: route used to hold the request for all of it, behind Node's 300 s headers timeout. The
+#: map is now fetched on a `SliceWork` thread and a request waits at most this long — the
+#: same per-asset budget tier 2 has in an index slice — so a short clip's map still
+#: arrives in the call that asked for it and a long one arrives in a later call.
+PEGASUS_MAP_WAIT_SECONDS = 90.0
+#: The ``reason`` on a footage map or describe answer when nothing could be served yet
+#: because the Pegasus map is still being generated. Not terminal: the next call collects
+#: it. A partial map (some assets served) carries no reason and lists the rest in
+#: ``pendingAssets`` instead.
+MAPPING_IN_PROGRESS_REASON = "mapping"
 
 
 #: The ledger's three provenance groups, as a request may name them (ADR 0175,
@@ -2199,6 +2214,16 @@ class FootageMapResponse(BaseModel):
             "must place the asset first. Listing them beats silently mixing two clocks."
         ),
     )
+    pending_assets: list[str] = Field(
+        default_factory=list,
+        alias="pendingAssets",
+        description=(
+            "Assets whose Pegasus map is still being generated, so they are NOT in this "
+            "map yet. A long video takes minutes; the request waits a bounded time and "
+            "answers with what it has. Call again to collect them — the work continues "
+            "between calls and is never started twice."
+        ),
+    )
     duration_sec: float = Field(
         default=0.0, alias="durationSec", description="Total footage duration in seconds."
     )
@@ -2662,6 +2687,12 @@ def create_app(
     _measured_pass_decode_gate = threading.BoundedSemaphore(
         min(index_governor.tier_workers("measured"), settings.visual_index_concurrency)
     )
+    # Concurrent Pegasus maps. A map used to be fetched inside its request, one asset after
+    # another; each asset's map now runs as its own `SliceWork` unit, and a project of
+    # eleven unmapped assets would otherwise send eleven `/analyze` calls at once to a
+    # rate-limited endpoint. Sized by the configured concurrency of hosted understanding
+    # work, the bound an index slice already puts on TwelveLabs uploads and polls.
+    _pegasus_map_gate = threading.BoundedSemaphore(settings.visual_index_concurrency)
     # P5.4: identical requests that arrive while one is already running share its answer
     # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
     _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
@@ -6085,6 +6116,26 @@ def create_app(
         )
         return [{"word": w.value, "start": w.start, "end": w.end} for w in words]
 
+    @dataclass(frozen=True)
+    class _PegasusFetch:
+        """An asset's Pegasus map that has to be asked for: no cache, a live mapping."""
+
+        asset_ref: str
+        content_hash: str
+        duration_seconds: float | None
+
+    PegasusMap = tuple[list[Any], list[Any], str]
+
+    def _asset_duration(store: BrainStore, asset_id: str) -> float | None:
+        """The asset's probed duration, or ``None`` when it has no usable probe."""
+        asset = store.get_asset(asset_id)
+        if asset is None or asset.probe is None:
+            return None
+        try:
+            return MediaInfo.model_validate(asset.probe).duration_seconds
+        except PydanticValidationError:
+            return None
+
     def _pegasus_asset_map(
         client: TwelveLabsClient,
         store: Any,
@@ -6096,7 +6147,7 @@ def create_app(
         index_id: str | None,
         can_fetch: bool,
         refresh: bool,
-    ) -> tuple[list[Any], list[Any], str] | None:
+    ) -> PegasusMap | _PegasusFetch | None:
         """One asset's Pegasus map (asset time): the CACHE is authoritative.
 
         Cache-first and index-INDEPENDENT (plan FI2.3): a stored map for the current
@@ -6109,8 +6160,8 @@ def create_app(
         A miss can be fetched only when ``can_fetch`` (a ready live mapping with a
         ``video_id``); otherwise ``None`` (no cache, nothing to charge for). ``refresh``
         forces a re-fetch past the cache — the explicit "rebuild" escape hatch, never
-        the default. Raises the typed TwelveLabs errors so the route degrades honestly
-        (auth / pegasus_unavailable / transport) — never a fabricated map.
+        the default. A fetchable miss is returned as a :class:`_PegasusFetch` for
+        :func:`_collect_pegasus_map`, which runs it without holding the request.
 
         Pegasus 1.5 generates from the UPLOADED asset, so a fetch needs
         ``source_asset_id``. Mappings written before that id was persisted fall back to
@@ -6145,20 +6196,73 @@ def create_app(
                 asset_id,
             )
             return None
-        chapters = client.summarize_chapters(asset_ref)
-        highlights = client.summarize_highlights(asset_ref)
-        gist = client.summarize_gist(asset_ref)
-        # Persist even an empty-but-successful result so an unchanged asset is never
-        # re-charged on the next open (plan FI2.3).
+        return _PegasusFetch(
+            asset_ref=asset_ref,
+            content_hash=content_hash,
+            duration_seconds=_asset_duration(store, asset_id),
+        )
+
+    def _collect_pegasus_map(
+        client: TwelveLabsClient,
+        store: Any,
+        asset_id: str,
+        fetch: _PegasusFetch,
+        *,
+        wait: float,
+    ) -> PegasusMap | Pending:
+        """Start (or join) one asset's Pegasus map and wait for it at most ``wait`` seconds.
+
+        Pegasus reads the whole video before it answers, so a map takes time in
+        proportion to the footage — minutes for an hour of it. The three calls therefore
+        run as one :class:`SliceWork` unit, shared by every request that asks while it
+        runs, and a request that runs out of ``wait`` gets :data:`PENDING` and leaves the
+        work running for the next call to collect. Keyed by the uploaded asset, the bytes
+        and :data:`~framepilot_engine.brain.twelvelabs.PEGASUS_MAP_PROMPT_VERSION`, so a
+        re-export or a changed prompt is a new map, never the old answer.
+
+        The cache is written HERE, on the request's thread, never on the unit's: the
+        store's connection belongs to this thread. Even an empty-but-successful result is
+        cached, so an unchanged asset is never re-charged on the next open (plan FI2.3).
+
+        :raises TwelveLabsError: Whatever the unit raised, to the call that collects it —
+            the typed errors the routes already degrade on.
+        """
+        fetched = slice_work.run(
+            ("pegasus-map", fetch.asset_ref, fetch.content_hash, PEGASUS_MAP_PROMPT_VERSION),
+            lambda: _fetch_pegasus_map(client, fetch),
+            budget=wait,
+        )
+        if isinstance(fetched, Pending):
+            return fetched
+        chapters, highlights, summary = fetched
         store_cached_pegasus(
             store,
             asset_id,
-            content_hash=content_hash,
+            content_hash=fetch.content_hash,
             chapters=chapters,
             highlights=highlights,
-            summary=gist.summary,
+            summary=summary,
         )
-        return list(chapters), list(highlights), gist.summary
+        return list(chapters), list(highlights), summary
+
+    def _fetch_pegasus_map(
+        client: TwelveLabsClient, fetch: _PegasusFetch
+    ) -> tuple[list[TLChapter], list[TLHighlight], str]:
+        """The three Pegasus calls for one asset: the network only, never the brain.
+
+        Runs on a :class:`SliceWork` thread, holding a :data:`_pegasus_map_gate` slot.
+        Each call's read bound scales with the asset's duration
+        (:func:`~framepilot_engine.brain.twelvelabs.pegasus_timeout_seconds`).
+        """
+        with _pegasus_map_gate:
+            chapters = client.summarize_chapters(
+                fetch.asset_ref, duration_seconds=fetch.duration_seconds
+            )
+            highlights = client.summarize_highlights(
+                fetch.asset_ref, duration_seconds=fetch.duration_seconds
+            )
+            gist = client.summarize_gist(fetch.asset_ref, duration_seconds=fetch.duration_seconds)
+        return chapters, highlights, gist.summary
 
     def _clips_by_asset(project_doc: Project | None) -> dict[str, list[Any]]:
         """Group a working project's clips by asset id (for span→timeline projection)."""
@@ -6185,15 +6289,84 @@ def create_app(
         mapping calls Pegasus (chapters/highlights/summary), which is then cached. Each
         asset's map is projected onto timeline time and merged in time order.
 
+        ## How long one call may take
+
+        At most :data:`PEGASUS_MAP_WAIT_SECONDS` of waiting on Pegasus, whatever the
+        footage's length or the number of assets. Every miss is STARTED first, as its own
+        :class:`SliceWork` unit (bounded by ``_pegasus_map_gate``), and then all of them
+        share one deadline. An asset still mapping when it passes is listed in
+        ``pendingAssets`` and left running; the next call collects it. Before, the route
+        held the request for every asset's three Pegasus calls in turn, and a 58:51 reel's
+        chapters alone outlasted the client's 120 s read bound, so an hour of footage
+        never got a map.
+
         Honest-unavailable: nothing cached and nothing live to fetch → ``not_indexed``;
-        no Pegasus entitlement → ``pegasus_unavailable``; auth failure →
-        ``invalid_api_key``; transport failure → ``available=False``.
+        nothing cached yet but a map on its way → ``mapping``; no Pegasus entitlement →
+        ``pegasus_unavailable``; auth failure → ``invalid_api_key``; transport failure →
+        ``available=False``.
         """
         clips_by_asset = _clips_by_asset(project_doc)
         chapters: list[FootageChapter] = []
         highlights: list[FootageHighlight] = []
         summaries: list[str] = []
+        pending_assets: list[str] = []
         coverage: FootageMapCoverage | None = None
+
+        def serve(asset_id: str, pegasus: PegasusMap) -> None:
+            """Merge one asset's map into the response, in the clock the caller asked for."""
+            tl_chapters, tl_highlights, gist = pegasus
+            if req.asset_time:
+                # Asset-native: the footage's OWN structure, independent of the
+                # timeline (so it is complete even when the asset is unplaced or
+                # trimmed). The UI projects onto the timeline itself when editing.
+                for c in tl_chapters:
+                    chapters.append(
+                        FootageChapter(
+                            t0=c.start,
+                            t1=c.end,
+                            title=c.title,
+                            summary=c.summary,
+                            asset_id=asset_id,
+                        )
+                    )
+                for rank, h in enumerate(tl_highlights, start=1):
+                    highlights.append(
+                        FootageHighlight(
+                            t0=h.start,
+                            t1=h.end,
+                            label=h.label,
+                            score=1.0 / rank,
+                            asset_id=asset_id,
+                        )
+                    )
+            else:
+                for mc in map_pegasus_chapters(
+                    tl_chapters, asset_id=asset_id, clips_by_asset=clips_by_asset
+                ):
+                    chapters.append(
+                        FootageChapter(
+                            t0=mc.t0,
+                            t1=mc.t1,
+                            title=mc.title,
+                            summary=mc.summary,
+                            asset_id=asset_id,
+                        )
+                    )
+                for mh in map_pegasus_highlights(
+                    tl_highlights, asset_id=asset_id, clips_by_asset=clips_by_asset
+                ):
+                    highlights.append(
+                        FootageHighlight(
+                            t0=mh.t0,
+                            t1=mh.t1,
+                            label=mh.label,
+                            score=mh.score,
+                            asset_id=asset_id,
+                        )
+                    )
+            if gist:
+                summaries.append(gist)
+
         try:
             with open_brain(resolved_root, req.project_id) as store:
                 coverage = _map_coverage(store)
@@ -6205,6 +6378,7 @@ def create_app(
                 if req.asset_id is not None:
                     targets = [a for a in targets if a == req.asset_id]
                 served_assets = 0
+                waiting: list[tuple[str, _PegasusFetch]] = []
                 for asset_id in targets:
                     mapping = read_video_mapping(store, asset_id)
                     # content_hash falls back to the asset row so the cache is reachable
@@ -6222,7 +6396,7 @@ def create_app(
                         and mapping.ready_in(index_id)
                         and mapping.video_id is not None
                     )
-                    pegasus = _pegasus_asset_map(
+                    planned = _pegasus_asset_map(
                         client,
                         store,
                         asset_id,
@@ -6236,7 +6410,7 @@ def create_app(
                         can_fetch=can_fetch and not req.cached_only,
                         refresh=req.refresh,
                     )
-                    if pegasus is None:
+                    if planned is None:
                         # No cache and no live index to fetch from — skip this asset
                         # rather than charge for or fabricate a map.
                         _log.debug(
@@ -6245,59 +6419,31 @@ def create_app(
                             can_fetch and not req.cached_only,
                         )
                         continue
+                    if isinstance(planned, _PegasusFetch):
+                        # Started now and waited on below, so every miss runs while the
+                        # others do and the request waits one budget, not one per asset.
+                        # A map that finished since an earlier call is collected here.
+                        started = _collect_pegasus_map(client, store, asset_id, planned, wait=0.0)
+                        if isinstance(started, Pending):
+                            waiting.append((asset_id, planned))
+                            continue
+                        planned = started
                     served_assets += 1
-                    tl_chapters, tl_highlights, gist = pegasus
-                    if req.asset_time:
-                        # Asset-native: the footage's OWN structure, independent of the
-                        # timeline (so it is complete even when the asset is unplaced or
-                        # trimmed). The UI projects onto the timeline itself when editing.
-                        for c in tl_chapters:
-                            chapters.append(
-                                FootageChapter(
-                                    t0=c.start,
-                                    t1=c.end,
-                                    title=c.title,
-                                    summary=c.summary,
-                                    asset_id=asset_id,
-                                )
-                            )
-                        for rank, h in enumerate(tl_highlights, start=1):
-                            highlights.append(
-                                FootageHighlight(
-                                    t0=h.start,
-                                    t1=h.end,
-                                    label=h.label,
-                                    score=1.0 / rank,
-                                    asset_id=asset_id,
-                                )
-                            )
-                    else:
-                        for mc in map_pegasus_chapters(
-                            tl_chapters, asset_id=asset_id, clips_by_asset=clips_by_asset
-                        ):
-                            chapters.append(
-                                FootageChapter(
-                                    t0=mc.t0,
-                                    t1=mc.t1,
-                                    title=mc.title,
-                                    summary=mc.summary,
-                                    asset_id=asset_id,
-                                )
-                            )
-                        for mh in map_pegasus_highlights(
-                            tl_highlights, asset_id=asset_id, clips_by_asset=clips_by_asset
-                        ):
-                            highlights.append(
-                                FootageHighlight(
-                                    t0=mh.t0,
-                                    t1=mh.t1,
-                                    label=mh.label,
-                                    score=mh.score,
-                                    asset_id=asset_id,
-                                )
-                            )
-                    if gist:
-                        summaries.append(gist)
+                    serve(asset_id, planned)
+                deadline = time.monotonic() + PEGASUS_MAP_WAIT_SECONDS
+                for asset_id, fetch in waiting:
+                    collected = _collect_pegasus_map(
+                        client,
+                        store,
+                        asset_id,
+                        fetch,
+                        wait=max(0.0, deadline - time.monotonic()),
+                    )
+                    if isinstance(collected, Pending):
+                        pending_assets.append(asset_id)
+                        continue
+                    served_assets += 1
+                    serve(asset_id, collected)
                 # Assets the hosted backend never mapped are understood by the
                 # built-in index instead — stills are routed there because
                 # TwelveLabs cannot index a photo. Their chapters ARE the entire
@@ -6342,6 +6488,22 @@ def create_app(
         except TwelveLabsError as exc:
             return FootageMapResponse(available=False, reason=str(exc))
 
+        if served_assets == 0 and pending_assets:
+            # Nothing to show YET, which is not the same as nothing indexed: a `not_indexed`
+            # here would tell the model to give up on footage whose map is minutes away.
+            _log.info(
+                "twelvelabs footage-map: project=%s still mapping=%s",
+                req.project_id,
+                ",".join(pending_assets),
+            )
+            return FootageMapResponse(
+                available=True,
+                backend="twelvelabs",
+                reason=MAPPING_IN_PROGRESS_REASON,
+                time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
+                pending_assets=pending_assets,
+            )
         if served_assets == 0:
             return FootageMapResponse(
                 available=True,
@@ -6360,11 +6522,12 @@ def create_app(
             highlights.sort(key=lambda h: (-h.score, h.t0))
         duration = max([c.t1 for c in chapters] + [h.t1 for h in highlights] + [0.0])
         _log.info(
-            "ACT twelvelabs footage-map: project=%s assets=%d chapters=%d highlights=%d",
+            "ACT twelvelabs footage-map: project=%s assets=%d chapters=%d highlights=%d pending=%d",
             req.project_id,
             served_assets,
             len(chapters),
             len(highlights),
+            len(pending_assets),
         )
         return FootageMapResponse(
             available=True,
@@ -6376,6 +6539,7 @@ def create_app(
                 if req.asset_time or project_doc is None
                 else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
             ),
+            pending_assets=pending_assets,
             duration_sec=duration,
             chapters=chapters,
             highlights=highlights,
@@ -6582,6 +6746,11 @@ def create_app(
         (cached, content-hash keyed); the built-in arm derives the map from indexed
         spans/captions. Honest-unavailable at every gate — no sandbox root / no key /
         no Pegasus entitlement / not indexed → a typed reason, never a fabricated map.
+
+        Bounded whatever the footage's length: a Pegasus fetch runs off the request and
+        the call waits at most :data:`PEGASUS_MAP_WAIT_SECONDS`, answering with what is
+        cached plus ``pendingAssets`` (or ``reason="mapping"`` when nothing is ready).
+        The next call collects the rest. See :func:`_tl_footage_map`.
         """
         root = settings.projects_root
         if root is None:
@@ -6769,6 +6938,12 @@ def create_app(
         The chapters are also written into the shot ledger as tier-2 descriptions
         (:func:`_ledger_tl_chapters`), so what this paid for reaches every later
         run's clip rows instead of dying with the turn that asked.
+
+        A map that is not cached yet is fetched exactly as the footage-map route fetches
+        it — the same :class:`SliceWork` unit, so the two routes never pay for one asset
+        twice — and this request waits at most :data:`PEGASUS_MAP_WAIT_SECONDS` for it.
+        Still running after that answers ``mapping`` and leaves the work running for the
+        next call to collect.
         """
         project_doc: Project | None = None
         if req.project_path is not None or req.project is not None:
@@ -6789,7 +6964,7 @@ def create_app(
                     return VisualSearchResponse(
                         available=True, backend="twelvelabs", reason="not_indexed"
                     )
-                pegasus = _pegasus_asset_map(
+                planned = _pegasus_asset_map(
                     client,
                     store,
                     req.asset_id,
@@ -6800,6 +6975,22 @@ def create_app(
                     can_fetch=True,
                     refresh=False,
                 )
+                pegasus: PegasusMap | Pending | None = (
+                    _collect_pegasus_map(
+                        client, store, req.asset_id, planned, wait=PEGASUS_MAP_WAIT_SECONDS
+                    )
+                    if isinstance(planned, _PegasusFetch)
+                    else planned
+                )
+                if isinstance(pegasus, Pending):
+                    _log.info(
+                        "twelvelabs describe: project=%s asset=%s still mapping",
+                        req.project_id,
+                        req.asset_id,
+                    )
+                    return VisualSearchResponse(
+                        available=True, backend="twelvelabs", reason=MAPPING_IN_PROGRESS_REASON
+                    )
                 # The guard above guarantees a live mapping, so the cache miss is
                 # always fetchable — `None` cannot occur here, but stay honest if it does.
                 if pegasus is None:
