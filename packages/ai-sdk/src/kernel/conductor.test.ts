@@ -5,9 +5,10 @@
  * the emitted effect(s), and the structural events for one decision of the ported
  * agent-loop control flow: start (+ resume / planFirst pre-turn effects), the plan
  * ledger the reducer owns (running → terminal), cancel/checkpoint (turn-boundary vs
- * mid-turn tool cancel), done→verify, the per-turn/per-run op caps, the step cap,
- * validator-rejection accounting, the no-progress guard, `timeline_action` emission,
- * and verify(+repair)→finalize. Event-id seq is seeded from each result's `endSeq`.
+ * mid-turn tool cancel), done→verify (and the two continuations a finished reply can still
+ * earn), the per-run op cap, the step cap, validator-rejection accounting, the stall streak,
+ * `timeline_action` emission, and verify→finalize (report-only, ADR 0199). Event-id seq is
+ * seeded from each result's `endSeq`.
  */
 import { JUDGEMENT_CRITERION } from '../acceptance.js';
 import { describe, expect, it } from 'vitest';
@@ -29,7 +30,6 @@ import {
   type ResumeResult,
   type VerifyResult,
   STALL_CONFIRM_TURNS,
-  RESEARCH_BUDGET_TURNS,
   PLAN_APPROVAL_STEP_THRESHOLD,
   DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
   DIMINISHING_RETURNS_REASON,
@@ -37,12 +37,9 @@ import {
   initialConductorState,
   onCommand,
   onEffectResult,
-  MAX_VERIFY_FIX_TURNS,
   PLAN_STEP_HEADROOM,
-  failedAfterApplyMessage,
 } from './conductor.js';
 import { type ModelPlanItem, modelPlanObjectiveKey, modelPlanSteps } from './model-plan.js';
-import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 import { isRequestEcho, recordOperation } from './working-state.js';
 
 /** Exactly `PLAN_APPROVAL_STEP_THRESHOLD` step labels — at the gate, not over it. */
@@ -114,7 +111,6 @@ const verify = (over: Partial<VerifyResult> = {}): VerifyResult => ({
   summary: 'looks good',
   failedChecks: [],
   warnedChecks: [],
-  repairOps: [],
   endSeq: 1,
   ...over,
 });
@@ -562,7 +558,7 @@ describe('onEffectResult — approval fold (P11.3)', () => {
     expect(
       settled?.type === 'plan' &&
         settled.steps.every(
-          (step) => step.status === 'failed' && step.detail === 'Stopped before this step',
+          (step) => step.status === 'stopped' && step.detail === 'Stopped before this step',
         ),
     ).toBe(true);
   });
@@ -682,7 +678,21 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(events).toEqual([]);
   });
 
-  it('does not accept early done while a drafted deliverable remains unfinished', () => {
+  it('ends straight away on a turn the model never answered, and counts it as no answer', () => {
+    // The provider cut every attempt off, or returned nothing: the runtime raised its own
+    // warning and reports `unanswered`. Nothing continues past it, and a run that changed
+    // nothing this way must not read as "the model finished" (ADR 0199).
+    const s = started({
+      modelPlan: [{ task: 'Cut the intro', status: 'pending' }],
+    });
+    const step = onEffectResult(s, turn({ done: true, unanswered: true }));
+    expect(step.effects).toEqual([{ kind: 'run_verify' }]);
+    expect(step.state.modelDeclaredDone).toBe(false);
+    const settled = onEffectResult(step.state, verify());
+    expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+  });
+
+  it('continues once toward an unfinished drafted step, withholding nothing', () => {
     const planned = started({
       ledgerLength: 2,
       stepIndex: 2,
@@ -694,13 +704,11 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     });
     const step = onEffectResult(planned, turn({ stepIndex: 2, done: true }));
     expect(step.state.phase).toBe('executing');
-    expect(step.state.actionRecoveryPending).toBe(true);
+    expect(step.state.ledgerContinued).toBe(true);
     expect(step.state.working.nextAction?.action).toBe('Fill the timeline through 30 seconds');
-    expect(step.effects[0]).toMatchObject({
-      kind: 'run_turn',
-      stepIndex: 3,
-      actionRecovery: true,
-    });
+    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 3 });
+    // ADR 0199: the continuation names the next step; it does not narrow what the turn can do.
+    expect(step.effects[0]).not.toHaveProperty('actionRecovery');
     expect(step.events).toContainEqual(
       expect.objectContaining({
         type: 'notification',
@@ -709,53 +717,21 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     );
   });
 
-  it('does not accept early done while the request itself is unmet', () => {
-    // Run 4c9b5f82. A 61-photo brief was decomposed into ONE objective, so the first
-    // applied batch — ten photos over the first ten seconds of a thirty-six-second music
-    // bed — reconciled the whole ledger. The model then said it was done, the plan guard
-    // above found nothing unfinished, and the run reported `completed` while its own
-    // memory still read "Continue apply / remainingObjectives: 1". The plan is the model's
-    // account of the work; the shortfall is the request's.
+  it('ends on a finished reply whatever the checks would say — they were shown every turn', () => {
+    // Desktop run 001be135: a finished reply was re-opened five times with "The request is
+    // not met yet — continuing" over a check that was measuring a muted soundtrack, and the
+    // run then failed with its edit applied. ADR 0199: the checks are measurements the model
+    // weighs under WHERE YOU STAND while it works; a reply with no tool call ends the run.
     const planned = started({
       ledgerLength: 1,
       cumulativeOps: ops(1),
       planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
     });
-    const step = onEffectResult(
-      planned,
-      turn({
-        done: true,
-        acceptanceShortfall: [
-          '26.099s of the 36.107s programme has no picture under it.',
-          'The cut uses 10 shots but at least 61 were asked for.',
-        ],
-      }),
-    );
-    expect(step.state.phase).toBe('executing');
-    expect(step.state.actionRecoveryPending).toBe(true);
-    expect(step.state.working.nextAction?.action).toContain('no picture under it');
-    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
-    expect(step.events).toContainEqual(
-      expect.objectContaining({
-        type: 'notification',
-        text: expect.stringContaining('not met yet'),
-      }),
-    );
-  });
-
-  it('bounds an unmet-request recovery to one turn, like the plan one', () => {
-    const planned = started({
-      ledgerLength: 1,
-      actionRecoveryPending: true,
-      cumulativeOps: ops(1),
-      planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
-    });
-    const step = onEffectResult(
-      planned,
-      turn({ done: true, acceptanceShortfall: ['The cut uses 10 shots but 61 were asked for.'] }),
-    );
+    const step = onEffectResult(planned, turn({ done: true }));
     expect(step.state.phase).toBe('verifying');
+    expect(step.state.modelDeclaredDone).toBe(true);
     expect(step.effects).toEqual([{ kind: 'run_verify' }]);
+    expect(step.events.some((e) => 'text' in e && /not met yet/.test(String(e.text)))).toBe(false);
   });
 
   it('gives a late review finding one turn instead of verifying', () => {
@@ -771,20 +747,10 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(onEffectResult(planned, turn({ done: true })).state.phase).toBe('verifying');
   });
 
-  it('accepts done when the request states nothing the timeline fails', () => {
+  it('continues toward a drafted step only once — the next finished reply ends the run', () => {
     const planned = started({
       ledgerLength: 1,
-      cumulativeOps: ops(1),
-      planSteps: [{ id: 'step-1', label: 'Build the montage', status: 'completed' }],
-    });
-    const step = onEffectResult(planned, turn({ done: true, acceptanceShortfall: [] }));
-    expect(step.state.phase).toBe('verifying');
-  });
-
-  it('bounds an early-done recovery to one turn', () => {
-    const planned = started({
-      ledgerLength: 1,
-      actionRecoveryPending: true,
+      ledgerContinued: true,
       planSteps: [{ id: 'step-1', label: 'Finish the montage', status: 'pending' }],
     });
     const step = onEffectResult(planned, turn({ done: true }));
@@ -810,25 +776,37 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     ]);
   });
 
-  it('rejects a turn exceeding the per-turn op cap: failed step + warning, then verifies', () => {
+  it('continues past a turn the runtime refused for the per-turn cap, so the model can batch', () => {
+    // Desktop run 001be135 proposed a 111-clip rebuild in one turn; the refusal ended the run
+    // on the spot and it finished with one uncut clip. The runtime now refuses the turn as an
+    // ordinary rejection (reason + `over-cap` key) and the run goes on.
     const s = started({ config: { maxSteps: 8, maxOpsPerTurn: 5, maxOpsPerRun: 200 } });
-    const { state, effects, events } = onEffectResult(s, turn({ turnOpCount: 6 }));
-    expect(state.phase).toBe('verifying');
-    expect(effects).toEqual([{ kind: 'run_verify' }]);
-    // Unplanned run: the warning still fires, but no pinned checklist is emitted.
-    expect(types(events)).toEqual(['warning']);
-    expect(state.planSteps[0]).toMatchObject({ status: 'failed' });
+    const refusal = 'Turn rejected: 6 model-composed operations exceeds the per-turn cap of 5.';
+    const { state, effects } = onEffectResult(
+      s,
+      turn({ turnOpCount: 6, rejection: refusal, rejectionKey: 'over-cap', rejectionScale: 1 }),
+    );
+    expect(state.phase).toBe('executing');
+    expect(effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
     expect(state.cumulativeOps).toHaveLength(0);
+    expect(state.rejectionReasons).toEqual([refusal]);
+    expect(state.attemptedAnyEdit).toBe(true);
   });
 
-  it('also re-emits the pinned checklist when a planned run rejects an over-cap turn', () => {
+  it('marks the drafted step of an over-cap turn failed with the reason, and still continues', () => {
     const s = started({
       config: { maxSteps: 8, maxOpsPerTurn: 5, maxOpsPerRun: 200 },
       ledgerLength: 1,
       planSteps: [runningStep()],
     });
-    const { events } = onEffectResult(s, turn({ turnOpCount: 6 }));
-    expect(types(events)).toEqual(['plan', 'warning']);
+    const refusal = 'Turn rejected: 6 model-composed operations exceeds the per-turn cap of 5.';
+    const { state, events } = onEffectResult(
+      s,
+      turn({ turnOpCount: 6, note: refusal, rejection: refusal, rejectionKey: 'over-cap' }),
+    );
+    expect(types(events)).toEqual(['plan']);
+    expect(state.planSteps[0]).toMatchObject({ status: 'failed', detail: refusal });
+    expect(state.phase).toBe('executing');
   });
 
   it('applies a turn (completed step + timeline_action cards) and advances', () => {
@@ -906,12 +884,11 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     );
     expect(state.rejectedOpCount).toBe(4);
     expect(state.rejectionReasons).toEqual(['overlaps neighbour']);
-    // The rejection reason is in the log the model reads next turn — retry, bounded
-    // by the exact-repeat guard (never a silent dead end). An ATTEMPTED edit is progress,
-    // so the convergence streak stays at 0 — the model is trying, not stalling.
+    // The rejection reason is in the log the model reads next turn — retry, bounded by the
+    // stall streak for a refusal that repeats (never a silent dead end). An ATTEMPTED edit
+    // is progress, so the convergence streak stays at 0 — the model is trying, not stalling.
     expect(effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
     expect(state.stallStreak).toBe(0);
-    expect(state.noProgress).toContain('sig');
     // Unplanned run: the failed status lives in state, not an emitted checklist.
     expect(events.some((e) => e.type === 'plan')).toBe(false);
     expect(state.planSteps[0]).toMatchObject({ status: 'failed', detail: 'overlaps neighbour' });
@@ -923,6 +900,54 @@ describe('onEffectResult — turn stop/continue decisions', () => {
   // to learn what it just did is asking it to pay for knowledge it already has. That run
   // alternated apply / re-read for its whole second half, and the re-read is also what
   // collided with the spin guard.
+  it('keeps one ledger row per kind of action, however many operations a patch applied', () => {
+    // Desktop run 001be135: a caption regeneration is ~1,000 operations, the ledger took a
+    // row for each (5,730 by the end), and every run_state event carried all of them until
+    // the run died at the durable-log limit.
+    const actions = [
+      ...Array.from({ length: 300 }, (_, i) => ({
+        action: 'Deleted range',
+        detail: `Caption 1 · ${String(i)}s`,
+      })),
+      ...Array.from({ length: 340 }, (_, i) => ({
+        action: 'Added captions',
+        detail: `Caption 1 · ${String(i)}s`,
+      })),
+    ];
+    const { state, events } = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(640), turnOpCount: 640, describedActions: actions }),
+    );
+    expect(state.working.operations.map((o) => o.intent)).toEqual([
+      'Deleted range ×300',
+      'Added captions ×340',
+    ]);
+    // …and the sidebar gets a card per kind, not 640 rows.
+    const cards = events.filter((e) => e.type === 'timeline_action');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]).toMatchObject({
+      action: 'Deleted range ×300',
+      detail: 'Caption 1 · 0s … Caption 1 · 299s',
+    });
+  });
+
+  it('still lists every action of an ordinary patch', () => {
+    const actions = [
+      { action: 'Added clip', detail: 'Video 1 · 0s–3s' },
+      { action: 'Added clip', detail: 'Video 1 · 3s–6s' },
+      { action: 'Trimmed clip', detail: 'clip_1' },
+    ];
+    const { state, events } = onEffectResult(
+      started(),
+      turn({ applied: true, appliedOps: ops(3), turnOpCount: 3, describedActions: actions }),
+    );
+    expect(events.filter((e) => e.type === 'timeline_action')).toHaveLength(3);
+    expect(state.working.operations.map((o) => o.intent)).toEqual([
+      'Added clip ×2',
+      'Trimmed clip',
+    ]);
+  });
+
   it('records the arrangement it just made, so the next turn need not re-read it', () => {
     const { state } = onEffectResult(
       started(),
@@ -978,58 +1003,36 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(arrangements).toEqual(['Timeline now: B']);
   });
 
-  it('stops a rejected turn that exactly repeats a no-progress signature', () => {
-    const s = started({ noProgress: ['sig'] });
-    const { effects } = onEffectResult(
-      s,
-      turn({ applied: false, turnOpCount: 2, note: 'overlaps neighbour' }),
-    );
-    expect(effects).toEqual([{ kind: 'run_verify' }]);
+  it('does not stop a run on its second identical turn — the stall streak decides', () => {
+    // The exact-repeat arm used to settle a run the moment it made the same call batch twice
+    // against the same arrangement (ADR 0199 removed it). A repeat that learns nothing still
+    // climbs the stall streak, and STALL_CONFIRM_TURNS of them end the run.
+    const repeat = turn({
+      signature: 'read-timeline',
+      callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: true }],
+    });
+    let state = started();
+    for (let i = 1; i < STALL_CONFIRM_TURNS; i += 1) {
+      const step = onEffectResult(state, repeat);
+      expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
+      state = step.state;
+    }
+    const last = onEffectResult(state, repeat);
+    expect(last.effects).toEqual([{ kind: 'run_verify' }]);
+    expect(
+      last.events.some((e) => e.type === 'notification' && e.text.includes('stopped making')),
+    ).toBe(true);
   });
 
   // GAP-002 (run `fc10301a`). The exact-repeat arm ended runs in silence: a tool card went
   // green and the run settled `failed` in the same breath, with only the timeline's
   // self-check warnings to explain it. The editor could not tell a converged run from a
   // crashed one.
-  it('says why it is settling when a signature exactly repeats', () => {
-    const { events } = onEffectResult(
-      started({ noProgress: ['sig'] }),
-      turn({ applied: false, turnOpCount: 2, note: 'overlaps neighbour' }),
-    );
-    expect(
-      events.some(
-        (e) => e.type === 'notification' && e.text.includes('already made against this same'),
-      ),
-    ).toBe(true);
-  });
-
   // GAP-002, the banking half. A turn that ANSWERED is not evidence of a spin, whatever
   // the model then did with the answer — and banking it arms a trap for the next turn
   // that legitimately asks the same question. Run `fc10301a` banked
   // `get_timeline + list_assets` on a memo-hit turn, made the same pair four turns and
   // thirty-four clips later against a moved timeline, and was killed on the match.
-  it('does not bank a signature for a turn whose reads came back with fresh data', () => {
-    const { state } = onEffectResult(
-      started(),
-      turn({
-        signature: 'read-timeline',
-        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: false }],
-      }),
-    );
-    expect(state.noProgress).not.toContain('read-timeline');
-  });
-
-  it('still banks a signature for a turn that learned nothing', () => {
-    const { state } = onEffectResult(
-      started(),
-      turn({
-        signature: 'read-timeline',
-        callFacts: [{ key: 'get_timeline', status: 'completed', fromCache: true }],
-      }),
-    );
-    expect(state.noProgress).toContain('read-timeline');
-  });
-
   it('treats an attempted (even rejected) edit as progress — the streak resets, not climbs', () => {
     // A model actively proposing edits is not stalling, even if the validator rejects
     // them: the reason is now in the log and it gets to correct itself. Only the
@@ -1192,12 +1195,9 @@ describe('onEffectResult — turn stop/continue decisions', () => {
   it('does not credit a turn whose edit the timeline already matched', () => {
     const { state } = onEffectResult(
       started(),
-      turn({ applied: false, satisfied: true, turnOpCount: 1, turnPlacementCount: 1 }),
+      turn({ applied: false, satisfied: true, turnOpCount: 1 }),
     );
     expect(state.stallStreak).toBe(1);
-    expect(state.noProgressStreak).toBe(1);
-    // Nothing left reconnaissance, so the research budget is not refunded either.
-    expect(state.researchStreak).toBe(1);
     // …and it is still not a rejection: nothing failed, nothing to retry.
     expect(state.rejectedOpCount).toBe(0);
     expect(state.rejectionReasons).toEqual([]);
@@ -1214,7 +1214,6 @@ describe('onEffectResult — turn stop/continue decisions', () => {
       }),
     );
     expect(state.stallStreak).toBe(0);
-    expect(state.noProgressStreak).toBe(0);
   });
 
   /**
@@ -1540,20 +1539,18 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     );
     expect(events.some((e) => e.type === 'plan')).toBe(false);
     expect(state.planSteps[0]).toMatchObject({ status: 'failed' });
-    expect(state.noProgress).toContain('z');
     expect(effects[0]).toMatchObject({ kind: 'run_turn' });
   });
 
   it('continues a novel zero-op turn without falsely completing its plan step', () => {
     const first = onEffectResult(started(), turn({ signature: 'sigX' }));
-    expect(first.state.noProgress).toContain('sigX');
     expect(first.state.planSteps[0]).toMatchObject({ status: 'running' });
     expect(first.events.some((event) => event.type === 'plan')).toBe(false);
     expect(first.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
-
-    const repeat = onEffectResult(started({ noProgress: ['sigX'] }), turn({ signature: 'sigX' }));
-    expect(repeat.state.phase).toBe('verifying');
-    expect(repeat.effects).toEqual([{ kind: 'run_verify' }]);
+    // The same turn again is not a stop by itself (ADR 0199) — the stall streak climbs.
+    const repeat = onEffectResult(first.state, turn({ signature: 'sigX', stepIndex: 2 }));
+    expect(repeat.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 3 });
+    expect(repeat.state.stallStreak).toBe(2);
   });
 
   it('counts an unproductive zero-op turn toward the convergence streak but still advances', () => {
@@ -1627,45 +1624,16 @@ describe('onEffectResult — turn stop/continue decisions', () => {
       s = step.state;
     });
     expect(emitted.some((text) => /circles/i.test(text))).toBe(false);
-    expect(s.actionRecoveryPending).toBe(false);
     expect(s.stallStreak).toBe(0);
   });
 
-  it('still fills the loop window when the turns discover nothing', () => {
-    // The counterpart, asserted on the window itself rather than on which of the three
-    // recovery sentences wins the race: a run that keeps re-asking a question it has
-    // already answered accumulates its intent, exactly as before. (Whether `looping` or
-    // `noProgressStreak` reaches the recovery gate first depends on the run; both lead
-    // to the same restricted turn.)
-    const rationales = [
-      'Let me orient myself.',
-      'Let me get the full picture.',
-      'Let me first understand the project.',
-    ];
-    let s = started();
-    for (const rationale of rationales) {
-      s = onEffectResult(
-        s,
-        turn({
-          signature: 'orienting',
-          rationale,
-          callFacts: [{ key: 'get_timeline:', status: 'completed', fromCache: true }],
-        }),
-      ).state;
-    }
-    expect(s.recentIntents).toEqual(['orient', 'orient', 'orient']);
-  });
-
-  it('still declares a loop when a run keeps proposing under one purpose and learns nothing', () => {
-    // The case the detector is actually reachable for, and the one it was built for:
-    // every turn "progresses" in the loose sense (it proposed operations, so the
-    // no-progress streak resets and the research budget is refunded) while discovering
-    // nothing and saying the same thing about it. Three of those trip the loop and the
-    // run is switched onto the recovery surface — the behaviour the productive-search
-    // regression above must not have removed.
+  it('never narrows a run that keeps re-proposing under one purpose — the refusals bound it', () => {
+    // The semantic-loop detector used to switch such a run onto a restricted "recovery"
+    // surface (ADR 0199 removed it). Each re-proposal is an attempted edit, so it is bounded
+    // by the repeated-rejection rule instead: the same wall twice is no longer progress.
     let s = started();
     const emitted: string[] = [];
-    for (let i = 0; i < SEMANTIC_LOOP_TURNS; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
       const step = onEffectResult(
         s,
         turn({
@@ -1673,38 +1641,16 @@ describe('onEffectResult — turn stop/continue decisions', () => {
           rationale: 'Let me find the right place to cut.',
           turnOpCount: 1,
           applied: false,
-          satisfied: false,
+          rejection: 'overlaps the clip at 3s',
           callFacts: [],
         }),
       );
       emitted.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
+      expect(step.effects[0]).not.toHaveProperty('actionRecovery');
       s = step.state;
     }
-    expect(emitted.some((text) => /circles/i.test(text))).toBe(true);
-    expect(s.actionRecoveryPending).toBe(true);
-  });
-
-  it('one novel turn clears the loop window rather than shortening it', () => {
-    // The window is not a rolling average — a turn that genuinely learned something means
-    // the run is not circling NOW, so what it was doing two turns ago stops counting.
-    const stuck = onEffectResult(
-      started(),
-      turn({
-        signature: 'a',
-        rationale: 'Let me orient myself.',
-        callFacts: [{ key: 'get_timeline:', status: 'completed', fromCache: true }],
-      }),
-    ).state;
-    expect(stuck.recentIntents).toEqual(['orient']);
-    const learned = onEffectResult(
-      stuck,
-      turn({
-        signature: 'b',
-        rationale: 'Let me orient myself again.',
-        callFacts: [{ key: 'list_assets:', status: 'completed', fromCache: false }],
-      }),
-    ).state;
-    expect(learned.recentIntents).toEqual([]);
+    expect(emitted.some((text) => /circles/i.test(text))).toBe(false);
+    expect(s.stallStreak).toBe(2);
   });
 
   it('regression: a failed call does not bank its key against the retry that works', () => {
@@ -1837,7 +1783,7 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(effects[0]).toMatchObject({ kind: 'run_turn' });
   });
 
-  it('gives a cached-only repeat one mutation/ask recovery turn before convergence', () => {
+  it('ends a run whose turns keep learning nothing at the stall threshold, with no recovery turn', () => {
     const { state, effects, events } = onEffectResult(
       started({ stallStreak: STALL_CONFIRM_TURNS - 1 }),
       turn({
@@ -1845,36 +1791,24 @@ describe('onEffectResult — turn stop/continue decisions', () => {
         callFacts: [{ key: 'list_assets:{}', status: 'completed', fromCache: true }],
       }),
     );
-    expect(state.phase).toBe('executing');
-    expect(state.actionRecoveryPending).toBe(true);
-    expect(effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
-    expect(events.some((e) => e.type === 'notification' && /progress/i.test(e.text))).toBe(false);
-  });
-
-  it('also grants recovery for a cached-only repeat whose facts settled as "warning"', () => {
-    const { state } = onEffectResult(
-      started({ stallStreak: STALL_CONFIRM_TURNS - 1 }),
-      turn({
-        signature: 'still-stuck-warning',
-        callFacts: [{ key: 'search_visual:{}', status: 'warning', fromCache: true }],
-      }),
-    );
-    expect(state.actionRecoveryPending).toBe(true);
-  });
-
-  it('stops honestly when a recovery turn still cannot make progress', () => {
-    const { state, effects, events } = onEffectResult(
-      started({
-        stallStreak: STALL_CONFIRM_TURNS - 1,
-        actionRecoveryPending: true,
-      }),
-      turn({ signature: 'recovery-stuck' }),
-    );
     expect(state.phase).toBe('verifying');
     expect(effects).toEqual([{ kind: 'run_verify' }]);
-    expect(
-      events.some((event) => event.type === 'notification' && /progress/i.test(event.text)),
-    ).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && /progress/i.test(e.text))).toBe(true);
+  });
+
+  it('a cached-only turn below the threshold simply continues — nothing is withheld', () => {
+    const { state, effects, events } = onEffectResult(
+      started(),
+      turn({
+        signature: 'cached-only',
+        callFacts: [{ key: 'list_assets:{}', status: 'completed', fromCache: true }],
+      }),
+    );
+    expect(state.phase).toBe('executing');
+    expect(state.stallStreak).toBe(1);
+    expect(effects[0]).toMatchObject({ kind: 'run_turn' });
+    expect(effects[0]).not.toHaveProperty('actionRecovery');
+    expect(events.filter((e) => e.type === 'notification')).toEqual([]);
   });
 
   it('lets a real multi-step run gather and then edit without being cut off (W3)', () => {
@@ -1931,7 +1865,6 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     const { state, effects } = onEffectResult(s, turn({ stepIndex: 8, signature: 'sigCap' }));
     expect(state.phase).toBe('verifying');
     expect(effects).toEqual([{ kind: 'run_verify' }]);
-    expect(state.noProgress).toContain('sigCap');
   });
 
   it('appends a derived step beyond the ledger (turns past a seeded plan)', () => {
@@ -2082,7 +2015,6 @@ describe('progress guards, audited together', () => {
         kind: 'run_turn',
       });
       expect(step.state.stallStreak, `turn ${String(i)} stall streak`).toBe(0);
-      expect(step.state.actionRecoveryPending, `turn ${String(i)} recovery`).toBe(false);
       s = step.state;
     }
     // The step cap, and only the step cap, ends it.
@@ -2135,7 +2067,7 @@ describe('progress guards, audited together', () => {
   });
 });
 
-describe('onEffectResult — verify(+repair) → finalize', () => {
+describe('onEffectResult — verify → finalize', () => {
   it('tags every notice of the self-check pass, and only those, so a host can group them', () => {
     const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
     const { events } = onEffectResult(
@@ -2145,24 +2077,24 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
         summary: 'one issue',
         failedChecks: [{ label: 'Duration', detail: 'too long' }],
         warnedChecks: [{ label: 'Transcript', detail: 'looks looped' }],
-        repairOutcome: { kind: 'no_calls' },
       }),
     );
     const selfCheck = events.filter((e) => e.type === 'notification' || e.type === 'warning');
-    expect(selfCheck).toHaveLength(4);
+    expect(selfCheck).toHaveLength(3);
     for (const event of selfCheck)
       expect(event).toMatchObject({ reason: SELF_CHECK_NOTICE_REASON });
-    // The run's own failure card is not part of the pass: it stays its own, retryable row.
-    expect(events.find((e) => e.type === 'error')).not.toHaveProperty('reason');
     // …and the tag survives the reduction the sidebar renders from, warnings included.
     const notices = reduceEvents(events).nodes.filter((n) => n.kind === 'notice');
-    expect(notices.filter((n) => n.reason === SELF_CHECK_NOTICE_REASON)).toHaveLength(4);
+    expect(notices.filter((n) => n.reason === SELF_CHECK_NOTICE_REASON)).toHaveLength(3);
   });
 
-  it('surfaces the self-check summary + a warning per failed check, then finalizes', () => {
-    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+  it('reports a failed check and still completes a run that delivered work (ADR 0199)', () => {
+    // Desktop run 001be135 ended "Applied 162 changes, but the run could not finish: the
+    // self-check still fails — No words cut through" over a check measuring a muted
+    // soundtrack. The self-check reports; the run's status rests on what landed.
+    const applied = onEffectResult(started(), landed()).state;
     const { state, effects, events } = onEffectResult(
-      s,
+      { ...applied, phase: 'verifying' },
       verify({
         ok: false,
         summary: 'one issue',
@@ -2170,23 +2102,12 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       }),
     );
     expect(state.phase).toBe('review');
-    // …and, because work was applied and the run still could not finish, ONE error card
-    // that says the edits are on the timeline and why the run stopped.
-    expect(types(events)).toEqual(['notification', 'warning', 'error']);
+    expect(types(events)).toEqual(['notification', 'warning']);
     expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
-    expect(events[2]).toMatchObject({
-      type: 'error',
-      message: expect.stringContaining(
-        'Applied 2 changes, but the run could not finish: the self-check still fails — Duration',
-      ),
-      retryable: false,
-    });
-    expect(effects[0]).toMatchObject({
-      kind: 'finalize',
-      ops: s.cumulativeOps,
-      cancelled: false,
-      failed: true,
-    });
+    expect(events[1]).toMatchObject({ text: 'Duration: too long' });
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+    expect(state.working.stage).toBe('complete');
+    expect(effects[0]).toMatchObject({ kind: 'finalize', cancelled: false, failed: false });
   });
 
   it('a failed run that applied nothing gets no "applied" error card', () => {
@@ -2240,54 +2161,68 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     // The failure is a warning event; the advisory is a notification — the severity
     // distinction survives to the stream rather than being flattened.
-    expect(types(events)).toEqual(['notification', 'warning', 'notification', 'error']);
+    expect(types(events)).toEqual(['notification', 'warning', 'notification']);
     expect(events[2]).toMatchObject({
       text: 'Reframing is consistent: any landscape source will render…',
     });
   });
 
   // GAP-016. Four different things could have happened; they all looked identical.
-  it('says what the repair pass did, including when it did nothing', () => {
-    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
-    const { events } = onEffectResult(
-      s,
-      verify({ ok: false, summary: 'one issue', repairOutcome: { kind: 'no_calls' } }),
+  it('fails a run that changed nothing because it was stopped, not one that answered', () => {
+    // Stopped with nothing landed (the stall streak, a budget): failed, and the empty-run
+    // notice says why.
+    const stopped = onEffectResult(
+      started({ phase: 'verifying', attemptedAnyEdit: true }),
+      verify(),
     );
-    expect(
-      events.some((e) => e.type === 'notification' && e.text.includes('proposed no change')),
-    ).toBe(true);
+    expect(stopped.state.integrityFailed).toBe(true);
+    expect(stopped.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+    // The model ended it itself, nothing it tried was refused, and its reply is the answer
+    // ("the silences were already trimmed"): completed, with an empty diff.
+    const answered = onEffectResult(
+      started({ phase: 'verifying', modelDeclaredDone: true }),
+      verify(),
+    );
+    expect(answered.state.integrityFailed).toBe(false);
+    expect(answered.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
+    // A model that finished after every attempt was refused did not get what it tried.
+    const refused = onEffectResult(
+      started({ phase: 'verifying', modelDeclaredDone: true, rejectedOpCount: 2 }),
+      verify(),
+    );
+    expect(refused.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
   });
 
-  it('names the validator when the repair pass was rejected', () => {
-    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
-    const { events } = onEffectResult(
-      s,
-      verify({
-        ok: false,
-        summary: 'one issue',
-        repairOutcome: { kind: 'all_rejected', reasons: ['Rejected: overlaps neighbour'] },
-      }),
-    );
-    expect(
-      events.some((e) => e.type === 'notification' && e.text.includes('overlaps neighbour')),
-    ).toBe(true);
-  });
+  it('reads a reply after a failed call as what the run could not do, not as an answer', () => {
+    // The engine did not answer (or the arguments fit no tool), and the model then said so
+    // and stopped: nothing changed and its last attempt failed — failed.
+    const engineDown = turn({
+      anyToolFailed: true,
+      callFacts: [{ key: 'detect_scenes:asset_1', status: 'failed', fromCache: false }],
+    });
+    const afterFailure = onEffectResult(started(), engineDown);
+    expect(afterFailure.state.lastToolTurnFailed).toBe(true);
+    const reported = onEffectResult(afterFailure.state, turn({ done: true, stepIndex: 2 }));
+    // A turn with no calls leaves the last attempt's outcome standing.
+    expect(reported.state.lastToolTurnFailed).toBe(true);
+    const settled = onEffectResult(reported.state, verify());
+    expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
 
-  it('blocks successful completion when deterministic verification still fails', () => {
-    const applied = onEffectResult(
-      started(),
-      turn({ applied: true, appliedOps: ops(1), turnOpCount: 1 }),
-    ).state;
-    const step = onEffectResult(
-      { ...applied, phase: 'verifying' },
-      verify({
-        ok: false,
-        summary: 'duration is incomplete',
-        failedChecks: [{ label: 'Duration', detail: '6s of 30s' }],
+    // A mistake the model then recovered from is behind it: the retry worked, and the reply
+    // that follows is the answer.
+    const retried = onEffectResult(
+      afterFailure.state,
+      turn({
+        stepIndex: 2,
+        callFacts: [{ key: 'detect_scenes:asset_1:retry', status: 'completed', fromCache: false }],
       }),
     );
-    expect(step.state.integrityFailed).toBe(true);
-    expect(step.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+    expect(retried.state.lastToolTurnFailed).toBe(false);
+    const answered = onEffectResult(retried.state, turn({ done: true, stepIndex: 3 }));
+    expect(onEffectResult(answered.state, verify()).effects[0]).toMatchObject({
+      kind: 'finalize',
+      failed: false,
+    });
   });
 
   // P4.3 — the bounded verify loop. A failed self-check on a run that did land work gets
@@ -2319,202 +2254,41 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     const criteria = step.state.working.verifications.map((v) => v.criterion);
     expect(criteria).not.toContain('tighten the intro');
-    expect(criteria).toContain('A validated edit landed and the run’s deterministic checks passed');
-  });
-
-  it('routes a failed self-check into a findings-scoped fix turn instead of failing outright', () => {
-    const applied = onEffectResult(started(), landed()).state;
-    const step = onEffectResult(
-      { ...applied, phase: 'verifying' },
-      verify({
-        ok: false,
-        summary: '2 check(s) failed',
-        failedChecks: [
-          { label: 'No overlaps', detail: 'clip_2 overlaps clip_1 by 0.4s' },
-          { label: 'Cuts on frame grid', detail: 'clip_3 ends off-grid' },
-        ],
-      }),
-    );
-    expect(step.state.phase).toBe('executing');
-    expect(step.state.verifyFixTurns).toBe(1);
-    expect(step.state.integrityFailed).toBe(false);
-    expect(step.state.working.stage).toBe('repair');
-    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stage: 'repair' });
-    // The findings are in the run's memory, one FAIL line each, for the briefing to show.
-    const failed = step.state.working.verifications.filter((v) => !v.passed);
-    expect(failed.map((v) => `${v.criterion} — ${v.detail ?? ''}`)).toEqual([
-      'No overlaps — clip_2 overlaps clip_1 by 0.4s',
-      'Cuts on frame grid — clip_3 ends off-grid',
-    ]);
-    expect(
-      step.events.some((e) => e.type === 'notification' && e.text.includes('fix turn 1 of 1')),
-    ).toBe(true);
-  });
-
-  it('a fixed run passes the second self-check and completes', () => {
-    const applied = onEffectResult(started(), landed()).state;
-    const fixing = onEffectResult(
-      { ...applied, phase: 'verifying' },
-      verify({
-        ok: false,
-        summary: '1 failed',
-        failedChecks: [{ label: 'No overlaps', detail: 'x' }],
-      }),
-    ).state;
-    // The fix turn lands an edit and declares itself done → back to verify.
-    const fixed = onEffectResult(fixing, landed({ done: true, stepIndex: fixing.stepIndex }));
-    expect(fixed.effects[0]).toMatchObject({ kind: 'run_verify' });
-    const done = onEffectResult(fixed.state, verify({ ok: true, summary: 'all checks passed' }));
-    expect(done.state.working.stage).toBe('complete');
-    expect(done.state.integrityFailed).toBe(false);
-    expect(done.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
-  });
-
-  it('never spends more than MAX_VERIFY_FIX_TURNS — the next failing self-check settles the run', () => {
-    const failing = verify({
-      ok: false,
-      summary: 'still failing',
-      failedChecks: [{ label: 'Duration', detail: '6s of 30s' }],
-    });
-    let state = onEffectResult(started(), landed()).state;
-    state = { ...state, phase: 'verifying' };
-    for (let fix = 1; fix <= MAX_VERIFY_FIX_TURNS; fix += 1) {
-      const step = onEffectResult(state, failing);
-      expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
-      expect(step.state.verifyFixTurns).toBe(fix);
-      const back = onEffectResult(
-        step.state,
-        landed({ done: true, stepIndex: step.state.stepIndex }),
-      );
-      expect(back.effects[0]).toMatchObject({ kind: 'run_verify' });
-      state = back.state;
-    }
-    const settled = onEffectResult(state, failing);
-    expect(settled.state.verifyFixTurns).toBe(MAX_VERIFY_FIX_TURNS);
-    expect(settled.state.integrityFailed).toBe(true);
-    expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
-    expect(settled.events.some((e) => e.type === 'warning' && e.text.includes('6s of 30s'))).toBe(
-      true,
-    );
+    expect(criteria).toContain('A validated edit landed on the timeline');
   });
 
   // AL37 — run `88c8b27d` passed its self-check with "No jump cuts: 1 cut(s) join the same
   // shot to itself … at frame 1360", a real five-frame skip inside a speed-ramped shot, and
   // the advice arrived as a notification AFTER the model's final reply. A run that delivered
   // work and ends with advisories now spends its one fix turn hearing them.
-  describe('the advisory fix turn', () => {
-    const advice = [
-      { label: 'No jump cuts', detail: '1 cut(s) join the same shot to itself — at frame 1360' },
-    ];
-    const advisory = verify({
-      ok: true,
-      summary: 'Passed with 1 warning(s).',
-      warnedChecks: advice,
-    });
-    const verifying = (over: Partial<ConductorState> = {}): ConductorState => ({
-      ...onEffectResult(started(), landed()).state,
-      phase: 'verifying',
-      ...over,
-    });
-
-    it('opens one turn that hears the advisories, without recording them as failures', () => {
-      const step = onEffectResult(verifying(), advisory);
-      expect(step.state.phase).toBe('executing');
-      expect(step.state.verifyFixTurns).toBe(1);
-      expect(step.state.verifyAdvisories).toEqual(advice);
-      expect(step.state.working.stage).toBe('repair');
-      expect(step.effects[0]).toMatchObject({
-        kind: 'run_turn',
-        stage: 'repair',
-        advisories: advice,
-      });
-      // (a) An advisory is not a failed verification: nothing here may bar `complete`.
-      expect(step.state.working.verifications.filter((v) => !v.passed)).toEqual([]);
-      expect(step.state.integrityFailed).toBe(false);
-      // The editor still sees the advice, and why the run went on.
-      expect(step.events).toContainEqual(
-        expect.objectContaining({
-          type: 'notification',
-          text: 'No jump cuts: 1 cut(s) join the same shot to itself — at frame 1360',
-        }),
-      );
-      expect(step.events.at(-1)).toMatchObject({
+  it('reports advisories and completes — no turn is bought to hear them', () => {
+    // AL37 used to spend a fix turn on advisories after the model's final reply. They are
+    // now in front of the model under WHERE YOU STAND after every edit (ADR 0199).
+    const applied = onEffectResult(started(), landed()).state;
+    const step = onEffectResult(
+      { ...applied, phase: 'verifying' },
+      verify({
+        ok: true,
+        summary: 'Passed with 1 warning(s).',
+        warnedChecks: [
+          {
+            label: 'No jump cuts',
+            detail: '1 cut(s) join the same shot to itself — at frame 1360',
+          },
+        ],
+      }),
+    );
+    expect(step.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
+    expect(step.state.working.stage).toBe('complete');
+    expect(step.events).toContainEqual(
+      expect.objectContaining({
         type: 'notification',
-        text: expect.stringContaining('leave it if intended: No jump cuts'),
-      });
-    });
-
-    it('a reply with no tool call ends the run — even with plan items still open', () => {
-      const opened = onEffectResult(
-        verifying({ modelPlan: [{ task: 'Grade the summit', status: 'pending' }] }),
-        advisory,
-      ).state;
-      const replied = onEffectResult(opened, turn({ done: true, stepIndex: opened.stepIndex }));
-      expect(replied.effects[0]).toMatchObject({ kind: 'run_verify' });
-    });
-
-    it('an advisory the model leaves on purpose still completes the run, and is only reported', () => {
-      const opened = onEffectResult(verifying(), advisory).state;
-      const replied = onEffectResult(opened, turn({ done: true, stepIndex: opened.stepIndex }));
-      // (b) No loop: the same advice again is reported, not another turn.
-      const settled = onEffectResult(replied.state, advisory);
-      expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
-      expect(settled.state.working.stage).toBe('complete');
-      expect(settled.state.integrityFailed).toBe(false);
-      expect(settled.state.verifyFixTurns).toBe(1);
-      expect(settled.state).not.toHaveProperty('verifyAdvisories');
-      expect(settled.events).toContainEqual(
-        expect.objectContaining({
-          type: 'notification',
-          text: expect.stringContaining('No jump cuts'),
-        }),
-      );
-      expect(settled.events.some((e) => e.type === 'error')).toBe(false);
-    });
-
-    it('a fix the model makes lands and the run completes', () => {
-      const opened = onEffectResult(verifying(), advisory).state;
-      const fixed = onEffectResult(opened, landed({ done: true, stepIndex: opened.stepIndex }));
-      expect(fixed.effects[0]).toMatchObject({ kind: 'run_verify' });
-      const settled = onEffectResult(fixed.state, verify({ ok: true, summary: 'all passed' }));
-      expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
-      expect(settled.state.working.stage).toBe('complete');
-    });
-
-    it('is not bought when the run already spent its fix turn, was cancelled, or ran out of budget', () => {
-      for (const over of [
-        { verifyFixTurns: MAX_VERIFY_FIX_TURNS },
-        { cancelled: true },
-        { runUsd: 2, config: { ...started().config, maxUsd: 1 } },
-        // The per-run operation cap: no room left for the fix the advice might call for.
-        { config: { ...started().config, maxOpsPerRun: 1 } },
-      ] satisfies Partial<ConductorState>[]) {
-        const step = onEffectResult(verifying(over), advisory);
-        expect(step.effects[0]).toMatchObject({ kind: 'finalize' });
-        expect(step.state).not.toHaveProperty('verifyAdvisories');
-      }
-    });
-
-    it('is not bought by a run that delivered nothing, or one whose checks FAILED', () => {
-      expect(onEffectResult(started({ phase: 'verifying' }), advisory).effects[0]).toMatchObject({
-        kind: 'finalize',
-      });
-      // A failed check buys the ordinary fix turn; the advisories ride along only as notices.
-      const failed = onEffectResult(
-        verifying(),
-        verify({
-          ok: false,
-          summary: 'one failed',
-          failedChecks: [{ label: 'No overlaps', detail: 'x' }],
-          warnedChecks: advice,
-        }),
-      );
-      expect(failed.effects[0]).toMatchObject({ kind: 'run_turn' });
-      expect(failed.state.verifyAdvisories).toBeUndefined();
-    });
+        text: 'No jump cuts: 1 cut(s) join the same shot to itself — at frame 1360',
+      }),
+    );
   });
 
-  it('does not open a fix turn when nothing landed — there is nothing to fix', () => {
+  it('finalizes a run with nothing landed straight away', () => {
     const s = started({ phase: 'verifying' });
     const step = onEffectResult(
       s,
@@ -2524,14 +2298,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
         failedChecks: [{ label: 'Changed', detail: 'unchanged' }],
       }),
     );
-    expect(step.state.verifyFixTurns ?? 0).toBe(0);
     expect(step.effects[0]).toMatchObject({ kind: 'finalize' });
-  });
-
-  it('folds the repair pass ops into the finalized combined patch', () => {
-    const s = started({ phase: 'verifying', cumulativeOps: ops(1), appliedTurns: 1 });
-    const { effects } = onEffectResult(s, verify({ repairOps: ops(2) }));
-    expect((effects[0] as { ops: unknown[] }).ops).toHaveLength(3);
   });
 
   it('emits the honest empty-run notice when nothing applied but edits were attempted', () => {
@@ -2784,143 +2551,6 @@ describe('diminishing-returns stop (E4)', () => {
   });
 });
 
-describe('research budget (R1) — the forced research→execute transition', () => {
-  /**
-   * One novel, verbose, zero-edit reconnaissance turn: exactly the shape that defeats
-   * BOTH existing guards. Novel `callFacts` keep the stall streak at 0; a large output
-   * delta keeps the diminishing-returns window from ever filling.
-   */
-  const reconTurn = (i: number): AgentTurnResult =>
-    turn({
-      stepIndex: i,
-      signature: `recon-${i}`,
-      callFacts: [{ key: `read:${i}`, status: 'completed', fromCache: false }],
-      usage: { inputTokens: 100, outputTokens: 900 },
-    });
-
-  const fold = (state: ConductorState, turns: readonly AgentTurnResult[]) => {
-    let step: ReturnType<typeof onEffectResult> = { state, effects: [], events: [] };
-    for (const t of turns) step = onEffectResult(step.state, t);
-    return step;
-  };
-
-  it('regression: the reported "research forever, never edit" run now forces action', () => {
-    // The real failure: every turn re-read the transcript at a NEW window, so every turn
-    // looked novel, the stall streak never advanced, and the run researched until the
-    // step cap having applied nothing. Budget exhaustion must now force an action turn.
-    const step = fold(
-      started(),
-      Array.from({ length: RESEARCH_BUDGET_TURNS }, (_, i) => reconTurn(i + 1)),
-    );
-    expect(step.state.researchStreak).toBe(RESEARCH_BUDGET_TURNS);
-    // Both pre-existing guards are still disarmed — proving the budget is what fired.
-    expect(step.state.stallStreak).toBe(0);
-    expect(step.state.recentOutputDeltas.every((d) => d >= 120)).toBe(true);
-    // The next turn runs with read/analysis descriptors withheld.
-    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
-    const notice = step.events.find((e) => e.type === 'notification');
-    expect(notice?.type === 'notification' ? notice.text : '').toContain('making the edit');
-  });
-
-  it('does not fire one turn early (budget is a ceiling, not a target)', () => {
-    const step = fold(
-      started(),
-      Array.from({ length: RESEARCH_BUDGET_TURNS - 1 }, (_, i) => reconTurn(i + 1)),
-    );
-    expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
-    expect(step.effects[0]).not.toHaveProperty('actionRecovery');
-    expect(step.events.some((e) => e.type === 'notification')).toBe(false);
-  });
-
-  it('an APPLIED edit refunds the budget, so a long multi-step edit is never squeezed', () => {
-    const applied = turn({
-      stepIndex: 3,
-      signature: 'applied',
-      applied: true,
-      turnOpCount: 1,
-      appliedOps: ops(1),
-    });
-    const step = fold(started(), [reconTurn(1), reconTurn(2), applied, reconTurn(4)]);
-    expect(step.state.researchStreak).toBe(1);
-    expect(step.effects[0]).not.toHaveProperty('actionRecovery');
-  });
-
-  /** A turn that only stocked the media bin: it produced ops, but changed no cut. */
-  const binTurn = (i: number): AgentTurnResult =>
-    turn({
-      stepIndex: i,
-      signature: `bin-${i}`,
-      callFacts: [{ key: `add_stock:${i}`, status: 'completed', fromCache: false }],
-      turnOpCount: 3,
-      turnPlacementCount: 0,
-    });
-
-  /** A turn that put a clip on the timeline. */
-  const cutTurn = (i: number): AgentTurnResult =>
-    turn({
-      stepIndex: i,
-      signature: `cut-${i}`,
-      callFacts: [{ key: `add_clip:${i}`, status: 'completed', fromCache: false }],
-      turnOpCount: 2,
-      turnPlacementCount: 2,
-    });
-
-  it('a bin-only turn spends budget instead of refunding it', () => {
-    // The captured run's thirteen "Added asset" operations refunded the whole eight-turn
-    // budget again and again, so the guard built to force research→execute could not fire
-    // on a run that spent thirty minutes researching. Downloading is not editing.
-    const step = fold(started(), [binTurn(1), binTurn(2), binTurn(3)]);
-    expect(step.state.researchStreak).toBe(3);
-  });
-
-  it('a turn that changes the cut refunds the whole budget', () => {
-    const step = fold(started(), [binTurn(1), binTurn(2), cutTurn(3)]);
-    expect(step.state.researchStreak).toBe(0);
-  });
-
-  it('a run that only ever shops still reaches the budget', () => {
-    const step = fold(
-      started(),
-      Array.from({ length: RESEARCH_BUDGET_TURNS }, (_, i) => binTurn(i + 1)),
-    );
-    expect(step.state.researchStreak).toBe(RESEARCH_BUDGET_TURNS);
-    expect(step.effects[0]).toMatchObject({ kind: 'run_turn', actionRecovery: true });
-  });
-
-  it('a caller that does not report placements keeps the old behaviour', () => {
-    // Additive: the legacy loop and every fixture are unchanged.
-    const legacy = turn({
-      stepIndex: 1,
-      signature: 'legacy',
-      callFacts: [{ key: 'x', status: 'completed', fromCache: false }],
-      turnOpCount: 3,
-    });
-    expect(fold(started(), [legacy]).state.researchStreak).toBe(0);
-  });
-
-  it('a REJECTED edit attempt also refunds it — attempting proves recon is over', () => {
-    const attempted = turn({ stepIndex: 3, signature: 'tried', turnOpCount: 2, note: 'rejected' });
-    const step = fold(started(), [reconTurn(1), reconTurn(2), attempted]);
-    expect(step.state.researchStreak).toBe(0);
-  });
-
-  it('the forced action turn is single-use — a still-idle run then converges normally', () => {
-    // Budget exhaustion grants exactly ONE forced turn. If the model still refuses to
-    // act, the run must fall through to the ordinary convergence guard, not loop on
-    // recovery turns forever.
-    let step = fold(
-      started(),
-      Array.from({ length: RESEARCH_BUDGET_TURNS }, (_, i) => reconTurn(i + 1)),
-    );
-    expect(step.effects[0]).toMatchObject({ actionRecovery: true });
-    // Non-novel, zero-edit turns from here on: the stall streak can finally advance.
-    for (let i = 0; i < STALL_CONFIRM_TURNS; i++) {
-      step = onEffectResult(step.state, turn({ stepIndex: 20 + i, signature: `stuck-${i}` }));
-    }
-    expect(step.effects).toEqual([{ kind: 'run_verify' }]);
-  });
-});
-
 describe('empty-run honesty (R2)', () => {
   it('a run the harness cut short without an edit attempt says so, not nothing', () => {
     // The worst case used to be the quietest: no rejections meant no warning, so a run
@@ -2931,21 +2561,13 @@ describe('empty-run honesty (R2)', () => {
     expect(step.state.cumulativeOps).toHaveLength(0);
   });
 
-  it('a voluntary finish that still ends FAILED explains the failure once', () => {
+  it('a voluntary finish with nothing refused completes, and is not contradicted', () => {
     // "The silences were already trimmed — nothing to do" is a legitimate outcome the model
-    // has already explained, so it is never scolded with the never-attempted notice. But a
-    // run with no traceable mutation settles `failed` (ADR 0081), and the host renders that
-    // as a bare Retry button — so the outcome itself must be stated, or the model's prose is
-    // the only account of a run the app considers failed.
+    // has already explained in its reply. It settles as completed with an empty diff, so no
+    // warning may contradict it (ADR 0199).
     const step = onEffectResult(started({ phase: 'verifying', modelDeclaredDone: true }), verify());
-    const warnings = step.events.filter((e) => e.type === 'warning');
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.type === 'warning' ? warnings[0].text : '').toContain(
-      'ended without applying anything',
-    );
-    expect(warnings[0]?.type === 'warning' ? warnings[0].text : '').not.toContain(
-      'never made a change',
-    );
+    expect(step.events.filter((e) => e.type === 'warning')).toEqual([]);
+    expect(step.effects[0]).toMatchObject({ kind: 'finalize', failed: false });
   });
 
   it('the done fold records the voluntary finish', () => {
@@ -3120,51 +2742,6 @@ describe('working state', () => {
       turn({ applied: true, appliedOps: ops(1), turnOpCount: 1 }),
     );
     expect(step.state.working.facts.map((f) => f.id)).toEqual(['fact_1']);
-  });
-});
-
-describe('failedAfterApplyMessage — the card an editor actually reads', () => {
-  const detail = (label: string, text: string) => `${label}: ${text}`;
-
-  it('says what is wrong, not the name of the property that was checked', () => {
-    // The label alone is a positive assertion, so a card built from labels reads inside
-    // out. A real montage run was told "the self-check still fails — Reframing is
-    // consistent." and given nothing to act on.
-    const message = failedAfterApplyMessage(30, [
-      detail(
-        'Reframing is consistent',
-        '13 of 13 picture clips use a landscape source in a 1080x1920 portrait frame with no crop, so they render with black bars. Crop each to fill the frame.',
-      ),
-    ]);
-    expect(message).toContain('Applied 30 changes, but the run could not finish');
-    expect(message).toContain('render with black bars');
-    expect(message).toContain('Crop each to fill the frame.');
-    expect(message).toContain('The changes are on your timeline; undo reverts them');
-  });
-
-  it('spells out the first two failures and counts the rest', () => {
-    const message = failedAfterApplyMessage(4, [
-      detail('A', 'first thing is wrong.'),
-      detail('B', 'second thing is wrong.'),
-      detail('C', 'third thing is wrong.'),
-      detail('D', 'fourth thing is wrong.'),
-    ]);
-    expect(message).toContain('first thing is wrong.');
-    expect(message).toContain('second thing is wrong.');
-    expect(message).not.toContain('third thing is wrong.');
-    expect(message).toContain('(2 more checks also failed.)');
-  });
-
-  it('punctuates a reason that does not end in a full stop, and singularises the rest', () => {
-    const message = failedAfterApplyMessage(2, ['A: no full stop', 'B: nor here', 'C: third']);
-    expect(message).toContain('A: no full stop. B: nor here.');
-    expect(message).toContain('(1 more check also failed.)');
-  });
-
-  it('passes a single prose reason through unchanged', () => {
-    expect(failedAfterApplyMessage(1, 'the run ran out of budget')).toContain(
-      'Applied 1 change, but the run could not finish: the run ran out of budget',
-    );
   });
 });
 
@@ -3384,8 +2961,8 @@ describe('the model-owned plan (update_plan)', () => {
     expect(settled).toMatchObject({
       steps: [
         { id: 'plan-item-1', status: 'completed' },
-        { id: 'plan-item-2', status: 'failed', detail: 'Not done — the run ended first' },
-        { id: 'plan-item-3', status: 'failed', detail: 'Not done — the run ended first' },
+        { id: 'plan-item-2', status: 'stopped', detail: 'Not done — the run ended first' },
+        { id: 'plan-item-3', status: 'stopped', detail: 'Not done — the run ended first' },
       ],
     });
     // The drafted-ledger notification is not said for a list the editor never saw.
@@ -3409,109 +2986,22 @@ describe('the model-owned plan (update_plan)', () => {
 
   // AL39 — harness run 16: "Sound design and mix — blocked: No SFX in the bin", and the run
   // ended without ever loading `sourcing`, whose summary names sound effects.
-  describe('a blocked item the run never tried to unblock', () => {
+  it('ends the run on a plan whose open work is all blocked — blocked is an answer', () => {
+    // AL39 used to buy one more turn listing every tool domain the run had not loaded, even
+    // right after the model had asked the editor a question (desktop run 001be135). The
+    // update_plan result already names the unloaded domains when an item is blocked; the
+    // model decides what to do with that.
     const blockedPlan = plan(
       ['Build the montage', 'done'],
       ['Sound design and mix', 'blocked', 'No SFX in the bin'],
     );
-    const ended = () => started({ modelPlan: blockedPlan, cumulativeOps: ops(3), appliedTurns: 1 });
-
-    it('buys one turn naming the domains never loaded and what each covers', () => {
-      const step = onEffectResult(
-        ended(),
-        turn({ done: true, unloadedToolDomains: ['sourcing', 'tracking'] }),
-      );
-      expect(step.state.phase).toBe('executing');
-      expect(step.effects[0]).toMatchObject({ kind: 'run_turn', stepIndex: 2 });
-      expect(step.state.blockedItemsRetried).toBe(true);
-      expect(step.state.modelDeclaredDone).toBe(false);
-      const action = step.state.working.nextAction?.action ?? '';
-      expect(action).toContain('“Sound design and mix”');
-      expect(action).toContain('sourcing (find and place stock footage, music and sound effects');
-      expect(action).toContain('tracking (');
-      expect(action).toContain('load_tools');
-      expect(action).toContain('reply without a tool call and the item stays blocked');
-      expect(step.events).toContainEqual(
-        expect.objectContaining({
-          type: 'notification',
-          text: expect.stringContaining('sourcing, tracking'),
-        }),
-      );
-    });
-
-    it('fires at most once: a second reply with no tool call ends the run', () => {
-      const first = onEffectResult(
-        ended(),
-        turn({ done: true, unloadedToolDomains: ['sourcing'] }),
-      );
-      const second = onEffectResult(
-        first.state,
-        turn({ done: true, stepIndex: 2, unloadedToolDomains: ['sourcing'] }),
-      );
-      expect(second.state.phase).toBe('verifying');
-      expect(second.state.modelDeclaredDone).toBe(true);
-    });
-
-    it('does not fire when every domain is loaded', () => {
-      const step = onEffectResult(ended(), turn({ done: true }));
-      expect(step.state.phase).toBe('verifying');
-      expect(step.state.blockedItemsRetried).toBeUndefined();
-    });
-
-    it('does not fire when nothing is blocked, whatever the runtime reports', () => {
-      const s = started({ modelPlan: plan(['Build the montage', 'done']), cumulativeOps: ops(3) });
-      const step = onEffectResult(s, turn({ done: true, unloadedToolDomains: ['sourcing'] }));
-      expect(step.state.phase).toBe('verifying');
-    });
-
-    it('leaves open items to the open-plan continuation', () => {
-      const s = started({
-        modelPlan: plan(
-          ['Grade', 'pending'],
-          ['Sound design and mix', 'blocked', 'No SFX in the bin'],
-        ),
-        cumulativeOps: ops(3),
-        appliedTurns: 1,
-      });
-      const step = onEffectResult(s, turn({ done: true, unloadedToolDomains: ['sourcing'] }));
-      expect(step.state.working.nextAction?.action).toBe('Grade');
-      expect(step.state.blockedItemsRetried).toBeUndefined();
-    });
-
-    it('never fires over the cost budget or when cancelled', () => {
-      const over = started({
-        modelPlan: blockedPlan,
-        cumulativeOps: ops(3),
-        config: { ...started().config, maxUsd: 1 },
-      });
-      const spent = onEffectResult(
-        over,
-        turn({ done: true, runUsd: 2, unloadedToolDomains: ['sourcing'] }),
-      );
-      expect(spent.state.phase).toBe('verifying');
-      expect(spent.state.blockedItemsRetried).toBeUndefined();
-
-      const cancelled = onEffectResult(
-        { ...ended(), cancelled: true },
-        turn({ done: true, unloadedToolDomains: ['sourcing'] }),
-      );
-      expect(cancelled.state.blockedItemsRetried).toBeUndefined();
-      expect(cancelled.state.phase).not.toBe('executing');
-    });
-
-    it('never fires out of steps', () => {
-      const s = started({
-        modelPlan: blockedPlan,
-        stepIndex: 8,
-        config: { ...started().config, maxSteps: 8 },
-      });
-      const step = onEffectResult(
-        s,
-        turn({ done: true, stepIndex: 8, unloadedToolDomains: ['sourcing'] }),
-      );
-      expect(step.state.phase).toBe('verifying');
-      expect(step.state.blockedItemsRetried).toBeUndefined();
-    });
+    const step = onEffectResult(
+      started({ modelPlan: blockedPlan, cumulativeOps: ops(3), appliedTurns: 1 }),
+      turn({ done: true }),
+    );
+    expect(step.state.phase).toBe('verifying');
+    expect(step.state.modelDeclaredDone).toBe(true);
+    expect(step.effects).toEqual([{ kind: 'run_verify' }]);
   });
 
   it('ends on a reply when every item is done', () => {
@@ -3561,7 +3051,7 @@ describe('the model-owned plan (update_plan)', () => {
     });
     const step = onEffectResult(planned, turn({ done: true }));
     expect(step.state.modelPlan).toBeUndefined();
-    expect(step.state.actionRecoveryPending).toBe(true);
+    expect(step.state.ledgerContinued).toBe(true);
     expect(step.events).toContainEqual(
       expect.objectContaining({
         type: 'notification',
@@ -3581,8 +3071,8 @@ describe('the model-owned plan (update_plan)', () => {
     expect(settled).toMatchObject({
       steps: [
         { status: 'completed' },
-        { status: 'failed', detail: 'Stopped before this was done' },
-        { status: 'failed', detail: 'Stopped before this was done' },
+        { status: 'stopped', detail: 'Stopped before this was done' },
+        { status: 'stopped', detail: 'Stopped before this was done' },
       ],
     });
   });
@@ -3601,7 +3091,7 @@ describe('the model-owned plan (update_plan)', () => {
     const plans = view.nodes.filter((node) => node.kind === 'plan');
     expect(plans).toHaveLength(1);
     expect(plans[0]).toMatchObject({
-      steps: [{ status: 'completed' }, { status: 'failed' }, { status: 'failed' }],
+      steps: [{ status: 'completed' }, { status: 'stopped' }, { status: 'stopped' }],
     });
   });
 });

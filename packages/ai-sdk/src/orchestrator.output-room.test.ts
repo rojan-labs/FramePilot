@@ -99,7 +99,7 @@ describe('agent requests carry maxTokens', () => {
   });
 });
 
-describe('agent step reasoning effort follows the run stage (TRACKING.md §U1)', () => {
+describe('agent step reasoning effort and surface (ADR 0199)', () => {
   const toolCall = (id: string, name: string, args: Record<string, unknown>): ProviderChunk[] => [
     { type: 'tool-call', call: { id, name, arguments: args } },
     { type: 'done', text: '' },
@@ -135,10 +135,11 @@ describe('agent step reasoning effort follows the run stage (TRACKING.md §U1)',
   const offers = (request: AiCompletionRequest, name: string): boolean =>
     request.tools?.some((tool) => tool.name === name) ?? false;
 
-  it('thinks at low on apply steps, medium while planning and on a recovery step', async () => {
-    // Step 1 lands a clip (interpret → apply in one turn). Steps 2 and 3 run in `apply` and
-    // re-read the timeline; the second read is an all-from-cache repeat, so step 4 is a
-    // forced action-recovery turn — still in `apply`, and it must think at medium.
+  it('thinks at one effort and offers the same surface on every step (ADR 0199)', async () => {
+    // Step 1 lands a clip (interpret → apply in one turn), steps 2 and 3 re-read the timeline
+    // in `apply`, the second as an all-from-cache repeat. Under the old stage policy steps 2
+    // and 3 thought at `low` with analysis withheld, and step 4 was a forced recovery turn
+    // with every read withheld. Desktop run 001be135 did its beat-matching at `low` that way.
     const provider = scriptedAgentProvider([
       toolCall('a1', 'add_clip', {
         trackId: 'video_1',
@@ -161,34 +162,13 @@ describe('agent step reasoning effort follows the run stage (TRACKING.md §U1)',
       {},
     )); /* drain */
     const steps = provider.requests.filter((r) => r.tools && r.tools.length > 0);
-    // The fifth is the advisory fix turn (AL37): the self-check passed with advice about the
-    // placed clip, and a run that delivered work hears it once, in `repair`.
-    expect(steps).toHaveLength(5);
-    const [planning, apply, applyAgain, recovery, advisory] = steps as [
-      AiCompletionRequest,
-      AiCompletionRequest,
-      AiCompletionRequest,
-      AiCompletionRequest,
-      AiCompletionRequest,
-    ];
-    expect(JSON.stringify(advisory.messages)).toContain('SELF-CHECK ADVICE');
-    // Repair keeps `medium`, like planning and recovery.
-    expect(advisory.reasoningEffort).toBe('medium');
-
-    // Planning surface: analysis is still offered.
-    expect(offers(planning, 'get_transcript')).toBe(true);
-    expect(planning.reasoningEffort).toBe('medium');
-
-    // Execution surface: analysis withheld, inspection open — the run is in `apply`.
-    for (const step of [apply, applyAgain]) {
-      expect(offers(step, 'get_transcript')).toBe(false);
+    // Four steps and the run ends on the model's reply — no advisory or recovery turn.
+    expect(steps).toHaveLength(4);
+    for (const step of steps) {
+      expect(step.reasoningEffort).toBe('medium');
+      expect(offers(step, 'get_transcript')).toBe(true);
       expect(offers(step, 'get_timeline')).toBe(true);
-      expect(step.reasoningEffort).toBe('low');
     }
-
-    // Action-recovery surface: every read withheld. Recovery overrides the apply stage.
-    expect(offers(recovery, 'get_timeline')).toBe(false);
-    expect(recovery.reasoningEffort).toBe('medium');
   });
 });
 

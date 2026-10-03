@@ -263,7 +263,7 @@ def test_describe_filters_the_enumerated_asset_time_range(tmp_path: Any) -> None
     assert [(p["t0"], p["t1"]) for p in body["packets"]] == [(1.0, 2.0)]
 
 
-def test_search_fuses_visual_caption_and_transcript(
+def test_search_fuses_visual_and_caption_and_never_ranks_by_speech(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = _client(tmp_path, monkeypatch, embedder=_FakeQueryEmbedder([1.0, 0.0, 0.0]))
@@ -276,9 +276,11 @@ def test_search_fuses_visual_caption_and_transcript(
     top = packets[0]
     assert top["assetId"] == "vid" and top["t0"] == 0.0 and top["t1"] == 1.0
     assert top["sceneId"] == 0
-    # span0 is hit by all three lanes; the caption + transcript resolve onto it.
-    assert set(top["sources"]) == {"visual", "caption-fts", "transcript"}
+    # The picture lanes rank the span; the transcript is not a lane (desktop run 001be135:
+    # a narrated video's words ranked its spans by when something was SAID).
+    assert set(top["sources"]) == {"visual", "caption-fts"}
     assert top["caption"] == "A person demonstrates the app interface."
+    # The words under the span are still reported, labelled as words.
     assert top["transcriptOverlap"] == "app"
 
 

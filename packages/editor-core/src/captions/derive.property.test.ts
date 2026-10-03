@@ -308,3 +308,86 @@ describe('deriveCaptionCues over generated transcripts', () => {
     }
   });
 });
+
+/**
+ * A timeline cut into slivers: clips from a couple of frames to a second, each from a new
+ * source range — the shape of a fast montage over narration, and the one that leaves runs
+ * too short to hold a readable cue of their own (desktop run 001be135).
+ */
+function sliveredMap(rng: () => number, clipCount: number): ReturnType<typeof buildTimelineMap> {
+  const clips: Record<string, unknown>[] = [];
+  let sourceAt = 0;
+  let sequenceAt = 0;
+  for (let i = 0; i < clipCount; i += 1) {
+    const kept = rng() < 0.4 ? 0.04 + rng() * 0.2 : 0.3 + rng() * 0.9;
+    clips.push({
+      id: `clip_${String(i)}`,
+      assetId: 'asset_1',
+      trackId: 'v_main',
+      start: +sequenceAt.toFixed(4),
+      end: +(sequenceAt + kept).toFixed(4),
+      sourceStart: +sourceAt.toFixed(4),
+      sourceEnd: +(sourceAt + kept).toFixed(4),
+      effects: [],
+      keyframes: [],
+    });
+    sequenceAt += kept;
+    sourceAt += kept + rng() * 0.6;
+  }
+  return buildTimelineMap({
+    revision: 1,
+    tracks: [{ id: 'v_main', type: 'video', clips }],
+  } as unknown as Parameters<typeof buildTimelineMap>[0]);
+}
+
+describe('deriveCaptionCues holds the readable floor across cuts', () => {
+  const FLOOR = 0.25;
+
+  it('emits no cue under the floor, and crosses a cut only to carry a fragment', () => {
+    const failures: string[] = [];
+    for (let seed = 701; seed <= 760; seed += 1) {
+      const rng = mulberry32(seed);
+      const words = generateTranscript(rng, 40 + Math.floor(rng() * 60));
+      const map = sliveredMap(rng, 6 + Math.floor(rng() * 14));
+      const runStarts = map.spans.map((span) => span.start);
+      for (const fps of FRAME_RATES) {
+        const slack = 1 / fps;
+        for (const preset of PRESETS) {
+          const cues = deriveCaptionCues(map, words, captionSegmentConfig(preset), fps);
+          const where = `seed ${String(seed)} ${preset} @ ${String(fps)}fps`;
+          let previousEnd = -Infinity;
+          for (const cue of cues) {
+            const start = snapSecondsToFrame(cue.start, fps);
+            const end = snapSecondsToFrame(cue.end, fps);
+            const label = `${where}: ${JSON.stringify({ start: cue.start, end: cue.end, text: cue.text })}`;
+            if (end - start < FLOOR - 1e-6) failures.push(`under the floor — ${label}`);
+            if (start < previousEnd) failures.push(`overlap — ${label}`);
+            if (cue.end > map.duration + 1e-9) failures.push(`past the end — ${label}`);
+            previousEnd = end;
+            // Any cut inside the cue must leave one side shorter than the floor: the fragment
+            // that could not be a cue of its own. This is what verify_captions accepts.
+            for (const cut of runStarts) {
+              if (cut <= cue.start + 1e-6 || cut >= cue.end - 1e-6) continue;
+              const side = Math.min(cut - cue.start, cue.end - cut);
+              if (side >= FLOOR + slack - 1e-6)
+                failures.push(`spans the cut at ${String(cut)} — ${label}`);
+            }
+          }
+          // Speech is never invented, duplicated or reordered — merging moves words, it
+          // never drops one the segmenter kept.
+          const captioned = cues.flatMap((cue) => cue.words.map((word) => word.word));
+          let cursor = 0;
+          for (const word of captioned) {
+            const at = words.findIndex((w, i) => i >= cursor && w.word === word);
+            if (at < 0) {
+              failures.push(`${where}: "${word}" out of order`);
+              break;
+            }
+            cursor = at + 1;
+          }
+        }
+      }
+    }
+    expect(failures.slice(0, 10)).toEqual([]);
+  });
+});

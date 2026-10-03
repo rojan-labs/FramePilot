@@ -80,11 +80,14 @@ function formatRefs(refs: readonly Reference[]): string {
   return refs.map((ref) => `\`${ref.kind}:${ref.id}\` ${ref.label}`).join(', ');
 }
 
-const PLAN_STEP_MARK: Record<PlanStep['status'], string> = {
+// `stopped` (the run ended before the step was done) is named alongside the SDK's own
+// statuses so the export compiles against SDK builds on either side of that addition.
+const PLAN_STEP_MARK: Record<PlanStep['status'] | 'stopped', string> = {
   pending: ' ',
   running: '~',
   completed: 'x',
   failed: '!',
+  stopped: '-',
 };
 
 // ---------------------------------------------------------------------------

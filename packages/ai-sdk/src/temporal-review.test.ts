@@ -284,6 +284,78 @@ describe('planTemporalEvidenceForEdit', () => {
     );
   });
 
+  it('names the spliced track and the clip entering or leaving, so only that source is measured', () => {
+    // Run x59-1: the mix was measured at the music bed's first frame, and a radio call starting
+    // inside the picture track's continuous clip read as the bed's 21.7 dB discontinuity.
+    const before = makeProject();
+    const audioTrack = before.timeline.tracks[1]!;
+    const bed = {
+      ...before.timeline.tracks[0]!.clips[0]!,
+      id: 'music_bed',
+      trackId: audioTrack.id,
+      start: 2,
+      end: 6,
+    };
+    const after = {
+      ...before.timeline,
+      revision: 1,
+      tracks: [before.timeline.tracks[0]!, { ...audioTrack, clips: [bed] }],
+    };
+    const audio = planTemporalEvidenceForEdit({
+      projectRevision: 1,
+      edit: editWith(after),
+      sequenceFps: 30,
+      durationFrames: 300,
+    }).filter((request) => request.kind === 'audio');
+    const byId = new Map(audio.map((request) => [request.requestId, request]));
+    expect(byId.get('edit_audio_60')).toMatchObject({
+      boundaryFrame: 60,
+      channels: 'mix',
+      splice: { trackIds: ['audio_1'], fromClipIds: [], toClipIds: ['music_bed'] },
+    });
+    expect(byId.get('edit_audio_180')).toMatchObject({
+      boundaryFrame: 180,
+      splice: { trackIds: ['audio_1'], fromClipIds: ['music_bed'], toClipIds: [] },
+    });
+    // Every planned request is one the engine contract accepts.
+    for (const request of audio)
+      expect(() => TemporalEvidenceRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it('names both clips of a cut made on one audio track, and no splice at a level-only window', () => {
+    const before = makeProject();
+    const audioTrack = before.timeline.tracks[1]!;
+    const source = before.timeline.tracks[0]!.clips[0]!;
+    const after = {
+      ...before.timeline,
+      revision: 1,
+      tracks: [
+        before.timeline.tracks[0]!,
+        {
+          ...audioTrack,
+          clips: [
+            { ...source, id: 'vo_1', trackId: audioTrack.id, start: 1, end: 4 },
+            { ...source, id: 'vo_2', trackId: audioTrack.id, start: 4, end: 8 },
+          ],
+        },
+      ],
+    };
+    const audio = planTemporalEvidenceForEdit({
+      projectRevision: 1,
+      edit: editWith(after),
+      sequenceFps: 30,
+      durationFrames: 300,
+    }).filter((request) => request.kind === 'audio');
+    expect(audio.find((request) => request.requestId === 'edit_audio_120')).toMatchObject({
+      splice: { trackIds: ['audio_1'], fromClipIds: ['vo_1'], toClipIds: ['vo_2'] },
+    });
+    expect(
+      audio.every(
+        (request) => (request.splice === undefined) === (request.boundaryFrame === undefined),
+      ),
+    ).toBe(true);
+  });
+
   it('plans mix windows without visual frames for an audio-only change', () => {
     const before = makeProject();
     const audioTrack = before.timeline.tracks[1]!;
@@ -711,8 +783,97 @@ describe('reviewTemporalEvidence', () => {
       samples: [{ startFrame: 0, endFrame: 3, peakDbfs: 0, rmsDbfs: -10, boundaryJumpDb: 18 }],
     };
     expect(reviewTemporalEvidence([request], [result]).checks[0]?.issues.join(' ')).toMatch(
-      /peak.*discontinuity/i,
+      /peak.*steps 18\.0 dB across the cut at frame 1/i,
     );
+  });
+
+  describe('a boundary jump names its source, the kind of boundary, and the fix', () => {
+    const spliced = (splice: Record<string, unknown> = {}) => ({
+      ...requestBase,
+      kind: 'audio',
+      startFrame: 538,
+      endFrame: 543,
+      boundaryFrame: 540,
+      channels: 'mix',
+      maxPeakDbfs: -0.1,
+      maxBoundaryJumpDb: 12,
+      splice: { trackIds: ['music_1'], fromClipIds: [], toClipIds: ['bed'], ...splice },
+    });
+    const measured = (before: number | null, after: number | null, jump: number) => ({
+      ...resultBase,
+      kind: 'audio',
+      samples: [
+        {
+          startFrame: 538,
+          endFrame: 543,
+          peakDbfs: -12,
+          rmsDbfs: -30,
+          boundaryJumpDb: jump,
+          boundaryBeforeDbfs: before,
+          boundaryAfterDbfs: after,
+        },
+      ],
+    });
+    const issue = (request: unknown, result: unknown): string =>
+      reviewTemporalEvidence([request], [result]).checks[0]?.issues.join(' ') ?? '';
+
+    it('an entry: the track, the clip, its first 10 ms as heard, and fade it in', () => {
+      const text = issue(spliced(), measured(-60, -12, 48));
+      expect(text).toContain('Audio enters abruptly at frame 540 on track music_1 (bed)');
+      expect(text).toContain('48.0 dB up in its first 10 ms, -60.0 → -12.0 dBFS as heard');
+      expect(text).toContain('(limit 12 dB)');
+      expect(text).toContain('fadeInFrames');
+    });
+
+    it('an exit: the clip that stops and fade it out, also over a quiet background', () => {
+      const exit = spliced({ fromClipIds: ['bed'], toClipIds: [] });
+      const text = issue(exit, measured(-15, -60, 45));
+      expect(text).toContain('Audio stops abruptly at frame 540 on track music_1 (bed)');
+      expect(text).toContain('fadeOutFrames');
+      // Heard over a -45 dBFS bed the stop lands above the floor, and is still a stop.
+      expect(issue(exit, measured(-24, -45, 21))).toContain('Audio stops abruptly');
+    });
+
+    it('without clip names, a side at the floor still reads as an entry or exit', () => {
+      const unnamed = spliced({ fromClipIds: [], toClipIds: [] });
+      expect(issue(unnamed, measured(-60, -12, 48))).toContain('Audio enters abruptly');
+      expect(issue(unnamed, measured(-12, -60, 48))).toContain('Audio stops abruptly');
+    });
+
+    it('a cut between two sounds: both clips, both levels, crossfade or match gain', () => {
+      const text = issue(
+        spliced({ fromClipIds: ['vo_1'], toClipIds: ['vo_2'] }),
+        measured(-40, -20, 20),
+      );
+      expect(text).toContain(
+        'steps 20.0 dB across the cut at frame 540 on track music_1 (vo_1, vo_2)',
+      );
+      expect(text).toContain('-40.0 → -20.0 dBFS');
+      expect(text).toContain('adjust_audio');
+    });
+
+    it('a fade-in measured at the floor on both sides passes', () => {
+      // The engine's answer on x59-1 frame 540 with the music track alone.
+      expect(reviewTemporalEvidence([spliced()], [measured(-60, -60, 0)]).checks[0]).toMatchObject({
+        status: 'pass',
+      });
+    });
+
+    it('an old request without a splice, and an engine without levels, still read', () => {
+      const { splice: _splice, ...old } = spliced();
+      expect(TemporalEvidenceRequestSchema.parse(old)).not.toHaveProperty('splice');
+      const text = issue(old, measured(null, null, 21.7));
+      expect(text).toContain('steps 21.7 dB across the cut at frame 540 in the mix (limit 12 dB)');
+    });
+
+    it('refuses a splice with no boundary, or on a role', () => {
+      const { boundaryFrame: _boundary, ...noBoundary } = spliced();
+      expect(() => TemporalEvidenceRequestSchema.parse(noBoundary)).toThrow(/needs boundaryFrame/);
+      expect(() =>
+        TemporalEvidenceRequestSchema.parse({ ...spliced(), channels: 'music' }),
+      ).toThrow(/channels must be 'mix'/);
+      expect(() => TemporalEvidenceRequestSchema.parse(spliced({ trackIds: [] }))).toThrow();
+    });
   });
 
   it('judges continuity only where the request named a splice', () => {

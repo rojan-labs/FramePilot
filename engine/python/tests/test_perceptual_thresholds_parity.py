@@ -16,7 +16,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from framepilot_engine.analysis.silence import DEFAULT_NOISE_FLOOR_DB
 from framepilot_engine.validation.perceptual_thresholds import (
+    AUDIBLE_RMS_FLOOR_DBFS,
+    AUDIO_ONSET_SECONDS,
     EXPORT_MAX_AUDIO_DBFS,
     EXPORT_MAX_BLACK_RATIO,
     REVIEW_BLACK_FRAME_RATIO,
@@ -63,11 +66,16 @@ def _ts_values() -> dict[str, float]:
     return values
 
 
-def _ts_boundary_jump_db() -> float:
+def _ts_constant(name: str) -> float:
+    """A top-level ``export const NAME = <number>;`` of the TS table."""
     source = _TS_THRESHOLDS.read_text(encoding="utf-8")
-    match = re.search(r"MAX_AUDIO_BOUNDARY_JUMP_DB = (\d+(?:\.\d+)?)", source)
-    assert match is not None, "MAX_AUDIO_BOUNDARY_JUMP_DB is no longer declared"
+    match = re.search(rf"export const {name} = (-?\d+(?:\.\d+)?);", source)
+    assert match is not None, f"{name} is no longer declared"
     return float(match.group(1))
+
+
+def _ts_boundary_jump_db() -> float:
+    return _ts_constant("MAX_AUDIO_BOUNDARY_JUMP_DB")
 
 
 def test_ts_table_declares_every_threshold_this_module_mirrors() -> None:
@@ -100,3 +108,20 @@ def test_the_review_ceiling_is_stricter_than_the_export_ceiling() -> None:
     assert REVIEW_MAX_AUDIO_DBFS < EXPORT_MAX_AUDIO_DBFS
     assert REVIEW_BLACK_FRAME_RATIO > EXPORT_MAX_BLACK_RATIO
     assert _ts_boundary_jump_db() == 12.0
+
+
+def test_python_mirrors_the_ts_boundary_floor_and_onset() -> None:
+    """The engine floors and windows the boundary jump the reviewer then judges in TS."""
+    assert _ts_constant("AUDIBLE_RMS_FLOOR_DBFS") == AUDIBLE_RMS_FLOOR_DBFS
+    assert _ts_constant("AUDIO_ONSET_SECONDS") == AUDIO_ONSET_SECONDS
+    # A jump past the limit must still be possible above the floor and under full scale.
+    assert AUDIBLE_RMS_FLOOR_DBFS + _ts_boundary_jump_db() < REVIEW_MAX_AUDIO_DBFS
+
+
+def test_the_dead_air_floor_is_the_level_silence_detection_cuts_at() -> None:
+    """The critic's dead air and `remove_silences` must agree on what "nothing there" is.
+
+    Both compare sample amplitude (waveform peaks; silencedetect's noise tolerance), so a
+    stretch the critic calls dead air is one `remove_silences` would cut at its default.
+    """
+    assert _ts_constant("DEAD_AIR_PEAK_FLOOR_DBFS") == DEFAULT_NOISE_FLOOR_DB

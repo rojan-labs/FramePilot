@@ -67,6 +67,48 @@ function collectAttachmentPaths(container: unknown, into: Set<string>): void {
   }
 }
 
+/** The `id` of a `run_state` event, or `null` for anything else. */
+function runStateId(event: unknown): string | null {
+  if (typeof event !== 'object' || event === null) return null;
+  const record = event as Record<string, unknown>;
+  return record['type'] === 'run_state' && typeof record['id'] === 'string' ? record['id'] : null;
+}
+
+/**
+ * Drop every `run_state` event that a later event with the same id supersedes.
+ *
+ * A turn re-emits its causal ledger under one stable id (`${turnId}:run-state`) at every
+ * reducer boundary, and the view keeps only the latest. Saved verbatim, those snapshots
+ * were 59 MB of a 70 MB conversation (92 events, each carrying the full operation
+ * ledger), all parsed on every open and structured-cloned to the renderer for nothing.
+ * Compacting here, before the document crosses IPC, shrinks the clone immediately; the
+ * renderer's next save writes the compact form back. Read defensively like the rest of
+ * this module: the document is JSON from whatever renderer version saved it.
+ *
+ * @param document - A parsed conversation document.
+ * @returns The same document when nothing was superseded, else a copy without the stale
+ *   `run_state` events.
+ */
+export function compactConversationDocument(document: unknown): unknown {
+  if (typeof document !== 'object' || document === null || Array.isArray(document)) {
+    return document;
+  }
+  const record = document as Record<string, unknown>;
+  const events = record['events'];
+  if (!Array.isArray(events)) return document;
+  const latestIndex = new Map<string, number>();
+  events.forEach((event, index) => {
+    const id = runStateId(event);
+    if (id !== null) latestIndex.set(id, index);
+  });
+  const keep = (event: unknown, index: number): boolean => {
+    const id = runStateId(event);
+    return id === null || latestIndex.get(id) === index;
+  };
+  if (events.every(keep)) return document;
+  return { ...record, events: events.filter(keep) };
+}
+
 function isSummary(value: unknown): value is ConversationSummary {
   if (typeof value !== 'object' || value === null) return false;
   const entry = value as Record<string, unknown>;
@@ -94,16 +136,22 @@ export class ConversationStore {
     return Array.isArray(parsed) ? parsed.filter(isSummary) : [];
   }
 
-  /** Load one conversation's document, or `null` if the id is invalid/absent/corrupt. */
+  /**
+   * Load one conversation's document, or `null` if the id is invalid/absent/corrupt.
+   * Superseded `run_state` events are dropped on the way out (see
+   * {@link compactConversationDocument}).
+   */
   public async load(id: unknown): Promise<unknown | null> {
     if (!isValidConversationId(id)) return null;
     const raw = await this.io.readConversation(id);
     if (raw === null) return null;
+    let parsed: unknown;
     try {
-      return JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch {
       return null;
     }
+    return compactConversationDocument(parsed);
   }
 
   /** Save one conversation (writes its file, then updates the index). */

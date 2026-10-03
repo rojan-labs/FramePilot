@@ -86,6 +86,7 @@ import { clipCandidates } from './clip-candidates.js';
 import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
+import { unheardSpeechNote } from '../unheard-speech.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
 /**
@@ -1143,12 +1144,18 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         startSeconds: frameToSeconds(secondsToFrame(w.start, fps), fps),
         endSeconds: frameToSeconds(secondsToFrame(w.end, fps), fps),
       }));
+      // No word maps although the transcript survives the cuts: every clip carrying it is
+      // silenced (desktop run `001be135`, a recap's muted soundtrack under a voiceover nobody
+      // had transcribed). An empty list alone reads as "the edit has no speech" — say whose
+      // speech is muted and what audible asset has no transcript (`unheard-speech.ts`).
+      const unheard = mapped.words.length === 0 ? unheardSpeechNote(ctx.project, map) : '';
       return {
         words: timedWords,
         runs,
         droppedCount: mapped.droppedCount,
         fps,
         revision: mapped.revision,
+        ...(unheard === '' ? {} : { note: unheard }),
       };
     },
   ),
@@ -1634,6 +1641,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'export with black bars — call set_clip_crop on that clip to re-centre it on the ' +
         'subject. An UNMEASURED source gets nothing: check list_assets for ' +
         '`shape: "unmeasured"` and crop it yourself.',
+      // The crop rides along with the placement it belongs to — see `ToolSpec.derivedOpTypes`.
+      derivedOpTypes: ['set_clip_crop'],
     },
     z
       .object({
@@ -1677,6 +1686,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'project exactly as add_clip does it. At ' +
         `most ${String(MAX_CLIPS_PER_BATCH)} entries per call — split a longer sequence ` +
         'across consecutive calls.',
+      // One placement per entry: the fill crop each landscape entry gets is part of it, not
+      // a second edit the model chose. Desktop run `001be135` placed 111 clips and was
+      // refused as "222 operations" over the per-turn cap. See `ToolSpec.derivedOpTypes`.
+      derivedOpTypes: ['set_clip_crop'],
     },
     z
       .object({

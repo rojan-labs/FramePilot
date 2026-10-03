@@ -171,6 +171,8 @@ const ENGINE_BATCH = {
           peakDbfs: -3.0,
           rmsDbfs: -18.0,
           boundaryJumpDb: null,
+          boundaryBeforeDbfs: null,
+          boundaryAfterDbfs: null,
         },
       ],
     },

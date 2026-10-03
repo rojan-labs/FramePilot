@@ -29,7 +29,7 @@
  * @see docs/adr/0076-canonical-timeline-mapping.md
  */
 import type { Asset, TranscriptWord } from '@framepilot/timeline-schema';
-import { secondsToFrame } from '../frame-grid.js';
+import { frameToSeconds, secondsToFrame, snapSecondsToFrame } from '../frame-grid.js';
 import {
   TIME_EPSILON,
   spanIsFrozen,
@@ -38,7 +38,11 @@ import {
   type TimelineMap,
 } from '../timeline-map.js';
 import {
+  MIN_CAPTION_CUE_SECONDS,
   captionSegmentConfig,
+  clearsCaptionFloor,
+  layoutLines,
+  readableUntil,
   segmentCaptions,
   type CaptionCueDraft,
   type CaptionSegmentConfig,
@@ -266,6 +270,10 @@ function indexSpansBySource(spans: readonly ClipSpan[]): SourceSpanIndex {
     // the whole range onto the held frame — every one of those words at the same
     // instant, none of them audible.
     if (spanIsFrozen(span)) continue;
+    // A word on a muted clip is not heard either, so it is not captioned or mapped there
+    // (`timeline-map.ts#clipIsAudible`). When every clip of the asset that carries the
+    // transcript is silent, nothing maps — which is the truth about what the viewer hears.
+    if (span.audible === false) continue;
     const list = grouped.get(span.assetId);
     if (list === undefined) grouped.set(span.assetId, [span]);
     else list.push(span);
@@ -425,6 +433,11 @@ export interface DerivedCue extends CaptionCueDraft {
  * flicker-gaps, and without a clamp that extension would spill a caption across
  * the very cut this pipeline exists to respect.
  *
+ * The segmenter is told where its run ends, so it gives the run's LAST cue the readable
+ * floor too ({@link MIN_CAPTION_CUE_SECONDS}). Only a run too short to hold any readable
+ * cue is left, and {@link holdShortCues} resolves it across the cut — the one exception to
+ * "no cue crosses a cut", and a bounded one.
+ *
  * @param map - Canonical timing, from `buildTimelineMap`.
  * @param transcript - Source-relative words (schema v12).
  * @param config - Segmentation limits; see `captionSegmentConfig`.
@@ -445,7 +458,7 @@ export function deriveCaptionCues(
 ): readonly DerivedCue[] {
   const { runs, revision } = mapTranscript(map, transcript, speechAssetIds);
 
-  return resolveCueOverlaps(
+  const admitted = resolveCueOverlaps(
     runs.flatMap((run) => {
       // The segmenter works in whatever timebase its input uses; feed it sequence
       // time so its pause/reading-speed reasoning matches what the viewer sees.
@@ -457,6 +470,7 @@ export function deriveCaptionCues(
         run.words.map(({ word, start, end }) => ({ word, start, end })),
         config,
         fps,
+        run.end,
       );
 
       let consumed = 0;
@@ -518,6 +532,114 @@ export function deriveCaptionCues(
     }),
     fps,
   );
+  return holdShortCues(admitted, config, fps, map.duration);
+}
+
+/**
+ * Give every cue the readable floor ({@link MIN_CAPTION_CUE_SECONDS}), crossing a cut only
+ * for a run that cannot hold one by itself.
+ *
+ * `segmentCaptions` holds every cue of a run to the floor before the run ends, merging
+ * within the run when it must. What it cannot fix is a run whose ONLY cue is short — a
+ * word or two on a sliver of a clip — or a cue `resolveCueOverlaps` trimmed under another.
+ * `verify_captions` reports such a cue as `caption_too_short`, and the builder made it, so
+ * re-running the builder (what the remedy said) made it again (desktop run `001be135`).
+ *
+ * In order of preference:
+ *
+ *  1. extend it into the free time that follows, up to the floor, when no cue occupies that
+ *     time and the sequence lasts that long — the words stay where they are, held a few
+ *     frames into the next shot;
+ *  2. otherwise merge it into the cue that follows (the one in the way), across the cut;
+ *  3. at the very end of the sequence, take the rest from the free time before it, and
+ *     merge into the cue before it only when that time is taken too.
+ *
+ * Either way the cue's crossing is shorter than the floor, which is what `verify_captions`'
+ * speech-break check accepts: a stretch too short to be its own cue riding on its
+ * neighbour. A sole cue on a timeline too short to hold one stays as it is.
+ */
+function holdShortCues(
+  cues: readonly DerivedCue[],
+  config: CaptionSegmentConfig,
+  fps: number | undefined,
+  sequenceEnd: number,
+): readonly DerivedCue[] {
+  const result = [...cues];
+  let index = 0;
+  // Every pass either advances `index` or removes a cue, so this terminates.
+  while (index < result.length) {
+    const cue = result[index]!;
+    if (clearsCaptionFloor(cue.start, cue.end, fps)) {
+      index += 1;
+      continue;
+    }
+    const next = result[index + 1];
+    const previous = result[index - 1];
+    const held = readableUntil(cue.start, fps);
+    const room = Math.min(next?.start ?? Infinity, sequenceEnd);
+    if (held <= room + TIME_EPSILON) {
+      result[index] = { ...cue, end: Math.max(cue.end, held) };
+      index += 1;
+      continue;
+    }
+    if (next !== undefined) {
+      // Re-examined at the same index: the cue it absorbed may have been short too.
+      result.splice(index, 2, mergeCues(cue, next, config));
+      continue;
+    }
+    // The last cue, with the sequence ending under it: hold it from earlier instead.
+    const end = Math.max(cue.end, Math.min(held, sequenceEnd));
+    const start = Math.min(cue.start, readableFrom(end, fps));
+    if (start >= (previous?.end ?? 0) - TIME_EPSILON) {
+      result[index] = { ...cue, start, end };
+      index += 1;
+      continue;
+    }
+    if (previous === undefined) {
+      // A sequence shorter than the floor: nothing can make this cue readable.
+      index += 1;
+      continue;
+    }
+    result.splice(index - 1, 2, mergeCues(previous, cue, config));
+    index -= 1;
+  }
+  return result;
+}
+
+/**
+ * The latest start from which a cue ending at `end` is on screen for the floor, measured on
+ * the frame grid the patch boundary snaps to — {@link readableUntil} run backwards.
+ */
+function readableFrom(end: number, fps: number | undefined): number {
+  if (fps === undefined) return end - MIN_CAPTION_CUE_SECONDS;
+  const from = snapSecondsToFrame(end, fps) - MIN_CAPTION_CUE_SECONDS + TIME_EPSILON;
+  return frameToSeconds(secondsToFrame(from, fps, 'floor'), fps);
+}
+
+/**
+ * Two neighbouring cues as one: their words in order, laid out again on the cue's lines,
+ * spanning both. The provenance (clip, asset, source range) is the LONGER cue's — the cue
+ * that is mostly what the viewer reads, and a real range of one clip rather than a span
+ * stitched across two source ranges that were never contiguous.
+ */
+function mergeCues(
+  first: DerivedCue,
+  second: DerivedCue,
+  config: CaptionSegmentConfig,
+): DerivedCue {
+  const words = [...first.words, ...second.words];
+  const keeper = second.end - second.start > first.end - first.start ? second : first;
+  return {
+    text: layoutLines(words, config),
+    words,
+    start: first.start,
+    end: Math.max(first.end, second.end),
+    clipId: keeper.clipId,
+    assetId: keeper.assetId,
+    sourceStart: keeper.sourceStart,
+    sourceEnd: keeper.sourceEnd,
+    revision: keeper.revision,
+  };
 }
 
 /**

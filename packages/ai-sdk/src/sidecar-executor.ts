@@ -16,7 +16,7 @@
 import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { toEngineProject } from './engine-view.js';
-import { compactFootageChapters, footageMapSchema } from './footage-map.js';
+import { compactFootageChapters, footageMapSchema, pendingFootageMapNote } from './footage-map.js';
 import { indexFor } from './project-index.js';
 import type { LedgerSnapshot } from './ledger.js';
 import { type PacketFactsFilter, applyPacketFacts, filterIsEmpty } from './packet-facts.js';
@@ -158,7 +158,9 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * the default, because a local decode that takes two minutes IS a fault.
  */
 const TOOL_TIMEOUT_MS: Record<string, number> = {
-  // Chapters + highlights + summary per asset, sequentially, at ~35s per asset.
+  // The engine now answers within its own Pegasus wait (`PEGASUS_MAP_WAIT_SECONDS`, 90 s)
+  // and lists assets still mapping in `pendingAssets`, so a long map arrives across calls
+  // rather than inside one. Kept generous as a hung-engine ceiling, not an estimate.
   map_footage: 900_000,
   // The same Pegasus walk as `map_footage`, scoped to one asset: on a TwelveLabs
   // project `/brain/visual/describe` reads the hosted map rather than a local index.
@@ -729,6 +731,12 @@ const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
     'the understanding backend is not available for this project, so no clip can be ' +
     'described in this run. Select on the search text and titles you already have, and say ' +
     'plainly that you could not inspect the footage.',
+  // Not a refusal: the engine answers within a bounded wait and leaves the provider working
+  // (a long video takes minutes). Inform, never block (ADR 0199) — the model decides.
+  mapping:
+    "this clip's description is still being generated (a long video takes a few minutes). " +
+    'Call describe_footage again in a minute to collect it; every other tool works ' +
+    'meanwhile, and get_frame { assetId, sourceSeconds } shows a moment right now.',
 };
 
 /**
@@ -751,6 +759,10 @@ const TOOL_VISUAL_REASON_GUIDANCE: Readonly<Record<string, Readonly<Record<strin
       'across its duration, or ' +
       'work from what you already know about it (its title, its duration, and the query ' +
       'that found it) and say plainly that no map is available yet.',
+    mapping:
+      'the map of this footage is still being generated (a long video takes a few ' +
+      'minutes). Call map_footage again in a minute to collect it; every other tool works ' +
+      'meanwhile, and get_frame { assetId, sourceSeconds } shows a moment right now.',
     pegasus_unavailable:
       'the understanding backend is not available for this project, so no clip can be ' +
       'mapped in this run. Do not call this again for any clip. Work from the titles and ' +
@@ -1371,6 +1383,18 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
   const backend = typeof record.backend === 'string' ? record.backend : null;
   const summary = typeof record.summary === 'string' ? record.summary : '';
   const durationSec = typeof record.durationSec === 'number' ? record.durationSec : 0;
+  // Assets the engine is still mapping: it waits a bounded time on the provider and answers
+  // with what it has, so these are on their way, not absent. Named, so the model knows
+  // which footage the map does not cover yet.
+  const pendingAssets = parsed.success ? parsed.data.pendingAssets : [];
+  if (chapters.length === 0 && pendingAssets.length > 0) {
+    const note = pendingFootageMapNote(pendingAssets);
+    return {
+      status: 'warning',
+      summary: `"map_footage": ${note}`,
+      data: { chapters: [], highlights: [], backend, reason: note, pendingAssets, durationSec },
+    };
+  }
   if (chapters.length === 0) {
     // Through the SAME expansion `describe_footage` goes through. The engine answers
     // `not_indexed` and nothing else, so this branch used to hand the model
@@ -1391,9 +1415,19 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
       data: { chapters: [], highlights: [], backend, reason, durationSec, summary },
     };
   }
+  const mapped = `Mapped ${chapters.length} chapter${chapters.length === 1 ? '' : 's'} and ${highlights.length} highlight${highlights.length === 1 ? '' : 's'}`;
+  if (pendingAssets.length > 0) {
+    // A usable map now, and the rest on its way: completed, with the gap said out loud so
+    // the model does not read the missing footage as having nothing in it.
+    return {
+      status: 'completed',
+      summary: `${mapped}. ${pendingFootageMapNote(pendingAssets)}`,
+      data: { chapters, highlights, backend, durationSec, summary, pendingAssets },
+    };
+  }
   return {
     status: 'completed',
-    summary: `Mapped ${chapters.length} chapter${chapters.length === 1 ? '' : 's'} and ${highlights.length} highlight${highlights.length === 1 ? '' : 's'}`,
+    summary: mapped,
     data: { chapters, highlights, backend, durationSec, summary },
   };
 }

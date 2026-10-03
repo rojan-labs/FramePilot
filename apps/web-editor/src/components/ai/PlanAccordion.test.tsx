@@ -44,4 +44,27 @@ describe('PlanAccordion', () => {
 
     expect(recentPlanStep(settled)?.id).toBe('two');
   });
+
+  it('stops the spinner once the run that owns the plan is over', () => {
+    render(<PlanAccordion node={plan} expanded onExpandedChange={vi.fn()} runEnded />);
+
+    expect(document.querySelector('.ai-spinner')).toBeNull();
+    // Both unfinished steps read as not done — never as failed.
+    expect(screen.getAllByLabelText('Not done')).toHaveLength(2);
+    expect(screen.queryByLabelText('Failed')).toBeNull();
+    expect(screen.getByText('1/3')).toBeTruthy();
+  });
+
+  it('keeps the spinner while the run is live', () => {
+    render(<PlanAccordion node={plan} expanded onExpandedChange={vi.fn()} />);
+    expect(document.querySelector('.ai-spinner')).toBeTruthy();
+  });
+
+  it('collapses a stopped run with nothing completed onto where it stopped', () => {
+    const untouched = {
+      ...plan,
+      steps: plan.steps.map((step) => ({ ...step, status: 'stopped' as const })),
+    };
+    expect(recentPlanStep(untouched)?.id).toBe('one');
+  });
 });

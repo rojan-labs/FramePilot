@@ -83,6 +83,7 @@ import { Tooltip } from '../Tooltip.js';
 import { Markdown } from './Markdown.js';
 import { MessageAttachments } from './MessageAttachments.js';
 import { PlanStepMark } from './PlanStepMark.js';
+import { settlePlanSteps } from './planSteps.js';
 import { runStatusTone, toolStatusTone } from './statusTone.js';
 import { isToolAvailable, toolMeta } from './toolMeta.js';
 import { useModalFocusTrap } from './useModalFocusTrap.js';
@@ -501,12 +502,16 @@ function PlanChecklist({
   node,
   outcomes,
   onSeek,
+  runEnded,
 }: {
   node: PlanNode;
   outcomes?: ReadonlyMap<string, StepOutcome>;
   onSeek?: (seconds: number) => void;
+  /** The run is over — an unfinished step is stopped, not live (see `planSteps.ts`). */
+  runEnded?: boolean;
 }): JSX.Element {
-  const doneCount = node.steps.filter((step) => step.status === 'completed').length;
+  const steps = settlePlanSteps(node.steps, runEnded === true);
+  const doneCount = steps.filter((step) => step.status === 'completed').length;
   return (
     <div className="ai-event ai-event--plan" role="listitem">
       <StepSlot />
@@ -514,11 +519,11 @@ function PlanChecklist({
         <div className="ai-plan-head">
           <span className="ai-plan-title">Plan</span>
           <span className="ai-plan-progress tabular">
-            {doneCount}/{node.steps.length}
+            {doneCount}/{steps.length}
           </span>
         </div>
         <ul className="ai-plan">
-          {node.steps.map((step) => {
+          {steps.map((step) => {
             const outcome = outcomes?.get(step.id);
             return (
               <li key={step.id} className="ai-plan-step" data-status={step.status}>
@@ -1933,6 +1938,7 @@ export const EventNode = memo(function EventNode({
           node={node}
           {...(stepOutcomes ? { outcomes: stepOutcomes } : {})}
           {...(onSeek ? { onSeek } : {})}
+          {...(runEnded ? { runEnded } : {})}
         />
       );
     case 'tool':

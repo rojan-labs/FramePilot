@@ -29,6 +29,7 @@ import {
   captionSegmentConfig,
   createLaneAllocator,
   deriveCaptionCues,
+  keepTogetherReach,
   mapTranscript,
   speechAssetIdsFor,
   type CaptionSegmentPresetName,
@@ -48,6 +49,7 @@ import {
   normalizeCaptionWord,
 } from '../caption-style-facts.js';
 import { blankEntriesToUndefined, filterString, id, numeric, seconds } from './tool-args.js';
+import { unheardSpeechNote } from '../unheard-speech.js';
 /**
  * CSS font-weight keywords, in the numeric vocabulary the schema and the font files use.
  *
@@ -232,6 +234,54 @@ function groundedCaptionKeywords(
     // against, so what is persisted cannot drift from what is highlighted.
     return phrase.join(' ');
   });
+}
+
+/**
+ * What `caption_the_edit`'s `keepTogether` could not do, for the call's result line, or `''`.
+ *
+ * The segmenter drops a one-word phrase and a phrase never spoken as consecutive words inside
+ * one run of speech, silently (`captionSegmentConfig`), so a call whose phrase matched nothing
+ * got back exactly the cues it had — and a run that re-sent it heard only that the call changed
+ * nothing. Naming the phrases is what tells it the wording, not the segmenter, is the problem.
+ *
+ * @param toolName - The call that produced the operations; only `caption_the_edit` answers.
+ * @param project - The project the cues were derived from (or the applied one: caption
+ *   operations do not change which words play where).
+ * @param rawArgs - The call's arguments as the model sent them.
+ */
+export function keepTogetherNote(toolName: string, project: Project, rawArgs: unknown): string {
+  if (toolName !== 'caption_the_edit') return '';
+  const requested = (rawArgs as { keepTogether?: unknown } | null)?.keepTogether;
+  if (!Array.isArray(requested)) return '';
+  const phrases = requested.filter(
+    (phrase): phrase is string => typeof phrase === 'string' && phrase.trim() !== '',
+  );
+  if (phrases.length === 0) return '';
+  const mapped = mapTranscript(
+    buildTimelineMap(project.timeline),
+    project.transcript,
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
+  const { unmatched, singleWords } = keepTogetherReach(
+    phrases,
+    mapped.runs.map((run) => run.words),
+  );
+  const quoted = (list: readonly string[]): string => list.map((p) => JSON.stringify(p)).join(', ');
+  const parts: string[] = [];
+  if (unmatched.length > 0) {
+    parts.push(
+      `keepTogether did nothing for ${quoted(unmatched)}: ${unmatched.length === 1 ? 'it is' : 'they are'} ` +
+        'not spoken as consecutive words anywhere in the edit (or a cut falls inside), so no ' +
+        'cue break was protected. Copy the exact spoken wording from get_mapped_transcript.',
+    );
+  }
+  if (singleWords.length > 0) {
+    parts.push(
+      `${quoted(singleWords)} ${singleWords.length === 1 ? 'is a single word' : 'are single words'}, ` +
+        'which no cue break can split, so keepTogether has nothing to keep.',
+    );
+  }
+  return parts.length === 0 ? '' : ` — ${parts.join(' ')}`;
 }
 
 /**
@@ -423,11 +473,15 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         // The scale a caller overriding `background`/`shadow` has to match. Two models in
         // a row guessed pixels because this payload showed no number at all.
         units: CAPTION_STYLE_UNITS,
-        fonts: CAPTION_FONT_CATALOG.map(({ family, category, minWeight, maxWeight }) => ({
+        // Which writing systems each family can draw, measured from its files. Neither
+        // renderer substitutes another face per glyph in the export, so a Devanagari word in
+        // a Latin-only accent font draws as boxes (desktop run `001be135`, five restyles).
+        fonts: CAPTION_FONT_CATALOG.map(({ family, category, minWeight, maxWeight, scripts }) => ({
           family,
           category,
           minWeight,
           maxWeight,
+          scripts,
         })),
         templates: limited.map((template) => ({
           templateId: template.id,
@@ -537,8 +591,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         ...(a.maxWordsPerCue === undefined ? {} : { maxWordsPerCue: a.maxWordsPerCue }),
         ...(a.keepTogether === undefined ? {} : { keepTogether: a.keepTogether }),
       });
+      const map = buildTimelineMap(ctx.project.timeline);
       const cues = deriveCaptionCues(
-        buildTimelineMap(ctx.project.timeline),
+        map,
         ctx.project.transcript,
         config,
         ctx.project.fps,
@@ -549,10 +604,19 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         // single-asset project behaves exactly as before.
         speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
       );
-      if (cues.length === 0 && track.clips.length === 0) {
-        throw new ToolRefusalError(
-          'No speech survives on the timeline to caption. Check the transcript covers the footage that is still in the edit.',
-        );
+      if (cues.length === 0) {
+        // When the words survive the cuts but every clip carrying them is silenced, "no speech
+        // survives" is false and sends the run looking at the cuts. Say what is true: whose
+        // speech is muted, and which audible asset has no transcript (`unheard-speech.ts`).
+        // Refused even over an existing caption track: replacing its cues with nothing because
+        // the speech is muted would wipe captions an editor may have meant to keep.
+        const unheard = unheardSpeechNote(ctx.project, map);
+        if (unheard !== '') throw new ToolRefusalError(unheard);
+        if (track.clips.length === 0) {
+          throw new ToolRefusalError(
+            'No speech survives on the timeline to caption. Check the transcript covers the footage that is still in the edit.',
+          );
+        }
       }
 
       // Clear first, in the same patch, so one undo restores the previous

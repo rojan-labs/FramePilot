@@ -149,11 +149,20 @@ export const keywordTokens = (keyword: string): string[] =>
 const EMPTY_INDICES: ReadonlySet<number> = new Set<number>();
 
 /**
- * Fold a token to bare letters/digits, lowercased — the same normalization
+ * Fold a token to bare letters, marks and digits, lowercased — the same normalization
  * `captions.ts#stripPunctuation` uses, so a keyword typed in the panel matches
  * the same words the render will accent.
+ *
+ * PARITY: the engine's `captions.py#_bare_token` folds identically (NFKC, lowercase, keep
+ * `L`/`M`/`N`), checked against `tests/fixtures/captions/bare-token-vectors.json` on both
+ * sides. Marks are kept because Devanagari's vowel signs are marks: without them "की", "का"
+ * and "के" all bared to "क", so a keyword accented every one of them.
  */
-const bareToken = (token: string): string => token.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+export const bareToken = (token: string): string =>
+  token
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]/gu, '');
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 

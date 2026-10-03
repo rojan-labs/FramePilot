@@ -101,10 +101,14 @@ __all__ = [
     "DIRECT_UPLOAD_MAX_BYTES",
     "MULTIPART_UPLOAD_MAX_BYTES",
     "NO_API_KEY_REASON",
+    "PEGASUS_MAP_PROMPT_VERSION",
+    "PEGASUS_MAX_SYNC_MEDIA_SECONDS",
+    "PEGASUS_SECONDS_PER_MEDIA_SECOND",
     "PEGASUS_UNAVAILABLE_REASON",
     "PREFLIGHT_AUDIO_TOO_LARGE_CODE",
     "PREFLIGHT_FILE_TOO_LARGE_CODE",
     "TL_UPLOAD_POLICY_VERSION",
+    "VISUAL_SEARCH_OPTIONS",
     "TLChapter",
     "TLClip",
     "TLGist",
@@ -122,6 +126,7 @@ __all__ = [
     "TwelveLabsPegasusUnavailableError",
     "asset_task_token",
     "key_fingerprint",
+    "pegasus_timeout_seconds",
     "resolve_twelvelabs",
     "task_token_index",
     "task_token_uploaded_asset",
@@ -162,6 +167,13 @@ DEFAULT_INDEX_OPTIONS = ("visual", "audio")
 #: queries pass ``("visual",)``).
 DEFAULT_SEARCH_OPTIONS = ("visual", "audio", "transcription")
 
+#: What a PICTURE search asks for: the frames, and nothing the footage says or plays.
+#: ``search_visual`` promises what is on screen, and fusing in the speech modalities made
+#: narrated footage answer from its words — desktop run 001be135's recap video carried its
+#: own narration, so every "find the shot of X" came back at the moment the narrator said X,
+#: and the agent laid the footage out in source order believing it had matched the picture.
+VISUAL_SEARCH_OPTIONS = ("visual",)
+
 #: How the ``transcription`` search modality matches, when it is requested: both
 #: ``lexical`` (exact words) and ``semantic`` (meaning), mirroring the dashboard.
 #: Ignored by TwelveLabs unless ``transcription`` is among the search options.
@@ -178,6 +190,50 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 #: A generous bound (not ``None``) lets a large upload finish while still capping
 #: a genuinely hung connection so the paced slice can never block forever.
 DEFAULT_UPLOAD_TIMEOUT_SECONDS = 900.0
+
+#: Read bound for one Pegasus ``/analyze`` call, per second of the analysed video.
+#:
+#: A synchronous analysis sends NOTHING until Pegasus has read the whole video and
+#: generated its answer, so httpx's read timeout is, in effect, the whole analysis — and
+#: the flat :data:`DEFAULT_TIMEOUT_SECONDS` (120 s) is a bound that grows false with the
+#: footage. Measured: a 7:47 reel's chapters took ~56 s (0.12 s/s) and its highlights
+#: ~11 s; a 58:51 reel's chapters failed at 121 s with "The read operation timed out", so
+#: an hour of footage had no map at all. Half a second per media second is 4x the
+#: measured rate, room for a busy provider; it is a stuck-request bound, not an
+#: expected time, and :func:`pegasus_timeout_seconds` floors it at the default.
+#:
+#: WHY a scaled per-call timeout and not ``analyze_stream`` with a per-chunk read
+#: timeout (the SDK has both): a stream's FIRST chunk still waits for Pegasus to read
+#: the whole video, so its bound would have to scale with duration all the same; and a
+#: per-chunk bound never ends the failure ``_analyze_structured`` already guards against,
+#: Pegasus repeating the tail of its JSON forever — a stream that keeps producing never
+#: times out. One total bound covers both. The asynchronous ``/analyze/tasks`` API is the
+#: only route past the sync endpoint's one-hour ceiling; it is not needed below it.
+PEGASUS_SECONDS_PER_MEDIA_SECOND = 0.5
+#: The duration assumed when an asset's is unknown (no probe): the sync ``/analyze``
+#: endpoint's documented maximum, so a probe-less long asset is never held to the 120 s
+#: bound that failed the hour-long reel.
+PEGASUS_MAX_SYNC_MEDIA_SECONDS = 3600.0
+#: Version of the footage-map prompts and schemas (chapters, highlights, summary). Part
+#: of the key an in-flight map is shared under, so changing what is asked of Pegasus
+#: never hands a caller an answer to the old question. Bump it with the prompts.
+PEGASUS_MAP_PROMPT_VERSION = 1
+
+
+def pegasus_timeout_seconds(duration_seconds: float | None) -> float:
+    """The read bound for one Pegasus ``/analyze`` call over a video this long.
+
+    :param duration_seconds: The analysed video's duration; ``None`` or non-positive when
+        unknown, which is bounded as the longest video the sync endpoint accepts.
+    :returns: Seconds, never below :data:`DEFAULT_TIMEOUT_SECONDS`.
+    """
+    media = (
+        duration_seconds
+        if duration_seconds is not None and duration_seconds > 0
+        else PEGASUS_MAX_SYNC_MEDIA_SECONDS
+    )
+    return max(DEFAULT_TIMEOUT_SECONDS, media * PEGASUS_SECONDS_PER_MEDIA_SECOND)
+
 
 #: Largest local video/audio file ``POST /assets`` (``method="direct"``) accepts.
 #: WHY: the SDK's ``assets.create`` docs (twelvelabs 1.2.9) cap "Video and audio,
@@ -1029,8 +1085,16 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any API/transport failure.
         """
         # ``transcription_options`` (lexical/semantic) only mean anything when the
-        # transcription modality is being searched; sending them otherwise is noise.
-        transcription = list(transcription_options) if "transcription" in options else None
+        # transcription modality is being searched, and then they are left OUT of the
+        # request — never passed as ``None``: the SDK still sends a ``None`` keyword as a
+        # form part, and TwelveLabs answers 400 ("The transcription_options[0] parameter is
+        # invalid"). A picture-only search (``VISUAL_SEARCH_OPTIONS``) failed every call
+        # that way until the e2e run on 2026-10-03 caught it.
+        extra: dict[str, Any] = (
+            {"transcription_options": list(transcription_options)}
+            if "transcription" in options
+            else {}
+        )
         with self._translate_errors():
             resp = self._sdk.search.create(
                 index_id=index_id,
@@ -1038,7 +1102,7 @@ class TwelveLabsClient:
                 search_options=list(options),
                 group_by="clip",
                 page_limit=page_limit,
-                transcription_options=transcription,
+                **extra,
             )
         clips = _clips_from_items(resp.data)
         _log.info(
@@ -1147,7 +1211,12 @@ class TwelveLabsClient:
     }
 
     def _analyze_structured(
-        self, asset_ref: str, prompt: str, schema: dict[str, Any]
+        self,
+        asset_ref: str,
+        prompt: str,
+        schema: dict[str, Any],
+        *,
+        duration_seconds: float | None = None,
     ) -> dict[str, object]:
         """One ``POST /analyze`` with a JSON-schema ``response_format`` → parsed object.
 
@@ -1164,10 +1233,17 @@ class TwelveLabsClient:
         empty object — the parsers then honestly return nothing rather than
         fabricating a map.
 
+        Each call is bounded by :func:`pegasus_timeout_seconds` for the video's duration,
+        not by the client's flat timeout (see :data:`PEGASUS_SECONDS_PER_MEDIA_SECOND`).
+
+        :param duration_seconds: The video's duration, which sizes the read bound.
         :raises TwelveLabsAuthError: On 401 (key rejected).
         :raises TwelveLabsPegasusUnavailableError: On 402/403 (no Pegasus entitlement).
         :raises TwelveLabsError: On any other API/transport failure.
         """
+        bound = RequestOptions(
+            timeout_in_seconds=math.ceil(pegasus_timeout_seconds(duration_seconds))
+        )
         with self._translate_errors(pegasus=True):
             resp = self._sdk.analyze(
                 model_name=DEFAULT_PEGASUS_MODEL_NAME,
@@ -1175,6 +1251,7 @@ class TwelveLabsClient:
                 prompt=prompt,
                 temperature=0.2,
                 response_format=SyncResponseFormat(type="json_schema", json_schema=schema),
+                request_options=bound,
             )
         decoded = _decode_analyze_json(resp.data)
         if decoded is not None:
@@ -1193,16 +1270,20 @@ class TwelveLabsClient:
                     f"matching this JSON Schema exactly:\n{json.dumps(schema)}"
                 ),
                 temperature=0.2,
+                request_options=bound,
             )
         return _decode_analyze_json(retry.data) or {}
 
-    def summarize_chapters(self, asset_ref: str) -> list[TLChapter]:
+    def summarize_chapters(
+        self, asset_ref: str, *, duration_seconds: float | None = None
+    ) -> list[TLChapter]:
         """Pegasus chapter breakdown of an uploaded asset (``POST /analyze``, schema=chapters).
 
         A time-ordered map of the whole video with no query — the linchpin of
         footage comprehension (plan D1). Chapters are returned in video order; a
         video Pegasus could not chapter yields an empty list (honest).
 
+        :param duration_seconds: The video's duration; sizes the call's read bound.
         :raises TwelveLabsAuthError: On 401 (key rejected).
         :raises TwelveLabsPegasusUnavailableError: On 402/403 (no Pegasus entitlement).
         :raises TwelveLabsError: On any other API/transport failure.
@@ -1212,8 +1293,10 @@ class TwelveLabsClient:
             "Break this video into sequential chapters that cover the entire "
             "timeline in order, with no gaps or overlaps. For each chapter give "
             "its start and end time in seconds, a short title, and a one-sentence "
-            "summary of what happens.",
+            "summary of what is SEEN on screen: who and what is shown, where, and "
+            "what they do. Describe the picture, not the dialogue or narration.",
             self._CHAPTER_SCHEMA,
+            duration_seconds=duration_seconds,
         )
         chapters = _parse_chapters(payload)
         _log.info(
@@ -1221,12 +1304,15 @@ class TwelveLabsClient:
         )
         return chapters
 
-    def summarize_highlights(self, asset_ref: str) -> list[TLHighlight]:
+    def summarize_highlights(
+        self, asset_ref: str, *, duration_seconds: float | None = None
+    ) -> list[TLHighlight]:
         """Pegasus highlight reel of an uploaded asset (``POST /analyze``, schema=highlights).
 
         The salient moments Pegasus judged worth surfacing, in video order. Empty
         when Pegasus found none (honest, never fabricated).
 
+        :param duration_seconds: The video's duration; sizes the call's read bound.
         :raises TwelveLabsAuthError: On 401 (key rejected).
         :raises TwelveLabsPegasusUnavailableError: On 402/403 (no Pegasus entitlement).
         :raises TwelveLabsError: On any other API/transport failure.
@@ -1237,6 +1323,7 @@ class TwelveLabsClient:
             "one give its start and end time in seconds and a short label naming "
             "the moment.",
             self._HIGHLIGHT_SCHEMA,
+            duration_seconds=duration_seconds,
         )
         highlights = _parse_highlights(payload)
         _log.info(
@@ -1246,9 +1333,10 @@ class TwelveLabsClient:
         )
         return highlights
 
-    def summarize_gist(self, asset_ref: str) -> TLGist:
+    def summarize_gist(self, asset_ref: str, *, duration_seconds: float | None = None) -> TLGist:
         """Pegasus whole-video summary (``POST /analyze``, schema=summary).
 
+        :param duration_seconds: The video's duration; sizes the call's read bound.
         :raises TwelveLabsAuthError: On 401 (key rejected).
         :raises TwelveLabsPegasusUnavailableError: On 402/403 (no Pegasus entitlement).
         :raises TwelveLabsError: On any other API/transport failure.
@@ -1258,6 +1346,7 @@ class TwelveLabsClient:
             "Summarize this entire video in one concise paragraph describing what "
             "it shows, with no query or filtering.",
             self._SUMMARY_SCHEMA,
+            duration_seconds=duration_seconds,
         )
         raw = payload.get("summary")
         summary = raw.strip() if isinstance(raw, str) else ""

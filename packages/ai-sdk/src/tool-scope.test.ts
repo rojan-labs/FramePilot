@@ -5,7 +5,6 @@ import { UNBUILT_TOOL, UNBUILT_TOOL_NAME } from './__fixtures__/unbuilt-tool.js'
 import { MockProvider } from './providers/mock.js';
 import type { ToolDomain } from './tool-domains.js';
 import { Orchestrator } from './orchestrator.js';
-import type { RunStage } from './kernel/working-state.js';
 import {
   IMPLICIT_ONLY_TOOL_NAMES,
   type ToolScope,
@@ -118,20 +117,10 @@ describe('selectTools', () => {
     // as an ordinary call. A model could start a paced, billable indexing job inside a run
     // whose budget and cancellation semantics assumed it could not.
     const orchestrator = new Orchestrator(new MockProvider());
-    const stages: readonly RunStage[] = [
-      'interpret',
-      'inspect',
-      'analyze',
-      'plan',
-      'apply',
-      'verify',
-      'complete',
-    ];
     const surfaces = [
       orchestrator.agentTools('agent'),
       orchestrator.agentTools('question'),
-      orchestrator.agentTools('action-recovery'),
-      ...stages.map((stage) => orchestrator.agentTools('agent', stage)),
+      orchestrator.agentTools('agent', new Set<ToolDomain>()),
     ];
     for (const surface of surfaces) {
       for (const implicit of IMPLICIT_ONLY_TOOL_NAMES) {
@@ -140,27 +129,23 @@ describe('selectTools', () => {
     }
   });
 
-  it('keeps progressive disclosure on the action-recovery turn', () => {
-    // The recovery branch used to return before the loaded-domains filter, so a run that
-    // had loaded nothing was handed every mutation in the registry (62 tools against its
-    // 39) — a full prompt-prefix re-bill and the motion/colour/caption mutations it never
-    // asked for. `s9-live-reorder-fix1` r1, model call 4.
+  it('advertises exactly what the run has loaded — nothing narrows it further (ADR 0199)', () => {
     const orchestrator = new Orchestrator(new MockProvider());
     const nothingLoaded = new Set<ToolDomain>();
-    const names = orchestrator
-      .agentTools('action-recovery', undefined, nothingLoaded)
-      .map((tool) => tool.name);
+    const names = orchestrator.agentTools('agent', nothingLoaded).map((tool) => tool.name);
     expect(names).toContain('trim_clip');
     expect(names).toContain('reorder_clips');
     expect(names).toContain('load_tools');
+    expect(names).toContain('get_transcript');
     expect(names).not.toContain('set_clip_crop');
     expect(names).not.toContain('caption_the_edit');
-    expect(names).not.toContain('apply_color_grade');
-    const withMotion = orchestrator
-      .agentTools('action-recovery', undefined, new Set<ToolDomain>(['motion']))
+    const withFootage = orchestrator
+      .agentTools('agent', new Set<ToolDomain>(['footage', 'motion']))
       .map((tool) => tool.name);
-    expect(withMotion).toContain('set_clip_crop');
-    expect(withMotion).not.toContain('caption_the_edit');
+    // Desktop run 001be135 was refused this on its second step by the old stage gate.
+    expect(withFootage).toContain('describe_footage');
+    expect(withFootage).toContain('set_clip_crop');
+    expect(withFootage).not.toContain('caption_the_edit');
   });
 
   it('lets explicit orchestrator setup select an implicit-only tool by name', () => {

@@ -1986,12 +1986,15 @@ describe('word_severed on footage the transcript cannot be describing', () => {
  * every moment has something under it; this asks whether anything under it is wasted.
  */
 describe('hidden_picture', () => {
+  // No transcript: a covered clip whose words are heard is A-roll under a cutaway, not
+  // buried picture (`hiddenPictureClips`), and these cases are about picture alone.
   const stack = (tracks: unknown[]): Project =>
     withTracks(tracks, {
       assets: [
         { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
         { id: 'asset_2', path: 'media/stock.mp4', kind: 'video', durationSeconds: 60 },
       ] as Project['assets'],
+      transcript: [],
     });
 
   it('warns and names the buried clip', () => {

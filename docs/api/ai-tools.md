@@ -391,8 +391,8 @@ update_plan({
   the plan stays as it was. The echo names what it kept: `Kept N items your list left out, as
   they were: “…” (blocked), …, and M done items.` Harness run 18 sent two items over a 24-item
   plan; the list used to become those two, and four blocked masking items vanished unreported.
-- **Surface:** core (always advertised in agent mode, including the action-recovery turn); not
-  offered on the read-only question route. `hostUiOnly` and `serialOnly`: the plan lives in a TS
+- **Surface:** core (always advertised in agent mode, on every turn — no turn narrows the
+  surface, ADR 0199); not offered on the read-only question route. `hostUiOnly` and `serialOnly`: the plan lives in a TS
   orchestrator run, so neither the Python sidecar nor the MCP server mirrors it.
 - **What the loop does with it** (`kernel/conductor.ts`, `kernel/model-plan.ts`): a reply with no
   tool call ends the run only when no item is `pending` or `in_progress`. While one is open, the
@@ -401,19 +401,16 @@ update_plan({
   and status). A second reply with the same mark settles the run through verification. `blocked`
   is not open. `maxSteps` (widened to fit the plan, as a drafted plan widens it), wall time and
   cost still bound everything. Nothing reads the model's prose or the request.
-- **A plan that ends on blocked items (AL39):** when a no-tool reply leaves nothing open, at least
-  one item `blocked`, and tool domains the run never loaded, the run continues ONCE. That turn's
-  DO THIS NOW names the blocked items and each unloaded domain with its `load_tools` summary:
-  load and retry an item, or reply without a tool call to leave it blocked. The runtime reports
-  the unloaded domains (`AgentTurnResult.unloadedToolDomains`); the reducer decides from plan
-  statuses alone. Never when cancelled, over budget, or out of steps; a second no-tool reply ends
-  the run. Harness run 16 blocked "Sound design" on "No SFX in the bin" without ever loading
-  `sourcing`.
+- **A plan that ends on blocked items:** blocked is an answer, and a no-tool reply that leaves
+  nothing open ends the run. The `update_plan` result names the tool domains the run has not
+  loaded when an item is blocked (so the model can load one and retry); the AL39 turn that used
+  to force one more attempt was removed by ADR 0199 — it also fired right after the model had
+  asked the editor a question (desktop run `001be135`).
 - **What the editor sees:** the existing `plan` event, one checklist node per run. `done` maps to
   `completed`, `in_progress` to `running`, `pending` to `pending`, and `blocked` to `failed`
   with the note. Once the model owns the plan, the positional drafted ledger (`planFirst`) never
-  draws over it. When the run ends, open items settle as failed ("Not done — the run ended
-  first"), a warning names them, and the completion report lists each unfinished item under
+  draws over it. When the run ends, open items settle as `stopped` ("Not done — the run ended
+  first", drawn as "Not done", not a cross), a warning names them, and the completion report lists each unfinished item under
   **Not done** (`— not done` or `— blocked: <note>`).
 - **Across a run boundary (AL5, #149):** the plan used to live in conductor state only, so a
   resumed run and a follow-up on the same request re-planned from the brief and could redo

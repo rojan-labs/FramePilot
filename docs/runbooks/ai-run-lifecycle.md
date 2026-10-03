@@ -93,9 +93,12 @@ result. They do not alter the project, patch history, or model execution value.
 
 A long run may emit many reasoning deltas, but meaningful boundaries should continue:
 model effect settles, tool starts/settles, a patch is proposed/committed, or the
-Conductor advances toward verification. Repeated research without edit attempts is
-bounded by the Conductor research budget; an action-only turn follows. Repeated identical
-events are not persisted.
+Conductor advances toward verification. Nothing forces a researching run to act (ADR 0199):
+turns that learn nothing new climb the stall streak and end the run at `STALL_CONFIRM_TURNS`,
+and the editor's cost and time budgets bound everything else. Repeated identical events are
+not persisted, and once a run's durable log reaches 75% of its limit token deltas, reasoning,
+context gauges and `run_state` stop being persisted (90% for other stream events); commands,
+patch lifecycle and the terminal event keep the last 10%, so recording never ends a run.
 
 ## Recovery checks
 

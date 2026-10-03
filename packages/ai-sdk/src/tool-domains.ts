@@ -144,29 +144,15 @@ const CORE: readonly string[] = [
   'set_track_flags',
   'add_marker',
   'remove_marker',
-  // Seeing what the run has DONE, and the two tools a runtime rail names by hand.
-  //
-  // These three are not core because they are common — they are core because
-  // `kernel/stage-policy.ts` already exempts each of them from every stage narrowing,
-  // each after a run died without it: `get_frame` is how the agent looks at its own edit
-  // (`VERIFICATION_LOOK_TOOL_NAMES`), `detect_beats` measures the music the run places
-  // while it edits (`EXECUTION_MEASUREMENT_TOOL_NAMES`, run `ea8e46ec` was refused it
-  // twice and died), and `transcribe` is what a mutation's own precondition tells the model to
-  // run (`PRECONDITION_TOOL_NAMES`). A tool the runtime has decided must always be
-  // reachable must not then need asking for; `tool-domains.test.ts` asserts that both
-  // ways round, so a future exemption cannot be added without landing here too.
+  // Looking at the edit and the picture, and the two measurements editing reaches for at any
+  // point in a run: `get_frame` is how the agent sees its own edit, `detect_beats` measures
+  // the music it places while it edits, `transcribe` is what a caption tool's precondition
+  // names, and `measure_color` / `measure_subject` are the picture in numbers before a grade
+  // or a title is placed. Core because every kind of edit can need them mid-run.
   'get_frame',
   'detect_beats',
   'transcribe',
-  // The picture look in numbers — the same exemption as `get_frame`, for the same reason,
-  // and it landed here for the same reason too: run `137d8fd0` was asked to "measure what's
-  // actually on screen", called this twice in `apply`, and was refused both times as an
-  // analysis tool. A colour self-check the model cannot see is an opt-in.
   'measure_color',
-  // Where the cut-out subject sits (head, face band, width per band) and where a title reads
-  // behind it: the measurement every text placement needs, including the second title after
-  // the first patch put the run in `apply`. Exempt from stage narrowing like `measure_color`,
-  // so it lives in core for the same reason (see the note above).
   'measure_subject',
   // Talking to the editor, and to the run's own memory.
   'ask_user',

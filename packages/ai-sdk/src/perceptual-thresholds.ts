@@ -69,6 +69,54 @@ export const AUDIO_PEAK_DBFS = {
 export const MAX_AUDIO_BOUNDARY_JUMP_DB = 12;
 
 /**
+ * The quietest level an edit-boundary check counts as sound, in dBFS RMS (pre-encode
+ * composite). Each side of a splice is raised to it before the jump is taken.
+ *
+ * The jump used to floor at digital silence (-120 dBFS), so a music bed fading in from
+ * nothing read its first frames (-86.6 dBFS on run x59-1) as a 34 dB step up from the
+ * silence before it. -60 sits just under the quietest real background in the recordings this
+ * was measured on: room tone in `speech-9min.mp4` and the X-59 runway ambience reach -58 and
+ * -57 dBFS RMS (20 ms windows, 1st percentile). So a change in room tone across a cut still
+ * counts, and a fade's first moments do not. It is 46 dB under the -14 LUFS the loudness check
+ * aims at. With {@link MAX_AUDIO_BOUNDARY_JUMP_DB} that means a jump needs its louder side at
+ * -48 dBFS or above.
+ *
+ * Not the silence detector's -30 dB (`analysis/silence.py#DEFAULT_NOISE_FLOOR_DB`): that is a
+ * PEAK level, set high on purpose so room tone counts as a pause to cut. As an RMS floor here
+ * it would hide the room-tone and quiet-bed steps a viewer does hear.
+ */
+export const AUDIBLE_RMS_FLOOR_DBFS = -60;
+
+/**
+ * How much of a sound's first (or last) moment an entry from silence (or an exit into it)
+ * is judged by, in seconds.
+ *
+ * A clip that enters at its full level clicks. One that fades in does not, but the RMS of the
+ * three frames after the boundary cannot tell them apart, since a half-second fade has
+ * covered a fifth of its range by then. Ten milliseconds (480 samples at 48 kHz) is where a
+ * hard entry is already at its level and any fade worth the name is still near silence: a
+ * 0.5 s linear fade is 39 dB under its content there.
+ */
+export const AUDIO_ONSET_SECONDS = 0.01;
+
+/**
+ * The PEAK level below which a stretch carries nothing worth hearing, for the dead-air
+ * check (waveform peaks: the max |sample| per bucket, as `media/waveform.py` stores them).
+ *
+ * It is the level the engine's own silence detection treats as silence
+ * (`analysis/silence.py#DEFAULT_NOISE_FLOOR_DB`, the default `remove_silences` cuts at). That
+ * detector also compares sample amplitude, so the two agree on what "nothing there" means.
+ * Measured: the pauses in `speech-9min.mp4` peak at -30 to -38 dBFS per second, so a talking
+ * head's room tone is still dead air. The X-59 music bed after its -8 dB gain (-29 to -10)
+ * and the crowd at the end of that film (-22 to -12) are not.
+ *
+ * Not {@link AUDIBLE_RMS_FLOOR_DBFS}: that is an RMS over milliseconds, this is a peak over a
+ * waveform bucket (about a second on a long asset), and room tone peaks about 20 dB above its
+ * RMS.
+ */
+export const DEAD_AIR_PEAK_FLOOR_DBFS = -30;
+
+/**
  * Black-frame ceilings.
  *
  * `review` is per FRAME: one near-black frame inside an edit boundary is a visible flash, and

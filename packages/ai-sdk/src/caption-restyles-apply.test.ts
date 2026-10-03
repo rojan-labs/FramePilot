@@ -1,16 +1,18 @@
 /**
- * A run may restyle one caption track only so many times (run fb90e58d).
+ * Every distinct caption restyle applies — there is no per-run count.
  *
- * The run restyled one track ten times in a turn, looking at the same frame after each
- * and reporting the same problem ("the caption runs off the right edge"): the renderer
- * placed the text wrongly whatever the style said, so no restyle could converge, and the
- * editor stopped it at 695k tokens. A design pass that converges — restyle, look, one or
- * two corrections — sits well inside the budget.
+ * A five-restyle cap per track used to refuse the sixth (run fb90e58d restyled one track ten
+ * times while a renderer placement bug, since fixed, made every style look wrong). Desktop run
+ * `001be135` paid for it: a Hindi caption track was restyled five times while the run looked
+ * for why its accent font did not show, and the sixth — a NEW keyword accent the editor had
+ * just chosen through ask_user — was refused with "Stop restyling". A byte-identical repeat
+ * that changes nothing is still withheld as "already done"; a count of distinct choices says
+ * nothing about whether the next one is right.
  */
 import { describe, expect, it } from 'vitest';
 import { makeProject } from './__fixtures__/project.js';
 import type { ContextInput } from './context-builder.js';
-import { MAX_TRACK_RESTYLES_PER_RUN, Orchestrator, type StreamOptions } from './orchestrator.js';
+import { Orchestrator, type StreamOptions } from './orchestrator.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from './providers/types.js';
 
 function captionProject() {
@@ -85,34 +87,16 @@ async function summaries(calls: NonNullable<AiResponse['toolCalls']>): Promise<s
   return out.filter((summary) => /caption/i.test(summary));
 }
 
-describe('the per-run caption restyle budget', () => {
-  it('refuses the restyle past the budget and says why, in the editor’s terms', async () => {
-    const calls = Array.from({ length: MAX_TRACK_RESTYLES_PER_RUN + 1 }, (_, i) => restyle(i));
+describe('caption restyles', () => {
+  it('applies every distinct restyle of one track, however many there are', async () => {
+    const calls = Array.from({ length: 8 }, (_, i) => restyle(i));
     const results = await summaries(calls);
-    const refused = results.filter((summary) => /not applied/.test(summary));
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toContain(
-      `Caption 1 was restyled ${String(MAX_TRACK_RESTYLES_PER_RUN)} times this run`,
-    );
-    expect(results.filter((summary) => !/not applied/.test(summary))).toHaveLength(
-      MAX_TRACK_RESTYLES_PER_RUN,
-    );
+    expect(results).toHaveLength(8);
+    expect(results.some((summary) => /not applied|refused/.test(summary))).toBe(false);
   });
 
-  it('is one track’s budget: another caption track can still be restyled after it', async () => {
-    const calls = [
-      ...Array.from({ length: MAX_TRACK_RESTYLES_PER_RUN + 1 }, (_, i) => restyle(i)),
-      restyle(0, 'caption_2'),
-    ];
-    const results = await summaries(calls);
-    expect(results.filter((summary) => /not applied/.test(summary))).toHaveLength(1);
-    expect(
-      results.some((summary) => /Caption 2/.test(summary) && !/not applied/.test(summary)),
-    ).toBe(true);
-  });
-
-  it('allows a converging pass — a restyle and a couple of corrections', async () => {
-    const results = await summaries([restyle(0), restyle(1), restyle(2)]);
-    expect(results.some((summary) => /not applied/.test(summary))).toBe(false);
+  it('still withholds a byte-identical repeat that changes nothing', async () => {
+    const results = await summaries([restyle(1), restyle(1)]);
+    expect(results.filter((summary) => /already done/.test(summary))).toHaveLength(1);
   });
 });

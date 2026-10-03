@@ -308,8 +308,6 @@ describe('Orchestrator.streamAuto', () => {
       new Orchestrator(provider).streamAuto({ project: longProject, userPrompt: prompt }, opts),
     );
 
-    // The agent declared itself done with its committed objective still pending, so the
-    // conductor issued one bounded mutation-only continuation before failing closed.
     // A two-hour source must not put two hours of timeline in the prompt: the classifier
     // sees only the tiny project header, and the agent turn sees the request itself.
     expect(
@@ -325,10 +323,11 @@ describe('Orchestrator.streamAuto', () => {
     // 12 from the classifier (10 in + 2 out) plus 45 for each agent turn (40 in + 5 out):
     // the classifier's spend is folded in, not billed as a separate turn.
     expect(usage[0]?.tokens).toBe(12 + 45 * (provider.calls - 1));
-    // The general agent honestly recognized the requested primitive is unsupported and
-    // stopped without landing an edit — ADR 0081's causal completion gate means that is
-    // `failed`, not `completed`: the timeline is untouched, whatever the reason.
-    expect(statuses(events).at(-1)).toBe('failed');
+    // The agent ended the run with a reply and nothing it tried failed or was refused: an
+    // answer with an empty diff, which completes (ADR 0199 §5; the editor sees the reply and
+    // the sidebar's "no edits" notice). A reply after a FAILED call is what fails.
+    expect(provider.calls).toBe(2);
+    expect(statuses(events).at(-1)).toBe('completed');
   });
 
   it('falls back to the edit (agent) route when classification is unparseable', async () => {

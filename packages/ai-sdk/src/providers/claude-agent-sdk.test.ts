@@ -90,6 +90,22 @@ describe('SANDBOX_OPTIONS — the non-agentic security contract', () => {
     expect(SANDBOX_OPTIONS.strictMcpConfig).toBe(true);
   });
 
+  it('sends the prompt verbatim: no CLAUDE.md, rules or @path expansion attached by the CLI', () => {
+    expect(SANDBOX_OPTIONS.verbatimPrompts).toBe(true);
+  });
+
+  it('loads no CLAUDE.md or auto-memory, the instruction memory settingSources does not cover', () => {
+    expect(SANDBOX_OPTIONS.settings).toEqual({
+      claudeMdExcludes: ['**'],
+      autoMemoryEnabled: false,
+    });
+  });
+
+  it('persists no session and asks for no generated title', () => {
+    expect(SANDBOX_OPTIONS.persistSession).toBe(false);
+    expect(SANDBOX_OPTIONS.title).toBe('FramePilot');
+  });
+
   it('is frozen, so a caller cannot loosen it in place', () => {
     expect(Object.isFrozen(SANDBOX_OPTIONS)).toBe(true);
   });
@@ -108,6 +124,10 @@ describe('the options actually sent to the SDK', () => {
     expect(options['settingSources']).toEqual([]);
     expect(options['permissionMode']).toBe('default');
     expect(options['strictMcpConfig']).toBe(true);
+    expect(options['verbatimPrompts']).toBe(true);
+    expect(options['persistSession']).toBe(false);
+    expect(options['title']).toBe('FramePilot');
+    expect(options['settings']).toEqual({ claudeMdExcludes: ['**'], autoMemoryEnabled: false });
     // Never the `claude_code` preset — that is the prompt that makes it a coding agent.
     expect(options['systemPrompt']).toEqual({ type: 'custom', prompt: '' });
   });

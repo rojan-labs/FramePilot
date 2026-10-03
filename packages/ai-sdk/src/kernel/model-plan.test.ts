@@ -4,7 +4,6 @@ import { createTurnEmitter } from '../events.js';
 import {
   type ModelPlanItem,
   MAX_PRIOR_MODEL_PLANS,
-  blockedItemsRetryAction,
   MODEL_PLAN_MAX_ITEMS,
   describeOpenItems,
   mergeModelPlan,
@@ -104,15 +103,15 @@ describe('modelPlanSteps', () => {
     ]);
   });
 
-  it('settles every open item as failed with the reason once the run has ended', () => {
+  it('settles every open item as stopped with the reason once the run has ended', () => {
     const steps = modelPlanSteps(
       [item('Montage', 'done'), item('Grade', 'in_progress'), item('Ramps', 'pending')],
       'Not done — the run ended first',
     );
     expect(steps.map((s) => [s.status, s.detail])).toEqual([
       ['completed', undefined],
-      ['failed', 'Not done — the run ended first'],
-      ['failed', 'Not done — the run ended first'],
+      ['stopped', 'Not done — the run ended first'],
+      ['stopped', 'Not done — the run ended first'],
     ]);
   });
 });
@@ -206,24 +205,6 @@ describe('a blocked item and the domains the run never loaded (AL39)', () => {
     );
     expect(unloadedDomainsForBlocked([{ task: 'Cut', status: 'done' }], new Set())).toEqual([]);
     expect(unloadedDomainsForBlocked(blocked, new Set<ToolDomain>(LOADABLE_DOMAINS))).toEqual([]);
-  });
-
-  it('names the blocked items, each domain with its summary, and both ways to answer', () => {
-    const action = blockedItemsRetryAction(blocked, ['sourcing']);
-    expect(action).toContain('Your plan leaves “Sound design and mix” blocked');
-    expect(action).toContain('sourcing (find and place stock footage, music and sound effects');
-    expect(action).not.toContain('Build the montage');
-    expect(action).toContain('load_tools');
-    expect(action).toContain('reply without a tool call and the item stays blocked.');
-  });
-
-  it('counts blocked items past the fourth instead of naming them all', () => {
-    const many: ModelPlanItem[] = ['A', 'B', 'C', 'D', 'E', 'F'].map((task) => ({
-      task,
-      status: 'blocked',
-      note: 'why',
-    }));
-    expect(blockedItemsRetryAction(many, ['media'])).toContain('“A”, “B”, “C”, “D” and 2 more');
   });
 });
 

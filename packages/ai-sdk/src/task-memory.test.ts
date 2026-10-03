@@ -20,12 +20,12 @@
  * reachable ONLY through a windowed `get_transcript` read.
  */
 import { describe, expect, it } from 'vitest';
+import { STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 import { Orchestrator } from './orchestrator.js';
 import { makeProject } from './__fixtures__/project.js';
 import type { ContextInput } from './context-builder.js';
 import type { AiEvent } from './events.js';
 import { parseWorkingState } from './kernel/working-state.js';
-import { SEMANTIC_LOOP_TURNS } from './kernel/loop-detector.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
 
 const WORD_COUNT = 1200;
@@ -231,12 +231,13 @@ describe('stages drive the run forward (M2)', () => {
       events.push(event);
     }
 
-    // The tool surface is the observable proof of the stage: once the run is executing,
-    // analysis descriptors are gone from the prompt entirely.
+    // The stage is bookkeeping (ADR 0199): an executing run keeps every tool it has, so a
+    // read after the first edit is still on offer — desktop run 001be135 was refused
+    // `describe_footage` on its second step because a voiceover placement opened `apply`.
     const offered = offeredTools(provider);
     expect(offered[0]).toContain('get_transcript');
     expect(offered[1]).toContain('get_transcript');
-    expect(offered[3]).not.toContain('get_transcript');
+    expect(offered[3]).toContain('get_transcript');
     // Reference data stays open (GAP-008): a catalog or a playbook is not observation of
     // the material, so there is nothing stored to recall in its place.
     expect(offered[3]).toContain('load_skill');
@@ -279,26 +280,22 @@ describe('stages drive the run forward (M2)', () => {
       // drain
     }
 
-    // Turn 3 says "let me first understand the project" — the run must already be past
-    // inspection and must not hand it back the surface to start over.
+    // The stage only ever moves forward however the model narrates itself — and moving it
+    // never takes a tool away (ADR 0199).
     const offered = offeredTools(provider);
-    const analysisOffered = offered.map((names) => names.includes('get_transcript'));
-    // Once analysis is withdrawn it never comes back.
-    const firstClosed = analysisOffered.indexOf(false);
-    if (firstClosed !== -1) {
-      expect(analysisOffered.slice(firstClosed).every((open) => !open)).toBe(true);
-    }
+    expect(offered.every((names) => names.includes('get_transcript'))).toBe(true);
   });
 });
 
-describe('the run cannot circle forever (M4)', () => {
+describe('an orienting run keeps its tools (ADR 0199)', () => {
   /**
-   * The M4 exit gate. An adversarial model that never stops orienting — every turn a
-   * fresh sentence, a genuinely novel call, and no edit — is exactly the shape that
-   * defeated every pre-existing guard. It must be forced into execution, not merely
-   * stopped, and it must be forced quickly.
+   * An adversarial model that never stops orienting — every turn a fresh sentence, a
+   * genuinely novel call, and no edit — used to be FORCED into execution by withholding the
+   * read tools (the M4 gate). ADR 0199 removed that: what the run may call is what it has
+   * loaded, and a run that keeps reading is bounded by the editor's cost and time budgets
+   * and the step cap, not by the harness deciding it has looked enough.
    */
-  it('forces an endlessly orienting run into execution', async () => {
+  it('never withholds a read from a run that keeps reading', async () => {
     const orienting = [
       'Let me orient myself.',
       'Let me get the full picture.',
@@ -328,24 +325,11 @@ describe('the run cannot circle forever (M4)', () => {
       // drain
     }
 
-    // Within the detector's window plus one, the read tools are gone from the prompt: the
-    // run is structurally unable to keep gathering.
-    //
-    // This assertion is load-bearing for a bug it once masked. The Conductor's
-    // `stageAdvanced` was an object comparison against a `state.working` the fact fold had
-    // already replaced, so it read true on any turn that recorded a fact — and
-    // `isSemanticLoop` treats advancing as proof the run is not circling. The test passed
-    // only because every read reported its own descriptor as its finding, making each
-    // turn's fact a byte-identical duplicate that `recordFact` deduplicates into a no-op.
-    // Give the reads real findings and the detector goes quiet in production. It now
-    // compares the stage.
     const offered = provider.requests.map((r) => (r.tools ?? []).map((t) => t.name));
-    const closed = offered.findIndex((names) => !names.includes('get_transcript'));
-    expect(closed).toBeGreaterThan(0);
-    expect(closed).toBeLessThanOrEqual(SEMANTIC_LOOP_TURNS + 1);
-
-    // And it is told exactly what to do instead — an action, not another plan.
-    const forcedPrompt = promptText(provider.requests[closed]!);
-    expect(forcedPrompt).toContain('DO THIS NOW');
+    expect(offered.every((names) => names.includes('get_transcript'))).toBe(true);
+    // A transcript window is not a new question (`callNoveltyKey` drops window args), so
+    // after the first read every turn learns nothing and the stall streak ends the run —
+    // the run is stopped when it provably stops moving, never steered.
+    expect(offered).toHaveLength(STALL_CONFIRM_TURNS + 1);
   });
 });

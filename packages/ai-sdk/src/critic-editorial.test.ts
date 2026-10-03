@@ -229,6 +229,50 @@ describe('word_severed — did I cut through a word?', () => {
     expect(found.detail).toContain('no transcript');
   });
 
+  /**
+   * Desktop run `001be135`: the footage sat on a MUTED track under a separate voiceover, and
+   * the transcript belonged to the footage's own (silent) soundtrack. Every picture cut was
+   * judged against words nobody hears, the run was re-opened five times over it, and it
+   * failed with 162 changes applied. A cut severs a word only where the word is heard.
+   */
+  it('does not judge a cut on a muted track — no word is heard there to sever', () => {
+    const muted = project([clip('a', 0, 1), clip('b', 1, 3, { sourceStart: 1, sourceEnd: 3 })], {
+      transcript: words,
+    });
+    const silent: Project = {
+      ...muted,
+      timeline: {
+        ...muted.timeline,
+        tracks: muted.timeline.tracks.map((track) => ({ ...track, muted: true })),
+      },
+    };
+    expect(checkOf(critique(silent), 'word_severed').status).toBe('pass');
+  });
+
+  it('does not judge a cut on a clip whose own audio is muted', () => {
+    const gainMuted = {
+      id: 'g',
+      type: 'audio_gain',
+      params: { gainDb: 0, muted: true },
+      keyframes: [],
+    };
+    const found = checkOf(
+      checkProject(
+        [
+          clip('a', 0, 1, { effects: [gainMuted] as Clip['effects'] }),
+          clip('b', 1, 3, {
+            sourceStart: 1,
+            sourceEnd: 3,
+            effects: [gainMuted] as Clip['effects'],
+          }),
+        ],
+        words,
+      ),
+      'word_severed',
+    );
+    expect(found.status).toBe('pass');
+  });
+
   function checkProject(
     clips: readonly Record<string, unknown>[],
     transcript: readonly { word: string; start: number; end: number }[],
@@ -269,6 +313,171 @@ describe('dead_air — is there nothing at the head or the tail?', () => {
 
   it('is skipped, not passed, when there is no dialogue to measure against', () => {
     expect(checkOf(critique(project([clip('a', 0, 6)])), 'dead_air').status).toBe('skipped');
+  });
+
+  it('without waveform peaks, says the dialogue alone decided', () => {
+    const found = checkOf(critique(project([clip('a', 0, 6)], { transcript: words })), 'dead_air');
+    expect(found.detail).toContain('measured against the dialogue alone');
+  });
+});
+
+describe('dead_air — a stretch with no words is dead air only if nothing is heard there', () => {
+  // Waveform peaks as the engine stores them: max |sample| per bucket, 10 buckets a second.
+  const PEAKS_PER_SECOND = 10;
+  const ROOM_TONE = 0.01; // -40 dBFS: speech-9min's pauses peak at -30 to -38.
+  const LOUD = 0.3; // -10 dBFS: a music bed, a crowd.
+  const peaks = (seconds: number, level: (second: number) => number): number[] =>
+    Array.from({ length: seconds * PEAKS_PER_SECOND }, (_, bucket) =>
+      level(bucket / PEAKS_PER_SECOND),
+    );
+  const assetsWith = (footage: number[], music: number[] = peaks(600, () => LOUD)) => [
+    {
+      id: 'asset_1',
+      path: 'media/a.mp4',
+      kind: 'video',
+      durationSeconds: 600,
+      media: { peaks: footage, peaksPerSecond: PEAKS_PER_SECOND },
+    },
+    {
+      id: 'asset_music',
+      path: 'media/m.mp3',
+      kind: 'audio',
+      durationSeconds: 600,
+      media: { peaks: music, peaksPerSecond: PEAKS_PER_SECOND },
+    },
+  ];
+  const spoken = [{ word: 'hello', start: 0.1, end: 2 }];
+  const music = (start: number, end: number, over: Record<string, unknown> = {}) => ({
+    id: 'music_1',
+    type: 'audio',
+    clips: [
+      {
+        ...clip('bed', start, end, {
+          assetId: 'asset_music',
+          sourceStart: 0,
+          sourceEnd: end - start,
+        }),
+        trackId: 'music_1',
+      },
+    ],
+    ...over,
+  });
+  const withTracks = (
+    footage: number[],
+    extra: readonly Record<string, unknown>[],
+    musicPeaks?: number[],
+  ): Project =>
+    project([clip('a', 0, 6)], {
+      assets: assetsWith(footage, musicPeaks),
+      transcript: spoken,
+      timeline: {
+        tracks: [{ id: 'video_1', type: 'video', clips: [clip('a', 0, 6)] }, ...extra],
+        revision: 1,
+      },
+    });
+
+  it('a quiet room-tone tail after the last word is still dead air (talking head)', () => {
+    const found = checkOf(
+      critique(
+        withTracks(
+          peaks(600, () => ROOM_TONE),
+          [],
+        ),
+      ),
+      'dead_air',
+    );
+    expect(found.status).toBe('warn');
+    expect(found.detail).toContain('120 frames (2–6s) after the last word');
+    expect(found.detail).toContain('no sound above -30 dBFS');
+    expect(found.detail).not.toContain('dialogue alone');
+  });
+
+  it('a music tail is not dead air (run x59-1: the bed and the crowd after the last call)', () => {
+    const found = checkOf(
+      critique(
+        withTracks(
+          peaks(600, () => ROOM_TONE),
+          [music(2, 6)],
+        ),
+      ),
+      'dead_air',
+    );
+    expect(found.status).toBe('pass');
+    expect(found.detail).toContain('sound above -30 dBFS plays there');
+  });
+
+  it('a head with a loud natural-sound opening is not dead air', () => {
+    const opening = peaks(600, (second) => (second < 4 ? LOUD : ROOM_TONE));
+    const found = checkOf(
+      critique(
+        project([clip('a', 0, 4.5)], {
+          assets: assetsWith(opening),
+          transcript: [{ word: 'hello', start: 4, end: 4.4 }],
+        }),
+      ),
+      'dead_air',
+    );
+    expect(found.status).toBe('pass');
+  });
+
+  it('reports only the part of a tail where nothing plays', () => {
+    const found = checkOf(
+      critique(
+        withTracks(
+          peaks(600, () => ROOM_TONE),
+          [music(2, 3)],
+        ),
+      ),
+      'dead_air',
+    );
+    expect(found.status).toBe('warn');
+    expect(found.detail).toContain('90 frames (3–6s) after the last word');
+  });
+
+  it('follows the mix: a muted bed, or one gained into the floor, is not heard', () => {
+    const roomTone = peaks(600, () => ROOM_TONE);
+    const muted = checkOf(
+      critique(withTracks(roomTone, [music(2, 6, { muted: true })])),
+      'dead_air',
+    );
+    expect(muted.status).toBe('warn');
+    const quietBed = music(2, 6);
+    const [bed] = quietBed.clips;
+    const gained = {
+      ...quietBed,
+      clips: [
+        {
+          ...bed!,
+          effects: [{ id: 'g', type: 'audio_gain', params: { gainDb: -40 }, keyframes: [] }],
+        },
+      ],
+    };
+    expect(checkOf(critique(withTracks(roomTone, [gained])), 'dead_air').status).toBe('warn');
+  });
+
+  it('honours a fade: the tail is silent from where the faded bed drops under the floor', () => {
+    // A -24.4 dBFS bed fading out linearly over the 4 s tail falls under -30 dBFS once its
+    // gain is below 0.527, 1.89 s in (3.89 s). Without the fade the whole tail is heard.
+    const QUIET_BED = 0.06;
+    const fading = music(2, 6);
+    const [bed] = fading.clips;
+    const faded = {
+      ...fading,
+      clips: [
+        {
+          ...bed!,
+          effects: [{ id: 'g', type: 'audio_gain', params: { fadeOutSeconds: 4 }, keyframes: [] }],
+        },
+      ],
+    };
+    const roomTone = peaks(600, () => ROOM_TONE);
+    const bedPeaks = peaks(600, () => QUIET_BED);
+    const found = checkOf(critique(withTracks(roomTone, [faded], bedPeaks)), 'dead_air');
+    expect(found.status).toBe('warn');
+    expect(found.detail).toContain('63 frames (3.9–6s) after the last word');
+    expect(checkOf(critique(withTracks(roomTone, [fading], bedPeaks)), 'dead_air').status).toBe(
+      'pass',
+    );
   });
 });
 

@@ -32,6 +32,25 @@ describe('toSummary / toRecord / parseConversation', () => {
     expect(toRecord(c)).toEqual({ summary, data: c });
   });
 
+  it('drops superseded run_state ledgers on load and on save', () => {
+    const e = createTurnEmitter({ conversationId: 'c1', turnId: 't', now: () => 1 });
+    const stale = {
+      ...conv(),
+      events: [e.runState({ version: 1 }), e.userMessage('hi'), e.runState({ version: 2 })],
+    };
+    expect(parseConversation(stale)?.events.map((event) => event.type)).toEqual([
+      'user_message',
+      'run_state',
+    ]);
+    const record = toRecord(stale);
+    expect((record.data as { events: unknown[] }).events).toHaveLength(2);
+    expect(record.summary.eventCount).toBe(2);
+    // A malformed entry from disk is kept as-is rather than crashing the guard.
+    expect(
+      parseConversation({ ...conv(), events: [null, e.userMessage('x')] })?.events,
+    ).toHaveLength(2);
+  });
+
   it('rejects corrupt conversation JSON', () => {
     expect(parseConversation(null)).toBeNull();
     expect(parseConversation({ id: 1 })).toBeNull();

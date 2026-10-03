@@ -9,6 +9,7 @@ search, clip parsing (including skipped malformed rows), and honest failures
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 
@@ -18,10 +19,14 @@ import respx
 
 from framepilot_engine.brain.twelvelabs import (
     DEFAULT_BASE_URL,
+    DEFAULT_TIMEOUT_SECONDS,
     MULTIPART_UPLOAD_MAX_BYTES,
     NO_API_KEY_REASON,
+    PEGASUS_MAX_SYNC_MEDIA_SECONDS,
+    PEGASUS_SECONDS_PER_MEDIA_SECOND,
     PREFLIGHT_AUDIO_TOO_LARGE_CODE,
     PREFLIGHT_FILE_TOO_LARGE_CODE,
+    VISUAL_SEARCH_OPTIONS,
     TLClip,
     TLWord,
     TwelveLabsAssetInaccessibleError,
@@ -32,6 +37,7 @@ from framepilot_engine.brain.twelvelabs import (
     TwelveLabsIndexNotGenerativeError,
     TwelveLabsMediaRejectedError,
     key_fingerprint,
+    pegasus_timeout_seconds,
     resolve_twelvelabs,
 )
 
@@ -282,6 +288,16 @@ def test_search_sends_multipart_repeated_modalities_and_query() -> None:
 
 
 @respx.mock
+def test_picture_only_search_sends_no_transcription_options() -> None:
+    """A ``None`` keyword still reaches the wire as a form part, which TwelveLabs 400s."""
+    route = respx.post(url("/search")).respond(200, json=_search_body([]))
+    make_client().search(INDEX_ID, "an engineer at a console", options=VISUAL_SEARCH_OPTIONS)
+    body = route.calls[0].request.content
+    assert body.count(b'name="search_options"') == 1 and b"visual" in body
+    assert b"transcription_options" not in body
+
+
+@respx.mock
 def test_search_skips_malformed_rows() -> None:
     respx.post(url("/search")).respond(
         200,
@@ -486,6 +502,77 @@ def test_summarize_chapters_retries_once_without_response_format() -> None:
     retry_body = _json.loads(route.calls[1].request.content)
     assert "response_format" not in retry_body or retry_body["response_format"] is None
     assert "JSON Schema" in retry_body["prompt"]
+
+
+# --- the Pegasus read bound scales with the video ---------------------------------
+#
+# A sync /analyze sends nothing until Pegasus has read the whole video, so the read
+# timeout IS the analysis. The flat 120 s failed a 58:51 reel's chapters at 121 s
+# ("The read operation timed out"); a 7:47 reel's took ~56 s.
+
+#: The measured hour-long source: 58:51.
+LONG_VIDEO_SECONDS = 3531.0
+
+
+def _read_timeout(route: respx.Route, call: int = 0) -> float:
+    """The read timeout httpx actually applied to one recorded request."""
+    timeout = route.calls[call].request.extensions["timeout"]
+    return float(timeout["read"])
+
+
+@pytest.mark.parametrize(
+    ("duration", "expected"),
+    [
+        # Scaled for long footage: 0.5 s per media second, far past the old 120 s.
+        (LONG_VIDEO_SECONDS, LONG_VIDEO_SECONDS * PEGASUS_SECONDS_PER_MEDIA_SECOND),
+        # A short clip keeps the client's default as its floor.
+        (30.0, DEFAULT_TIMEOUT_SECONDS),
+        # Unknown duration is bounded as the longest video the sync endpoint takes, never
+        # as the 120 s that failed the hour-long reel.
+        (None, PEGASUS_MAX_SYNC_MEDIA_SECONDS * PEGASUS_SECONDS_PER_MEDIA_SECOND),
+        (0.0, PEGASUS_MAX_SYNC_MEDIA_SECONDS * PEGASUS_SECONDS_PER_MEDIA_SECOND),
+    ],
+)
+def test_pegasus_timeout_scales_with_duration_and_never_drops_below_the_default(
+    duration: float | None, expected: float
+) -> None:
+    assert pegasus_timeout_seconds(duration) == pytest.approx(expected)
+
+
+@respx.mock
+def test_every_pegasus_map_call_carries_the_duration_scaled_read_bound() -> None:
+    route = respx.post(url("/analyze")).respond(
+        200, json=_analyze_body({"chapters": [], "highlights": [], "summary": "s"})
+    )
+    client = make_client()
+    client.summarize_chapters(ASSET_ID, duration_seconds=LONG_VIDEO_SECONDS)
+    client.summarize_highlights(ASSET_ID, duration_seconds=LONG_VIDEO_SECONDS)
+    client.summarize_gist(ASSET_ID, duration_seconds=LONG_VIDEO_SECONDS)
+
+    expected = math.ceil(LONG_VIDEO_SECONDS * PEGASUS_SECONDS_PER_MEDIA_SECOND)
+    assert [_read_timeout(route, n) for n in range(3)] == [expected] * 3
+
+
+@respx.mock
+def test_the_plain_prompt_retry_keeps_the_scaled_read_bound() -> None:
+    route = respx.post(url("/analyze")).mock(
+        side_effect=[
+            httpx.Response(200, json={"data": '{"chapters":[{"chapter_title:"broken'}),
+            httpx.Response(200, json=_analyze_body({"chapters": []})),
+        ]
+    )
+    make_client().summarize_chapters(ASSET_ID, duration_seconds=LONG_VIDEO_SECONDS)
+
+    expected = math.ceil(LONG_VIDEO_SECONDS * PEGASUS_SECONDS_PER_MEDIA_SECOND)
+    assert [_read_timeout(route, 0), _read_timeout(route, 1)] == [expected, expected]
+
+
+@respx.mock
+def test_a_pegasus_read_timeout_is_a_typed_transport_error() -> None:
+    # What the hour-long reel hit at 121 s; the route degrades on this type.
+    respx.post(url("/analyze")).mock(side_effect=httpx.ReadTimeout("The read operation timed out"))
+    with pytest.raises(TwelveLabsError, match="timed out"):
+        make_client().summarize_chapters(ASSET_ID, duration_seconds=LONG_VIDEO_SECONDS)
 
 
 @respx.mock

@@ -1115,6 +1115,30 @@ interface ActiveRun {
   abortOrigin?: 'user_stop' | 'application_shutdown' | 'internal_abort';
 }
 
+/** What the editor reads when the host could not record or commit the run's output. */
+export const PUBLISH_FAILURE_HEADLINE =
+  'The run stopped because FramePilot could not record its progress. Edits already on the timeline are kept.';
+
+/**
+ * The host could not record or commit an event the run produced (`beforePublish` threw).
+ *
+ * The headline is the editor's sentence; the cause rides on the next line, which the
+ * sidebar folds behind "Show details" (`runFailure.ts`). Without this the raw store
+ * message — "Run "f8574746…" exceeded the 67108864-character durable log limit." — was
+ * the loudest text in the panel.
+ */
+export class RunPublishError extends Error {
+  public override readonly name = 'RunPublishError';
+  public constructor(cause: unknown) {
+    super(
+      `${PUBLISH_FAILURE_HEADLINE}\n${cause instanceof Error ? cause.message : String(cause)}`,
+      {
+        cause,
+      },
+    );
+  }
+}
+
 export interface AiStreamSettlement {
   readonly status: 'completed' | 'failed' | 'cancelled';
   readonly kind: 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'timed_out';
@@ -1261,7 +1285,28 @@ export class AiStreamHub {
             ) {
               streamTerminalStatus = event.status;
             }
-            const prepared = await hooks.beforePublish?.(event);
+            let prepared: Awaited<ReturnType<NonNullable<AiStreamRunHooks['beforePublish']>>>;
+            try {
+              prepared = await hooks.beforePublish?.(event);
+            } catch (error) {
+              // Nothing the run produces from here can be recorded or committed either, so
+              // stop it where it stands. Abort BEFORE rethrowing: the throw unwinds through
+              // the orchestrator's stream, and that cleanup can wait on an agent graph that
+              // only stops on this signal — run f8574746 kept calling the model after its
+              // publish failed, with nothing left consuming its events and no run entry
+              // left for a Stop to reach.
+              if (!controller.signal.aborted) {
+                const run = this.runs.get(requestId);
+                if (run) run.abortOrigin = 'internal_abort';
+                controller.abort();
+              }
+              log.error('hub.start — publishing a run event failed; run stopped', {
+                requestId,
+                eventType: event.type,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              throw new RunPublishError(error);
+            }
             const hookEvent =
               typeof prepared === 'object' && prepared?.event !== undefined
                 ? prepared.event

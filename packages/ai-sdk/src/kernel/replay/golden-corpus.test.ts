@@ -199,9 +199,9 @@ const SCENARIOS: readonly Scenario[] = [
   {
     name: 'loop-detector-stop',
     covers:
-      'The model repeating one read with no progress. `loop-detector.ts` must converge and ' +
-      'stop the run rather than burn the turn cap — the predicate M3 extracts and a M6 graph ' +
-      'edge calls.',
+      'The model repeating one read with no progress. The stall streak (STALL_CONFIRM_TURNS) ' +
+      'must converge and stop the run rather than burn the turn cap — with no recovery turn ' +
+      'and nothing withheld on the way (ADR 0199).',
     prompt: 'what is on the timeline?',
     build: () => ({
       provider: new ScriptedProvider([turn(call('r', 'get_timeline', {}))]),

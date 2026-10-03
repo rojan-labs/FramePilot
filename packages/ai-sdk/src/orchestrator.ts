@@ -51,6 +51,8 @@ import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
 import { magnificationNote } from './domain-tools/magnification-note.js';
 import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
+import { fontCoverageNote } from './font-coverage.js';
+import { keepTogetherNote } from './domain-tools/captions.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -86,7 +88,7 @@ import {
   type CritiqueReport,
   critique,
   repairTrailingSoundOverrun,
-  standingAgainstAcceptance,
+  standingFindings,
   timelineDuration,
   reconcileInheritedFailures,
 } from './critic.js';
@@ -124,7 +126,6 @@ import type {
   ResumeEffect,
   RunTurnEffect,
   RunVerifyEffect,
-  VerifyCheck,
 } from './kernel/conductor.js';
 import {
   type ToolDomain,
@@ -151,16 +152,10 @@ import {
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd, runPricingFor } from './kernel/cost/cost-meter.js';
 import type { TierPrice } from './kernel/cost/cost-meter.js';
-import {
-  EDIT_LOOK_TOOL_NAMES,
-  agentStepReasoningEffort,
-  stageAllowsTool,
-  toolRole,
-} from './kernel/stage-policy.js';
+import { toolRole } from './kernel/stage-policy.js';
 import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
 import { verificationNote } from './kernel/verification-note.js';
-import { classifyTool, isCatalogueSearch } from './tool-classification.js';
-import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
+import { classifyTool } from './tool-classification.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import {
   MODEL_PLAN_OVERFLOW_REFUSAL,
@@ -218,8 +213,6 @@ import {
   questionModeInstruction,
   agentActionsBlock,
   framesBlock,
-  agentActionRecoveryBlock,
-  agentVerifyFixBlock,
   agentModeInstruction,
   agentPlanBlock,
   agentSkillsBlock,
@@ -328,7 +321,6 @@ import {
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
 import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
 import { withToolInputContract } from './tool-input-contract.js';
-import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import { recordToolRun } from './run-log.js';
 import { IMPLICIT_ONLY_TOOL_NAMES, QUESTION_ROUTE_PERMISSIONS, selectTools } from './tool-scope.js';
@@ -506,13 +498,11 @@ const BUDGET_HEADROOM_TOKENS = 2000;
  * @param reservedPromptTokens - Fixed cost this route pays outside `assembleContext`.
  */
 /**
- * Which surface a turn advertises.
- *
- * `commit-only` is `agent` minus the catalogue searches — the scope a run enters once it
- * holds sourcing candidates it has not spent. See `Orchestrator.agentTools` for why it
- * withholds so little, and {@link shouldWithholdCatalogueSearch} for when it engages.
+ * Which surface a turn advertises: the agent's editing surface, or the read-only question
+ * surface. An agent turn is never narrowed further by the harness — no stage, recovery or
+ * commit-only scope withholds a tool the run has loaded (ADR 0199).
  */
-export type AgentToolScope = 'agent' | 'question' | 'action-recovery' | 'commit-only';
+export type AgentToolScope = 'agent' | 'question';
 
 export function resolveContextBudget(
   input: ContextInput,
@@ -731,6 +721,18 @@ function isContentEvidenceFact(fact: { readonly key: string; readonly status: st
 const MAX_UNUSABLE_TURN_RETRIES = 1;
 
 /**
+ * How hard every agent step thinks — one value for the whole run.
+ *
+ * It used to drop to `low` once the run's derived stage reached `apply`/`enhance`, on the
+ * theory that a step executing a locked plan "has already done its deciding". In an edit the
+ * deciding IS the executing: desktop run `001be135` placed its voiceover on step two, so the
+ * step that matched a seven-minute narration to its footage — 137 picks of which shot goes
+ * under which line — ran at `low`, and laid the footage out in source order. Latency is
+ * paid for in the cost/time budget the editor sets, not by thinking less about the cut.
+ */
+const AGENT_STEP_REASONING_EFFORT = 'medium' as const;
+
+/**
  * How many times one run may re-read the shot ledger mid-run.
  *
  * Each re-read changes the prompt prefix, so it trades one cache miss for the facts about
@@ -799,23 +801,6 @@ function ledgerRefreshCandidates(
   return [...placed].filter(
     (assetId) => !measured.has(assetId) && (acquired.has(assetId) || !asked.has(assetId)),
   );
-}
-
-/**
- * Picture clips this run has actually put on the timeline.
- *
- * `add_clip` specifically, not "any applied operation": the captured run applied
- * seventeen operations — thirteen assets into the bin, three layers, one music clip — and
- * had nothing to show. Counting those as commitment would release the commit-only latch on
- * exactly the act it exists to distinguish from an edit.
- */
-function placementCount(ops: readonly AnyOperation[]): number {
-  return ops.filter((op) => op.type === 'add_clip').length;
-}
-
-/** Evidence handles this run banked from a catalogue search. */
-function bankedSearchCount(working: RunWorkingState | undefined): number {
-  return (working?.evidence ?? []).filter((handle) => isCatalogueSearch(handle.source)).length;
 }
 
 /**
@@ -1699,10 +1684,9 @@ const SIGNATURE_PREFIX_CHARS = MAX_IDENTITY_KEY_CHARS - IDENTITY_PREFIX_RESERVE_
  *   question forever.
  * - A MUTATION is an intent, not a question. Re-proposing the same edit turn after turn is
  *   repeating yourself whether or not earlier ones landed, and stamping the revision would
- *   make an applying-but-runaway agent look novel every turn. A rejected edit does not move
- *   the revision, so the exact-repeat guard still catches the re-proposed bad edit it was
- *   written for; and an edit that DOES land is credited by `progressedMeaningfully`, which
- *   is where "this turn achieved something" belongs.
+ *   make an applying-but-runaway agent look novel every turn to the browser loop's
+ *   exact-repeat guard. The streamed run has no such guard (ADR 0199); its repeat skip
+ *   compares the revision itself, so the same mutation after another edit still runs.
  */
 function turnSignature(calls: readonly ToolCall[], revision: number): string {
   const full = calls
@@ -1838,39 +1822,6 @@ function readVerdict(toolName: string, value: unknown): string | undefined {
  * Only the top level is sorted — a nested params object's order is the model's own and
  * has never varied in a captured run, and recursing would cost more than it buys.
  */
-/**
- * How many whole-track caption restyles one run may apply to one track. A design pass that
- * converges — a restyle, a look, one or two corrections — sits well inside it; run
- * `fb90e58d` spent ten on one track in one turn, each followed by the same frame and the
- * same complaint, because the renderer was placing the text wrongly whatever the style
- * said.
- */
-export const MAX_TRACK_RESTYLES_PER_RUN = 5;
-
-/**
- * The distinct `set_track_caption_style` calls this run has already applied to the track
- * `call` restyles, read from the run's applied-call ledger. A byte-identical repeat is one
- * entry; it is caught earlier as "already done".
- */
-function trackRestyleCount(call: ToolCall, appliedCalls: ReadonlySet<string> | undefined): number {
-  if (call.name !== 'set_track_caption_style' || appliedCalls === undefined) return 0;
-  const trackId = (call.arguments as { trackId?: unknown } | undefined)?.trackId;
-  if (typeof trackId !== 'string') return 0;
-  const prefix = 'set_track_caption_style:';
-  let count = 0;
-  for (const key of appliedCalls) {
-    if (!key.startsWith(prefix)) continue;
-    try {
-      if ((JSON.parse(key.slice(prefix.length)) as { trackId?: unknown }).trackId === trackId) {
-        count += 1;
-      }
-    } catch {
-      // A key is always `name:JSON`; one that is not cannot be a restyle of this track.
-    }
-  }
-  return count;
-}
-
 function appliedCallKey(call: ToolCall): string {
   const args = call.arguments;
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -2294,8 +2245,16 @@ interface AgentCallOutcome {
  * silence, ~250 on a twenty-minute interview, so the bound meant to stop a runaway model
  * was again a ceiling on recording length. See `ToolSpec.derivedFanOut`.
  */
-const derivedOps = (name: string, ops: readonly unknown[]): { derivedOpCount?: number } =>
-  getTool(name)?.derivedFanOut === true ? { derivedOpCount: ops.length } : {};
+const derivedOps = (name: string, ops: readonly unknown[]): { derivedOpCount?: number } => {
+  const tool = getTool(name);
+  if (tool?.derivedFanOut === true) return { derivedOpCount: ops.length };
+  const companions = tool?.derivedOpTypes;
+  if (companions === undefined || companions.length === 0) return {};
+  const count = ops.filter((op) =>
+    companions.includes((op as { readonly type?: unknown } | null)?.type as string),
+  ).length;
+  return count > 0 ? { derivedOpCount: count } : {};
+};
 
 /** Bound a JSON value to a short single-line preview for model-facing notes. */
 function previewJson(value: unknown, max = 240): string {
@@ -3325,7 +3284,13 @@ export function summarizeReadResult(
       // The words carry the SEQUENCE timings every cue is built from. previewJson gave
       // back about four of them, so a run asked to caption 81 words received five.
       const words = (Array.isArray(obj.words) ? obj.words : []) as Record<string, unknown>[];
-      if (words.length === 0) return 'no mapped words — the edited timeline carries no speech';
+      if (words.length === 0) {
+        // "Carries no speech" is false when the words survive the cuts but every clip that
+        // plays them is muted; the tool says which asset and what to transcribe instead.
+        return typeof obj.note === 'string'
+          ? obj.note
+          : 'no mapped words — the edited timeline carries no speech';
+      }
       const dropped =
         typeof obj.droppedCount === 'number' && obj.droppedCount > 0
           ? `, ${obj.droppedCount} dropped by cuts`
@@ -3411,7 +3376,21 @@ export function summarizeReadResult(
       const catalog = [...byCategory.entries()].map(
         ([category, ids]) => `${category}: ${ids.join(', ')}`,
       );
-      const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
+      // Which writing systems a font can draw, for every font that is not Latin-only: a
+      // Devanagari word set in a Latin-only face renders as boxes in the export.
+      const fontList = `fonts (Latin unless marked): ${fonts
+        .map((f) => {
+          const scripts = Array.isArray(f.scripts)
+            ? (f.scripts as unknown[]).filter(
+                (script): script is string =>
+                  typeof script === 'string' && script !== 'latin' && script !== 'latin-ext',
+              )
+            : [];
+          return scripts.length > 0
+            ? `${String(f.family)} [${scripts.join(', ')}]`
+            : String(f.family);
+        })
+        .join(', ')}`;
       return [...note, head, ...catalog, ...units, fontList].join('\n');
     }
     case 'load_tools': {
@@ -4455,21 +4434,15 @@ export class Orchestrator {
    *   As of E5.5 the question route (`streamChat`) really sends this surface and
    *   executes its calls — including `ask_user` (P12), which pauses on the run's
    *   AskUser gate exactly as in agent mode. Out-of-scope calls are refused there.
-   * - `'action-recovery'`: a one-turn mutate/ask surface — plus `recall_evidence` and the
-   *   `sourcing` role (ADR 0147) — after the prior turn requested only memo-served
-   *   information. This makes duplicate suppression an executable constraint
-   *   rather than another ignored prompt warning. Both exceptions are load-bearing: the
-   *   turn's whole premise is that the run already HAS what it needs, which is false if
-   *   it cannot reach it (recall), and false again if the material it needs was never on
-   *   this machine to begin with (sourcing).
    *
-   * `stage` narrows any of the above further (ADR 0075 §3.6). Once the run is executing
-   * against a locked plan, analysis and guidance descriptors are withheld: the evidence
-   * those tools would gather is already stored, so the way to check a detail is
-   * `recall_evidence`. Inspection stays available, because writing a patch legitimately
-   * needs the CURRENT arrangement — ids and positions the last cut may have moved.
-   * Instruction alone was already tried here and lost: the contract told the model to
-   * inspect once and commit, throughout a run that spent eight turns not doing that.
+   * Nothing else narrows an agent turn. A stage-scoped surface (ADR 0075 §3.6), a one-turn
+   * "action recovery" surface and a commit-only surface each withheld tools the run had
+   * loaded, and each grew a list of exemptions every time it stranded a run — `get_frame`,
+   * `detect_beats`, `transcribe`, `measure_color`, `render_preview`, `add_stock`… Desktop
+   * run `001be135` placed its voiceover first, which put the run in `apply`, and was told
+   * `describe_footage` was "held back for this stage" on its second step — so it matched a
+   * seven-minute narration to footage it was not allowed to look at. ADR 0199 removed all
+   * three: what a turn can call is what the run has loaded.
    *
    * The registry itself is untouched either way: the MCP surface builds straight from
    * `TOOL_REGISTRY`. Public so hosts and tests can inspect the exact advertised surface
@@ -4490,7 +4463,6 @@ export class Orchestrator {
 
   public agentTools(
     scope: AgentToolScope = 'agent',
-    stage?: RunStage,
     /**
      * Tool domains this run has pinned (progressive disclosure — `tool-domains.ts`).
      * Absent means "advertise everything", which is what the budget reservation and the
@@ -4522,93 +4494,14 @@ export class Orchestrator {
       // job inside a run whose budget assumed it could not.
       if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
       if (!sighted && tool.capabilities?.includes('vision')) return false;
-      // `recall_evidence` survives the recovery turn. Everything else read-shaped is
-      // withheld there on purpose — the run has gathered enough and must act — but this
-      // one returns what it ALREADY gathered, costs no engine work, and cannot change
-      // under it. Withholding it made the turn unsurvivable: the instruction says to
-      // recall rather than re-read, so the model looked for the tool, found it missing,
-      // and built forty-six clips on asset durations it inferred from clip-id suffixes
-      // because the media bin it had read twice was no longer reachable.
-      if (scope === 'action-recovery') {
-        // `effectClass`, not `kind`. The registry kind of `add_stock`/`add_music` is
-        // `analysis` — they are reached through a search — but each one downloads a file
-        // and places a clip through a reversible patch, which `tool-contract.ts` has
-        // always declared. Filtering on `kind` here refused the one call that could put
-        // picture into an empty project, and told the model it was "redundant": run
-        // `e30c1fe9` asked for exactly one clip it had already found, was refused, and
-        // built a reel with no footage in it. A recovery turn demands an ACTION; these
-        // are actions.
-        //
-        // `sourcing` rides alongside, which completes the same correction one step
-        // earlier. Admitting `add_stock` while withholding `search_stock` is a whole
-        // surface only for a run that has already searched. A run on an EMPTY project has
-        // nothing to add BY `remoteId`, and the only thing that mints a `remoteId` is the
-        // search it was just refused — so run `f1d5285e` was told to stop looking and make
-        // the edit, could reach nothing but `recall_evidence`, and was ended by the memo
-        // hit that answer counts as. The guard produced the outcome it exists to prevent
-        // (ADR 0147, amending ADR 0143).
-        //
-        // Reconnaissance over material the project ALREADY holds — the transcript, the
-        // footage map, silence, scenes — stays withheld, which is what the turn is for.
-        // And `state.actionRecoveryPending` is set for the whole recovery turn, so one
-        // that spends this allowance without acting falls straight through to the
-        // convergence guard rather than earning another.
-        //
-        // A look at the run's OWN edit is not reconnaissance either
-        // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
-        // `render_preview` on a recovery turn, and was told the turn was for acting.
-        //
-        // Progressive disclosure still holds here. This branch returned before the
-        // `loadedDomains` filter below, so a recovery turn advertised EVERY mutation in the
-        // registry — 62 tools against the 39 the run had been working with — which both
-        // re-billed the whole prompt prefix (the tool block sits above it in the cache) and
-        // handed a run that had loaded nothing the caption, colour, motion and tracking
-        // mutations it had never asked for. A domain the run has not loaded is as absent on
-        // a recovery turn as on any other, and `load_tools` rides along so a run that needs
-        // one can still ask for it — it costs no engine work and gathers nothing.
-        if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) {
-          return false;
-        }
-        const effect = toolContract(tool).effectClass;
-        return (
-          effect === 'mutation' ||
-          tool.kind === 'ask' ||
-          tool.name === 'load_tools' ||
-          // Marking an item done, or blocked with the reason, is how a run that has done
-          // what it can says so — and the loop keeps going while an item is open.
-          tool.name === 'update_plan' ||
-          tool.name === 'recall_evidence' ||
-          EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
-          toolRole(tool.name, tool.mutates) === 'sourcing'
-        );
-      }
-      // A run holding unspent candidates may not fetch more (05/02). Withholding is
-      // narrow on purpose, and every exclusion below is a deadlock this would otherwise
-      // cause:
-      //
-      // - `recall_evidence` is NEVER withheld. The agent log keeps payloads for two turns
-      //   (`AGENT_LOG_PAYLOAD_FRESH`) and a stock `remoteId` exists nowhere else, so
-      //   refusing a recall does not force commitment — it removes the only route to the
-      //   argument `add_stock` takes, which is the ADR 0143 failure ADR 0147 reversed.
-      // - Inspection stays open. A run whose downloads all failed, or whose placement is
-      //   refused for want of a free span, has to be able to read the timeline and say so.
-      // - Only the CATALOGUE SEARCHES go. They are what mints more candidates, and more
-      //   candidates is precisely what the run does not need.
-      //
-      // The scope is entered only when a search has already banked results (so an empty
-      // project can always search) and released by the first successful placement.
-      if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
       if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
       // A plan is what an agent RUN is held to: its conductor continues while an item is
       // open. A question turn has no conductor, so the call would draw a checklist nothing
       // honours — and bill its schema on every question.
       if (questionScope !== undefined && tool.name === 'update_plan') return false;
       // Progressive disclosure. The core set plus whatever this run has asked for; see
-      // `tool-domains.ts` for the measurement that made this necessary. Applied last so
-      // every narrowing above still holds — a domain being loaded never re-admits a tool
-      // the stage, the recovery turn, or the commit-only scope has withheld.
-      if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) return false;
-      return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
+      // `tool-domains.ts` for the measurement that made this necessary.
+      return loadedDomains === undefined || toolIsAdvertised(tool.name, loadedDomains);
     });
     // `load_tools` names every domain; it must not name one this host cannot offer.
     return withDomainIndexFor(unroutable, offered);
@@ -4783,7 +4676,6 @@ export class Orchestrator {
     loadedSkills: ReadonlyMap<string, string>,
     plan?: readonly string[],
     steeringMessage?: string,
-    actionRecovery = false,
     /**
      * The run's task memory (ADR 0075). When present, its briefing becomes the model's
      * memory of the run and the action log drops to a short prose tail; when absent
@@ -4814,12 +4706,6 @@ export class Orchestrator {
      * the whole list on every call. Absent before the model writes one.
      */
     modelPlan?: readonly ModelPlanItem[],
-    /**
-     * The self-check advisories an advisory fix turn exists to hear (AL37). They are not in
-     * the briefing's VERIFIED section — that lists failures, and these are not — so the fix
-     * block states them itself. Absent on every other turn.
-     */
-    advisories?: readonly VerifyCheck[],
   ): {
     readonly messages: AiMessage[];
     /**
@@ -4910,32 +4796,25 @@ export class Orchestrator {
       compactAgentLog(log, AGENT_LOG_RECENT, findingsBudgetTokens(remainingCapacity)),
     );
     const steeringBlock = agentSteeringBlock(steeringMessage);
-    const recoveryBlock = agentActionRecoveryBlock(actionRecovery);
-    // P4.3: a run in the `repair` stage is on a bounded verification fix turn.
-    const fixBlock = agentVerifyFixBlock(taskMemory?.stage === 'repair', advisories);
     // The structured briefing (ADR 0075 §3.3) is the run's MEMORY; the action log that
     // follows it is only continuity of prose. That ordering matters: the log is a rolling
     // window whose payloads age out, so anything the run must not forget has to live in
     // the briefing, which is bounded by construction rather than by truncation.
-    // WHERE YOU STAND (GAP-014): the whole-cut conditions measured against the working
-    // copy as it is now. Pure and render-free — the same checks the final self-check runs,
-    // consulted while the run can still act on them. A health finding the starting project
-    // already had is left out (`input.project` is the "before"): it is not the run's to fix,
-    // and stated in flight it read as an order — see `standingAgainstAcceptance`.
+    // WHERE YOU STAND: everything the self-check would say about the working copy as it is
+    // now, for the findings this run is answerable for (`critic.ts#standingFindings`). Pure
+    // and render-free — the same checks the end of the run reports — and in front of the
+    // model after every edit, so it weighs them while it can still act instead of hearing
+    // them as orders after it has said it is done (ADR 0199).
     const briefing = taskMemory
       ? buildStateBriefing(
           taskMemory,
-          standingAgainstAcceptance(
-            working,
-            this.critiqueOptions(input, agentOptions, true),
-            input.project,
-          ),
+          standingFindings(working, this.critiqueOptions(input, agentOptions, true), input.project),
           modelPlan,
         )
       : '';
     const turnMessage: AiMessage = {
       role: 'user',
-      content: `${volatileContext}${briefing}${steeringBlock}${recoveryBlock}${fixBlock}\n\n${history}${framesBlock(frames)}`,
+      content: `${volatileContext}${briefing}${steeringBlock}\n\n${history}${framesBlock(frames)}`,
       // Deliberately on the LAST message: it is the only one that varies per turn, so an
       // image attached here can never invalidate the cached prefix above it.
       ...(frames && frames.length > 0 ? { images: frames } : {}),
@@ -4986,13 +4865,13 @@ export class Orchestrator {
                   included: true,
                 },
               ]),
-          ...(`${steeringBlock}${recoveryBlock}${fixBlock}` === ''
+          ...(steeringBlock === ''
             ? []
             : [
                 {
                   tier: 'system' as const,
                   label: 'turn steering',
-                  tokenEstimate: estimateTokens(`${steeringBlock}${recoveryBlock}${fixBlock}`),
+                  tokenEstimate: estimateTokens(steeringBlock),
                   included: true,
                 },
               ]),
@@ -6270,39 +6149,17 @@ export class Orchestrator {
         });
         return { ops: [], note, summary, status: 'warning', satisfied: true };
       }
-      const restylesSoFar = trackRestyleCount(call, host.appliedCalls);
-      if (restylesSoFar >= MAX_TRACK_RESTYLES_PER_RUN) {
-        const restyledTrack = String((call.arguments as { trackId?: unknown }).trackId);
-        const trackLabel = names.track(restyledTrack);
-        const note =
-          `${desc} — refused: ${trackLabel} has already been restyled ` +
-          `${String(restylesSoFar)} times in this run. When a look after each restyle shows ` +
-          'the same problem, the style is not what causes it. Stop restyling: tell the editor ' +
-          'what the frame shows, what you changed, and what you think is wrong, and let them decide.';
-        orchestratorLog.warn('refused a caption restyle past the per-run budget', {
-          tool: call.name,
-          restyles: restylesSoFar,
-        });
-        return {
-          ops: [],
-          note,
-          summary: `${desc} — not applied: ${trackLabel} was restyled ${String(restylesSoFar)} times this run`,
-          status: 'failed',
-          data: note,
-          deterministicFailure: true,
-          // Keyed per TRACK: the budget is one track's, so the repeated-failure guard must not
-          // fold it into "set_track_caption_style already failed" and block every other
-          // caption track for the rest of the run. No refusal cause is needed to make it
-          // outlive an applied edit — the count is re-read from the applied-call ledger.
-          failureKeyText: `caption_restyle_budget:${restyledTrack}`,
-        };
-      }
       host.appliedCalls?.add(callKey);
       const outcomeLine =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
+        // What `keepTogether` could not protect, and the fonts that cannot draw the words they
+        // were given — both facts the operations do not show (desktop run `001be135`: a phrase
+        // that matched nothing, and a Latin-only accent font over Devanagari, five restyles).
+        keepTogetherNote(call.name, applied, call.arguments) +
+        fontCoverageNote(call.name, applied, call.arguments) +
         // How many cues the accent actually reached — read from the applied project, so a
         // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
         (call.name === 'auto_emphasize_captions'
@@ -6535,23 +6392,18 @@ export class Orchestrator {
         args.loadedSkills,
         undefined,
         undefined,
-        false,
         args.taskMemory,
       ).messages,
       { role: 'user' as const, content: instruction },
     ];
     const repairRequest: AiCompletionRequest = {
       messages,
-      // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set
-      // that run's execution turns did — the `repair` stage's, which withholds fresh
-      // analysis of the footage exactly as `apply` does. Advertising the full registry
-      // here would both hand the repair a surface no earlier turn had (a run that edited
-      // on its first turn is at `apply` from then on) and break the prompt-prefix
-      // stability the tool block's cache key depends on (E3.3).
-      tools: this.agentTools('agent', 'repair', args.loadedToolDomains),
-      // A repair step thinks like any repair step (`kernel/stage-policy.ts`); with no
-      // effort named, the Agent SDK ran it at its own `high`.
-      reasoningEffort: agentStepReasoningEffort({ stage: 'repair' }),
+      // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set that
+      // run's turns did — what it loaded — which also keeps the prompt-prefix stability the
+      // tool block's cache key depends on (E3.3).
+      tools: this.agentTools('agent', args.loadedToolDomains),
+      // With no effort named, the Agent SDK runs a step at its own `high`.
+      reasoningEffort: AGENT_STEP_REASONING_EFFORT,
     };
     const repairProvider = this.providerForTier('large');
     const repairCapabilities = capabilitiesFor(repairProvider.name, repairProvider.modelId);
@@ -6791,14 +6643,13 @@ export class Orchestrator {
             loadedSkills,
             plan,
             undefined,
-            false,
             undefined,
             pendingFrames,
             options,
           ).messages,
           // Re-read every turn: `load_tools` pins a domain mid-run and the next request
           // must advertise it (progressive disclosure — `tool-domains.ts`).
-          tools: this.agentTools('agent', undefined, loadedToolDomains),
+          tools: this.agentTools('agent', loadedToolDomains),
         },
         undefined,
         effectRuntime,
@@ -7575,9 +7426,7 @@ export class Orchestrator {
      *
      * A model that names one of these has guessed a real tool correctly and is being
      * refused over token economy, not policy. Refusing it would cost a turn and teach it
-     * nothing, so the domain is pinned and the call runs. Every other narrowing — the
-     * stage policy, the recovery turn, the commit-only latch — is a behavioural rail and
-     * is NOT in this set, so it still refuses exactly as before.
+     * nothing, so the domain is pinned and the call runs.
      */
     domainGatedToolNames?: ReadonlySet<string>,
     /** Mutating calls this run already applied (see `HostCallContext.appliedCalls`). */
@@ -7585,25 +7434,11 @@ export class Orchestrator {
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
     /**
-     * Banked catalogue searches, when this turn is running commit-only (02). Present ⇒ a
-     * withheld search is refused with the specific reason and the specific way out.
-     */
-    bankedSearches?: number,
-    /**
      * `name:error` keys the run has already been refused with (`ConductorState.seenFailureKeys`).
      * A call that settles to one of them is replaced by {@link repeatedFailureOutcome}
      * instead of handing the model the same sentence a second time.
      */
     seenFailureKeys?: ReadonlySet<string>,
-    /**
-     * True when {@link allowedToolNames} is the STAGE rule rather than a recovery-turn
-     * latch. The two withhold the same names and used to earn the same sentence — "it
-     * becomes available again on the next turn" — which is true of a latch and false of a
-     * stage: an analysis tool withheld in `apply` stays withheld until `verify`. Told to
-     * wait a turn, the model waits a turn and calls again (run `137d8fd0`, `measure_color`,
-     * twice). The refusal now says which it is.
-     */
-    stageWithheld?: boolean,
     /** The run's vision reviewer, for an AI mask's spot check. Absent ⇒ the check is `not_run`. */
     maskSpotCheck?: MaskSpotCheckControls,
     /**
@@ -7846,13 +7681,7 @@ export class Orchestrator {
         if (!inScope) withheldCallCount += 1;
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : withheldCallOutcome(
-              call,
-              evidence,
-              bankedSearches,
-              stageWithheld === true,
-              turnCtx.project,
-            );
+          : withheldCallOutcome(call, turnCtx.project);
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -9647,7 +9476,6 @@ export class Orchestrator {
       anyToolCancelled: false,
       anyToolFailed: false,
       turnOpCount: 0,
-      turnPlacementCount: 0,
       rejectedOpCount: 0,
       rejectionNotes: [],
       applied: false,
@@ -9667,34 +9495,6 @@ export class Orchestrator {
       ...(hostRefusals.length > 0 ? { hostRefusals: hostRefusals.splice(0) } : {}),
       ...over,
     });
-
-    /**
-     * What the request asked for that the timeline does not yet deliver.
-     *
-     * Only the checks that can FAIL — the ones read deterministically off the request by
-     * `acceptance.ts` and measured off the timeline by `critique`. Warnings are advisory by
-     * contract and must never hold a run open; a `fail` is an unmet condition the editor
-     * stated, and the run has no business calling itself finished while one stands.
-     *
-     * Cheap by construction: pure, render-free, and computed once, on the single turn where
-     * the model says it is done.
-     *
-     * Judged as a DELTA, exactly as the verify pass judges it (`reconcileInheritedFailures`):
-     * a health finding the starting project already had is not a shortfall of this run.
-     * Unreconciled, every `s9-live-reorder` run that finished correctly after one
-     * `reorder_clips` was told "The request is not met yet — continuing. 5 of 5 picture
-     * clips use a landscape source … Crop each to fill the frame." and cropped all five on
-     * a request that named none of them. A request-derived check is never excused.
-     */
-    const acceptanceShortfall = (producedChanges: boolean): string[] => {
-      const options = self.critiqueOptions(input, agentOptions, producedChanges, evidence);
-      return reconcileInheritedFailures(
-        critique(input.project, options),
-        critique(working, options),
-      )
-        .checks.filter((check) => check.status === 'fail')
-        .map((check) => check.detail);
-    };
 
     /**
      * Wait, once per run and for at most `LATE_REVIEW_WAIT_MS`, for the reviews of this
@@ -9953,27 +9753,12 @@ export class Orchestrator {
           // reaches them.
           return turnBase(index, emit.seq(), {
             done: true,
+            unanswered: true,
             note: 'Run paused because its objective or committed plan could not be recovered.',
           });
         }
         /* v8 ignore next -- see the guard above: `effect.working` is always defined on the live path, so `invariants` is always defined too once we reach here, and the `?? effect.working` fallback never runs. */
         const taskMemory = invariants?.state ?? briefedWorking;
-        // 02 — a run holding unspent sourcing candidates and nothing on the timeline loses
-        // the catalogue searches for this turn. Recomputed per turn from live state (not
-        // latched in a variable) so the first successful placement releases it immediately,
-        // and so a run that never searched is never affected.
-        const bankedSearches = bankedSearchCount(taskMemory);
-        const withholdSearch = shouldWithholdCatalogueSearch({
-          bankedSearches,
-          placementsApplied: placementCount(state.cumulativeOps),
-        });
-        const turnScope: AgentToolScope = withholdSearch ? 'commit-only' : 'agent';
-        if (withholdSearch) {
-          orchestratorLog.action('commit-only turn — catalogue search withheld', {
-            bankedSearches,
-            stage: effect.stage,
-          });
-        }
         // C2: the turn's assistant text is about to stream, before its tool calls (if
         // any) are even known — `generating` is the specific, honest status for that
         // phase (vs. the generic `editing` the caller set for the whole run).
@@ -9989,30 +9774,19 @@ export class Orchestrator {
             loadedSkills,
             plan,
             steeringMessage,
-            effect.actionRecovery,
             taskMemory,
             pendingFrames,
             agentOptions,
             effect.modelPlan,
-            effect.advisories,
           );
         const streamOnce = (attempt: number, prompt = built()) =>
           self.streamAssistant(
             emit,
             {
               messages: prompt.messages,
-              // Stage-scoped surface (ADR 0075 §3.6): action recovery still wins when it
-              // fires, but an executing run is closed to fresh reconnaissance regardless.
-              tools: effect.actionRecovery
-                ? self.agentTools('action-recovery', undefined, loadedToolDomains)
-                : self.agentTools(turnScope, effect.stage, loadedToolDomains),
-              // Thinking is the step's latency (TRACKING.md §U1: apply steps spent 16k–25k
-              // hidden tokens, ≈190–330 s, at `medium`), so a step executing a locked plan
-              // thinks at `low`; planning, repair and any recovery step keep `medium`.
-              reasoningEffort: agentStepReasoningEffort({
-                stage: effect.stage,
-                actionRecovery: effect.actionRecovery,
-              }),
+              // Everything the run has loaded, every turn (ADR 0199).
+              tools: self.agentTools('agent', loadedToolDomains),
+              reasoningEffort: AGENT_STEP_REASONING_EFFORT,
             },
             runSignal,
             // Per-step thinking (U3, redesign §12): each step captures the model's
@@ -10124,6 +9898,7 @@ export class Orchestrator {
           );
           return turnBase(index, emit.seq(), {
             done: true,
+            unanswered: true,
             note: applied
               ? 'The model response was truncated; the run stopped early with the earlier edits kept.'
               : 'The model response was truncated before it proposed anything.',
@@ -10165,7 +9940,7 @@ export class Orchestrator {
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
-              return turnBase(index, emit.seq(), { done: true, note: detail });
+              return turnBase(index, emit.seq(), { done: true, unanswered: true, note: detail });
             }
             log.push(`Step ${index}: empty model response — nothing to apply.`);
             // `detail` is already the editor's sentence (it names the cause and the next
@@ -10174,28 +9949,17 @@ export class Orchestrator {
           }
           log.push(`Step ${index}: ${turn.text}`);
           yield emit.assistant(segmentId, turn.text);
-          // The model has declared itself finished. Measure the conditions the REQUEST
-          // stated against the timeline as it actually is, so the reducer can tell a run
-          // that is done from one that has stopped. See `AgentTurnResult.acceptanceShortfall`.
-          const shortfall = acceptanceShortfall(state.cumulativeOps.length > 0);
-          // The run is about to verify — nothing in the model's plan is open and the request
-          // measures met — so this is the last moment a review of its edits can still change
-          // anything. Wait for them (bounded, once per run); a finding buys one steering turn.
+          // The model has declared itself finished. If nothing in its plan is open, the run is
+          // about to verify, so this is the last moment a review of its edits can still change
+          // anything: wait for them (bounded, once per run), and a finding buys one turn. That
+          // is evidence the model has not seen; nothing else re-opens a finished reply
+          // (ADR 0199 — the deterministic checks were in front of it every turn).
           const lateReviewSteering =
-            shortfall.length === 0 &&
             !(effect.modelPlan && nextOpenItem(effect.modelPlan)) &&
             (yield* awaitLateReviews(emit));
-          // The domains a blocked item never tried (AL39). The reducer holds no tool
-          // surface, so the runtime reads which domains this run loaded and the reducer
-          // decides whether that buys a turn. See `AgentTurnResult.unloadedToolDomains`.
-          const unloadedToolDomains = effect.modelPlan
-            ? unloadedDomainsForBlocked(effect.modelPlan, loadedToolDomains)
-            : [];
           return turnBase(index, emit.seq(), {
             done: true,
-            ...(shortfall.length > 0 ? { acceptanceShortfall: shortfall } : {}),
             ...(lateReviewSteering ? { lateReviewSteering: true } : {}),
-            ...(unloadedToolDomains.length > 0 ? { unloadedToolDomains } : {}),
           });
         }
 
@@ -10251,26 +10015,31 @@ export class Orchestrator {
           taskMemory.operations.some(
             (operation) =>
               operation.status === 'succeeded' &&
-              operation.idempotencyKey.startsWith(idempotencyPrefix),
+              operation.idempotencyKey.startsWith(idempotencyPrefix) &&
+              // Only while the timeline is still exactly as that call left it. A mutation's
+              // arguments resolve against the CURRENT timeline, so the same call after any
+              // other edit is a different edit: re-captioning after a recut has to rebuild
+              // the cues for the new cut. The signature leaves the revision out of a
+              // mutation (see `turnSignature`), so the revision is checked here, against the
+              // run's applied-work counter the row recorded when it landed.
+              operation.projectRevisionAfter === taskMemory.currentProjectRevision,
           )
         ) {
-          // A turn that repeats, byte for byte, a turn that already landed is a repeat —
-          // not the end of the request. This path used to settle the run (`done: true`):
-          // run `df81d58e` (2026-09-08) ended at turn 31 with b-roll, music, colour and the
-          // report never attempted, and run `1603cd9c` the next hour ended at turn 10 —
-          // right after verify_captions had reported 202 problems and the model had said
-          // "I'm tightening the caption system first" — because its next batch of markers
-          // was the batch it had just placed. The right answer is the one an applied
-          // no-op already gets (`AgentTurnResult.satisfied`): nothing landed, nothing
-          // failed, and the no-progress guard decides whether the run is actually stuck.
+          // The same calls re-sent with nothing landed since would only repeat that edit:
+          // run `1603cd9c` re-sent the batch of markers it had just placed. This used to
+          // settle the run (`done: true`, runs `df81d58e` and `1603cd9c`, 2026-09-08); it
+          // answers as an applied no-op does (`AgentTurnResult.satisfied`), and the stall
+          // streak decides whether the run is stuck. It used to skip the call whatever had
+          // changed since, and told the editor "moving on to what the request still needs"
+          // — a promise, repeated under a caption regeneration in run `001be135`.
           const repeatNote =
-            'Those exact calls already landed earlier in this run, so they were not run ' +
-            'again. Do the NEXT part of the request — something the timeline does not ' +
-            'have yet — or, if every part is done, finish with a short summary and no tool call.';
+            'Not run: these exact calls already landed earlier in this run and no edit has ' +
+            'landed since, so the timeline already holds their result — running them again ' +
+            'would only repeat that edit.';
           log.push(`Step ${index}: repeated an already-applied turn — skipped. ${repeatNote}`);
           yield emit.notification(
-            'That set of edits already landed earlier in this run, so it was not applied ' +
-              'again — moving on to what the request still needs.',
+            'Not run again: the same edits already landed earlier in this run, and nothing ' +
+              'has changed since.',
           );
           return turnBase(index, emit.seq(), {
             satisfied: true,
@@ -10306,35 +10075,18 @@ export class Orchestrator {
           runSignal,
           now,
           analysisBudget,
-          // Enforced, not merely advertised. `allowedToolNames` used to be passed only on
-          // the recovery path, so a stage-narrowed tool called anyway executed normally —
-          // the narrowing was a suggestion. A withholding scope that the model can step
-          // around is the same advisory lever that has now failed four times.
-          new Set(
-            (effect.actionRecovery
-              ? self.agentTools('action-recovery', undefined, loadedToolDomains)
-              : self.agentTools(turnScope, effect.stage, loadedToolDomains)
-            ).map((tool) => tool.name),
-          ),
-          // The same set with every domain pinned, minus the set above: the names this
-          // turn withholds for token economy alone. `admitCall` loads their domain and
-          // runs them rather than spending a turn refusing a correct guess.
-          new Set(
-            (effect.actionRecovery
-              ? self.agentTools('action-recovery')
-              : self.agentTools(turnScope, effect.stage)
-            ).map((tool) => tool.name),
-          ),
+          // What this run has loaded — the surface the model was shown.
+          new Set(self.agentTools('agent', loadedToolDomains).map((tool) => tool.name)),
+          // The same set with every domain pinned: the names this turn withholds for token
+          // economy alone. `admitCall` loads their domain and runs them rather than spending
+          // a turn refusing a correct guess.
+          new Set(self.agentTools('agent').map((tool) => tool.name)),
           appliedCalls,
           controls.rememberDecision,
-          withholdSearch ? bankedSearches : undefined,
           // The run's proven-refusal memory, so a call that settles to a refusal this run
           // has already had is answered with "that cannot work" instead of the same
           // sentence again (see `ConductorState.seenFailureKeys`).
           effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
-          // A recovery turn is a latch (next turn is different); anything else narrowed here
-          // is the stage rule, and stays narrowed until the stage changes.
-          !effect.actionRecovery,
           // The same reviewer picture verification uses; a mask's spot check is one more
           // bounded question to it, never a second reviewer.
           review.visionReview,
@@ -10390,7 +10142,6 @@ export class Orchestrator {
             anyToolCancelled: true,
             anyToolFailed,
             turnOpCount: turnOps.length,
-            turnPlacementCount: placementCount(turnOps),
           });
         }
 
@@ -10420,7 +10171,6 @@ export class Orchestrator {
             // that halves its batch is credited as converging rather than as a repeat.
             rejectionScale: turnOps.length - derivedOpCount - maxOpsPerTurn,
             turnOpCount: turnOps.length,
-            turnPlacementCount: placementCount(turnOps),
           });
         }
 
@@ -10548,7 +10298,6 @@ export class Orchestrator {
           ...common,
           anyToolFailed,
           turnOpCount: turnOps.length,
-          turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
           // Which banked refusals this edit clears (`tool-refusal.ts`). Computed here
@@ -10578,22 +10327,22 @@ export class Orchestrator {
         });
       },
 
-      // Self-check + one bounded repair pass (R3 C3). Repair's applied ops surface as
-      // action cards + a notice + their own turn-scoped diff here (ADR 0056); the
-      // reducer emits the Self-check notices from the returned (post-repair) report.
+      // The deterministic self-check, reported by the reducer as notices (ADR 0199).
       runVerify: async function* (
         _effect: RunVerifyEffect,
         state: ConductorState,
       ): AsyncGenerator<AiEvent, ConductorResult> {
         const emit = createTurnEmitter(state.turnRef, state.seq);
         activeEmit = emit;
+        // The critique re-reads the whole cut (on a long timeline, seconds); the sidebar
+        // says "Checking the edit" for this status instead of a silent spinner.
+        yield emit.status('verifying');
         // The backstop for the LAST turn's patch, which no later turn boundary will reach.
         // Critiquing a timeline the authoritative project never received would grade the
         // run's private copy and report the verdict as if it were the user's.
         await reconcileHostVerdicts();
-        // P4.3: the run's evidence, so the critic reviews with what the run learned
-        // rather than with a thinner view than its own planner had. Held in a variable so
-        // the repair pass settles against the SAME reading the checks were run with.
+        // P4.3: the run's evidence, so the critic reviews with what the run learned rather
+        // than with a thinner view than its own planner had.
         const verifyOptions = self.critiqueOptions(
           input,
           agentOptions,
@@ -10602,84 +10351,12 @@ export class Orchestrator {
         );
         // The self-check grades what the run CHANGED. A defect the footage already had —
         // measured on the project the run started from, with the same reading — is said as
-        // an advisory and does not fail a correct edit (`reconcileInheritedFailures`).
-        const inheritedFrom = critique(input.project, verifyOptions);
-        let report = reconcileInheritedFailures(inheritedFrom, critique(working, verifyOptions));
-        const repairOps: AnyOperation[] = [];
-        let repairOutcome: RepairOutcome | undefined;
-        // The repair call's context account, collected while `attemptRepair` runs and
-        // yielded the moment it returns — an awaited call cannot yield on its own.
-        const repairUsage: AiEvent[] = [];
-        if ((agentOptions.autoRepair ?? true) && !report.ok) {
-          const repair = await self.attemptRepair({
-            onContextUsage: (payload) => {
-              repairUsage.push(emit.contextUsage(payload));
-            },
-            input,
-            working,
-            log,
-            report,
-            critiqueOptions: verifyOptions,
-            stepIndex: state.planSteps.length + 1,
-            appliedPatchIds,
-            appliedCalls,
-            maxOpsPerTurn,
-            effectRuntime,
-            loadedSkills,
-            loadedToolDomains,
-            analysisBudget,
-            // A repair is the last turn of the SAME run, so it is briefed with what that
-            // run established rather than fixing against context it has to re-derive.
-            taskMemory: state.working,
-            ...(signal ? { signal } : {}),
-            // C1: fold the repair pass's real model-call usage into the run's cost
-            // accumulator (the same closure `runTurn` above folds each turn's into).
-            onUsage: (usage) => {
-              modelCalls += 1;
-              // Priced by the model that served the repair (M5), not by the `large` label:
-              // with no `large` provider configured, the repair runs on the run's own model.
-              const repairPricing = self.pricingForCall('large');
-              if (repairPricing === undefined) unpricedSpend = true;
-              const cost = costFromUsage(
-                usage,
-                repairPricing?.tier ?? 'large',
-                repairPricing?.prices,
-              );
-              usageTokens += cost.tokens;
-              usageUsd += cost.usd;
-              usageCacheRead += cost.cacheRead;
-              usageCacheWrite += cost.cacheCreation;
-            },
-          });
-          for (const event of repairUsage) yield event;
-          // Carried whether or not anything landed: a repair that RAN and produced nothing
-          // is a different fact from one that never ran, and it cost a large-model call.
-          repairOutcome = repair?.outcome;
-          if (repair && repair.ops.length > 0) {
-            // Assemble the repair patch against the PRE-repair working project — that is
-            // the timeline state its ops were validated against inside attemptRepair.
-            const repairEdit = assembleEdit(working, [...repair.ops], 'Repair pass', 'agent');
-            working = repair.working;
-            repairOps.push(...repair.ops);
-            cumulativeOps.push(...repair.ops);
-            const names = projectNames(working);
-            for (const op of repair.ops) {
-              const d = describeOperation(op, names);
-              yield emit.timelineAction(d.action, d.detail, d.refs);
-            }
-            // The repair pass is one more applied turn (ADR 0056) — surface its patch
-            // like any other turn so auto mode applies it and manual mode can review it.
-            yield emit.diff(repairEdit, undefined, {
-              scope: 'turn',
-              turnIndex: state.planSteps.length + 1,
-              runId: analysisRunId,
-            });
-            report = reconcileInheritedFailures(
-              inheritedFrom,
-              critique(working, self.critiqueOptions(input, agentOptions, true, evidence)),
-            );
-          }
-        }
+        // an advisory (`reconcileInheritedFailures`). It REPORTS: no repair pass edits behind
+        // the model's back, and no finding re-opens or fails the run (ADR 0199).
+        const report = reconcileInheritedFailures(
+          critique(input.project, verifyOptions),
+          critique(working, verifyOptions),
+        );
         const named = (status: 'fail' | 'warn'): { label: string; detail: string }[] =>
           report.checks
             .filter((c) => c.status === status)
@@ -10692,8 +10369,6 @@ export class Orchestrator {
           // Advisory checks reached the editor as a COUNT and nothing else. See
           // `VerifyResult.warnedChecks`.
           warnedChecks: named('warn'),
-          repairOps,
-          ...(repairOutcome ? { repairOutcome } : {}),
           endSeq: emit.seq(),
         };
       },
@@ -10966,55 +10641,21 @@ function unknownAssetRefusal(
 /**
  * The outcome for a call this turn does not offer.
  *
- * Two different things used to share one sentence, and the wrong one was said far more
- * often. A recovery turn withholds the READING tools because the run has gathered
- * enough — so a read it refuses really is redundant, and saying so is useful. But the
- * same branch also caught calls the run had never made: in run e30c1fe9 the single
- * `add_stock` — a valid remoteId the run had found itself, for a file that had never
- * been downloaded — came back as "Skipped redundant add_stock call", and the model,
- * told the result was already in hand, moved on and built a reel with no footage.
- *
- * So the reason is derived from the run's own memo rather than assumed: if the result is
- * genuinely stored, name the handle that returns it; if it is not, say plainly that the
- * tool is unavailable on this turn and what the turn is for. A refusal a run can act on
- * beats a checkmark it cannot — and a false refusal is worse than either.
+ * Nothing narrows an agent turn any more (ADR 0199), so a call lands here only when the tool
+ * does not exist, the call names an asset the project does not hold, or the tool cannot run
+ * in this host (no route for it here, or it needs a model that can see images). Each gets
+ * the true reason, as a failure — never "not available on this turn", which used to send a
+ * model back a turn later to call the same thing again.
  */
 function withheldCallOutcome(
   call: ToolCall,
-  evidence: EvidenceStore,
-  /**
-   * Banked catalogue searches, when this refusal is the commit-only latch (02) rather than
-   * the recovery turn. Given, the refusal names the specific reason and the specific way
-   * out instead of the generic one — a run refused with no legal move named is how ADR 0143
-   * stranded a run on an empty project.
-   */
-  bankedSearches?: number,
-  /** The narrowing is the stage rule, not a one-turn latch — see `executeToolCalls`. */
-  stageWithheld = false,
-  /**
-   * The working copy at the moment of refusal, so a call that names an asset the project
-   * does not hold is refused for THAT reason rather than for the stage. Optional only so
-   * the question route, which never withholds by stage, can keep passing nothing.
-   */
+  /** The working copy, so a call naming a missing asset is refused for THAT reason. */
   project?: Project,
 ): AgentCallOutcome {
-  // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
-  //
-  // Every branch below explains a REAL tool that this turn is not offering, and each ends
-  // by telling the model to try again later or reach for the stored answer instead. Told
-  // that about a hallucinated name, a model does exactly what it is told: it waits a turn
-  // and calls the same non-existent tool again. Worse, the outcome settled as `warning`,
-  // which `callAnswered` reads as "this call answered" — so inventing a tool CREDITED the
-  // turn with having learned something, resetting the guards that exist to stop it.
-  //
-  // The one honest thing to say is that the name is wrong, and to say it as a failure.
-  // `runAgentCall` answers this way on the serial path too, in the SAME words —
-  // `unknownToolNote` — because it is the same verdict for the path that never reaches it.
+  // A name the registry has never heard of is not "withheld" — it is not a tool. Settled as
+  // a failure with data, so `deterministicFailureKey` banks it and the run is told once.
   if (!getTool(call.name)) {
     const note = unknownToolNote(call.name);
-    // `data` + the flag, or `deterministicFailureKey` banks nothing and the sentence above
-    // is all this branch achieves — the model waits a turn and calls the same invented name
-    // again, which is precisely the loop described in the comment at the top of this branch.
     return {
       ops: [],
       note,
@@ -11024,15 +10665,9 @@ function withheldCallOutcome(
       deterministicFailure: true,
     };
   }
-  // THE MOST SPECIFIC TRUE REASON WINS. The stage refusal below is generic by design —
-  // "this turn is for acting on what has been gathered" — and it used to be reached before
-  // the call's arguments were looked at. Run `137d8fd0`, turn 7: fresh from `search_stock`,
-  // the model called `describe_footage` on five `stock_pexels_<id>` asset ids it had
-  // CONSTRUCTED from catalogue results not yet downloaded (the first `add_stock` came at
-  // turn 17). The true answer was "no such asset — add it first". It was told "unavailable
-  // this turn" five times, never learned its ids were invented, and described no stock
-  // footage at all in a 153-step run. A refusal that hides the fixable cause behind a
-  // generic one costs exactly what a missing refusal does.
+  // THE MOST SPECIFIC TRUE REASON WINS: run `137d8fd0` called `describe_footage` on five
+  // asset ids it had constructed from catalogue results never downloaded, and a generic
+  // refusal hid that its ids were invented.
   const namedAsset = (call.arguments as { assetId?: unknown } | undefined)?.assetId;
   if (
     project &&
@@ -11042,50 +10677,17 @@ function withheldCallOutcome(
   ) {
     return unknownAssetRefusal(call.name, namedAsset, project);
   }
-  if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
-    return {
-      ops: [],
-      note: catalogueSearchRefusal(bankedSearches),
-      summary: `${call.name} withheld — place what this run already found`,
-      status: 'warning',
-      withheld: true,
-    };
-  }
-  const stored = evidence.lookup(callMemoKey(call));
-  if (stored) {
-    return {
-      ops: [],
-      note:
-        `Refused redundant "${call.name}" — its result is already in this run as ` +
-        `${stored.id}. Recall that handle, or make the edit it supports.`,
-      summary: `Skipped redundant ${call.name} call`,
-      status: 'failed',
-    };
-  }
-  // WHICH kind of withholding this is decides the last sentence, and getting it wrong is
-  // not cosmetic. A recovery-turn latch really does lift next turn. The stage rule does
-  // not: an analysis tool withheld in `apply` stays withheld until the run reaches
-  // `verify`. Run `137d8fd0` was told "available again on the next turn" about a
-  // stage-withheld `measure_color`, did exactly as told — waited a turn, called again —
-  // and was refused identically. A refusal has to name the real way out.
-  const wayOut = stageWithheld
-    ? `It stays held for the rest of this stage. If the run already measured this, ` +
-      `recall_evidence returns it; if it has not, finish the edit and check it in verify.`
-    : 'It becomes available again on the next turn.';
+  const note =
+    `"${call.name}" cannot run in this editor session — this host has no route for it, or ` +
+    'it needs a model that can see images. Use another tool for the same result, or tell ' +
+    'the editor what you could not do.';
   return {
     ops: [],
-    note:
-      `"${call.name}" is not available on this turn. This turn is for acting on what ` +
-      'the run has already gathered: make the edit, recall_evidence for a detail you ' +
-      `need, or ask_user. ${wayOut}`,
-    // The MODEL gets the paragraph above; the editor gets this row, and "unavailable this
-    // turn" told them nothing about why or for how long. Run `137d8fd0` showed five of
-    // them in a stack with no reason attached to any.
-    summary: stageWithheld
-      ? `${call.name} held back for this stage — this stage is for acting on what has been gathered`
-      : `${call.name} held back — this turn is for acting on what has been gathered`,
-    status: 'warning',
-    withheld: true,
+    note,
+    summary: `${call.name} is not available in this session`,
+    status: 'failed',
+    data: note,
+    deterministicFailure: true,
   };
 }
 

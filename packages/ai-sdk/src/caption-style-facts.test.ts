@@ -7,6 +7,7 @@ import {
   captionEmViolations,
   captionFontPx,
   emphasisCoverageNote,
+  normalizeCaptionWord,
   resolveCaptionStyle,
   trackStyleNote,
 } from './caption-style-facts.js';
@@ -84,6 +85,20 @@ describe('resolveCaptionStyle layers cue over track over template', () => {
 
   it('is undefined for an unstyled cue on an unstyled track', () => {
     expect(resolveCaptionStyle(cue('x', ['hi']), { id: 'c', type: 'caption', clips: [] } as unknown as Track)).toBeUndefined();
+  });
+});
+
+describe('normalizeCaptionWord keeps combining marks', () => {
+  it('trims punctuation but not a final Devanagari vowel sign', () => {
+    // Run 001be135 stored "लूफ" for "लूफी" and "गियर फोर" — the trim cut the final sign.
+    expect(normalizeCaptionWord('लूफी,')).toBe('लूफी');
+    expect(normalizeCaptionWord('“यहाँ”')).toBe('यहाँ');
+    expect(normalizeCaptionWord('है।')).toBe('है');
+    expect(new Set(['की', 'का', 'के', 'कि'].map(normalizeCaptionWord)).size).toBe(4);
+  });
+
+  it('folds a precomposed and a decomposed spelling together', () => {
+    expect(normalizeCaptionWord('\u0958िला')).toBe(normalizeCaptionWord('\u0915\u093Cिला'));
   });
 });
 
@@ -192,5 +207,56 @@ describe('trackStyleNote says what a whole-track restyle reached', () => {
   it('says nothing for a plain track restyle', () => {
     expect(trackStyleNote(doc({ fontFamily: 'Inter' }, [cue('a', ['hi'])]), 'c')).toBe('');
     expect(trackStyleNote(doc({}, []), 'missing')).toBe('');
+  });
+});
+
+describe('the track notes warn when a font cannot draw its words (desktop run 001be135)', () => {
+  // Poppins carried the Hindi, Bebas Neue the accent — and Bebas Neue has no Devanagari, so
+  // every accented word drew as missing-glyph boxes while the run restyled five times.
+  const doc = (captionStyle: unknown, cues: Clip[]): Project =>
+    ({
+      timeline: { tracks: [{ id: 'c', type: 'caption', clips: cues, captionStyle }] },
+    }) as unknown as Project;
+  const hindi = [cue('a', ['अब', 'लूफी', 'यहाँ']), cue('b', ['गियर', 'फोर', 'मोड'])];
+  const run = {
+    fontFamily: 'Poppins',
+    accent: { mode: 'keywords', fontFamily: 'Bebas Neue', keywords: ['लूफी', 'गियर फोर'] },
+  };
+
+  it('names the accent font, the missing script, the words and every bundled font with it', () => {
+    const note = trackStyleNote(doc(run, hindi), 'c');
+    expect(note).toContain('WARNING: the accent font "Bebas Neue" has no Devanagari glyphs');
+    expect(note).toContain('3 words it draws on this track are Devanagari ("लूफी", "गियर", "फोर")');
+    expect(note).toContain('missing-glyph boxes');
+    expect(note).toContain('Bundled fonts with Devanagari: Poppins, Teko.');
+    // Poppins draws the rest, and it has Devanagari: no warning about it.
+    expect(note).not.toContain('font "Poppins"');
+  });
+
+  it('warns from the emphasis pass too, which is what decides the accent font’s words', () => {
+    expect(emphasisCoverageNote(doc(run, hindi), 'c')).toContain(
+      'the accent font "Bebas Neue" has no Devanagari glyphs',
+    );
+  });
+
+  it('warns about the base font when it lacks the script, and only once per font', () => {
+    const note = trackStyleNote(doc({ fontFamily: 'Montserrat' }, hindi), 'c');
+    expect(note.match(/WARNING/g)).toHaveLength(1);
+    expect(note).toContain('the font "Montserrat" has no Devanagari glyphs, and 6 words');
+  });
+
+  it('reads the font a template supplies, and says when no bundled font has the script', () => {
+    const bengali = [cue('a', ['আমি', 'বাংলায়'])];
+    const note = trackStyleNote(doc({ templateId: 'karaoke' }, bengali), 'c');
+    expect(note).toContain('no Bengali glyphs');
+    expect(note).toContain('No bundled font has Bengali');
+  });
+
+  it('stays silent when every font can draw its words, or no font is named', () => {
+    const teko = { ...run, accent: { ...run.accent, fontFamily: 'Teko' } };
+    expect(trackStyleNote(doc(teko, hindi), 'c')).not.toContain('WARNING');
+    const russian = [cue('a', ['Привет', 'world'])];
+    expect(trackStyleNote(doc({ fontFamily: 'Inter' }, russian), 'c')).toBe('');
+    expect(trackStyleNote(doc({}, hindi), 'c')).toBe('');
   });
 });

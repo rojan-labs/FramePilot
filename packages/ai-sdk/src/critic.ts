@@ -20,6 +20,7 @@
 import {
   STICKER_SOFT_ENLARGEMENT,
   buildTimelineMap,
+  clipIsAudible,
   clipLoop,
   elementClips,
   elementRectAt,
@@ -42,8 +43,13 @@ import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js'
 import type { TemporalReviewReport } from './temporal-review.js';
 import { backedByFullFramePicture, hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
+import { audibleFrames, type FrameWindow } from './audible-sound.js';
+import { DEAD_AIR_PEAK_FLOOR_DBFS } from './perceptual-thresholds.js';
 import { drawnTextRects, overflowingWords, type PixelRect } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
+import { createLogger } from '@framepilot/shared-types';
+
+const criticLog = createLogger('ai-sdk:critic');
 
 // The detector lives in its own module so the context builder can share it without
 // importing the whole Critic; re-exported here for the callers that always found it here.
@@ -825,7 +831,12 @@ function checkTrackerMotion(project: Project): CriticCheck {
     }
   }
   if (trackers === 0) {
-    return check('tracker_motion', 'Trackers carry motion', 'skipped', 'No trackers on the timeline.');
+    return check(
+      'tracker_motion',
+      'Trackers carry motion',
+      'skipped',
+      'No trackers on the timeline.',
+    );
   }
   if (empty.length === 0) {
     return check(
@@ -1264,14 +1275,17 @@ function checkSafeArea(
   // a house style. Reported together when both are true, worst first.
   if (clipped.length > 0 || outside.length > 0 || unwrappable.length > 0) {
     const parts: string[] = [];
-    if (clipped.length > 0) parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
+    if (clipped.length > 0)
+      parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
     if (unwrappable.length > 0)
       parts.push(
         `Too wide for its box — this runs out the sides in the preview and the export ` +
           `alike: ${unwrappable.join('; ')}. Widen boxWidthPercent or reduce sizePercent.`,
       );
     if (outside.length > 0)
-      parts.push(`Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`);
+      parts.push(
+        `Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`,
+      );
     return check('safe_area', 'Overlays in safe area', 'warn', parts.join(' '));
   }
   return check(
@@ -1717,10 +1731,42 @@ const MARKER_LABEL_WINDOW_SECONDS = 2;
  * Words a marker label uses to describe a beat rather than quote it — never evidence.
  */
 const MARKER_LABEL_STOPWORDS: ReadonlySet<string> = new Set([
-  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'over', 'then',
-  'hook', 'beat', 'intro', 'outro', 'open', 'opening', 'close', 'closing', 'payoff',
-  'proof', 'contrast', 'pivot', 'turn', 'setup', 'stats', 'part', 'section', 'chapter',
-  'why', 'who', 'what', 'when', 'how', 'now', 'here', 'there',
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'that',
+  'this',
+  'into',
+  'over',
+  'then',
+  'hook',
+  'beat',
+  'intro',
+  'outro',
+  'open',
+  'opening',
+  'close',
+  'closing',
+  'payoff',
+  'proof',
+  'contrast',
+  'pivot',
+  'turn',
+  'setup',
+  'stats',
+  'part',
+  'section',
+  'chapter',
+  'why',
+  'who',
+  'what',
+  'when',
+  'how',
+  'now',
+  'here',
+  'there',
 ]);
 
 /** A label or transcript token in the form the two are compared in. */
@@ -1728,7 +1774,7 @@ function markerToken(raw: string): string {
   const bare = raw
     .normalize('NFKC')
     .toLocaleLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    .replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '');
   // "1,50,000" and "150,000" are one number to a listener.
   return /^[\d,.]+$/.test(bare) ? bare.replace(/[,.]/g, '') : bare;
 }
@@ -1930,7 +1976,12 @@ function checkMarkerLabels(project: Project, loop: TranscriptLoop | undefined): 
       typeof marker.label === 'string' && marker.label.trim() !== '',
   );
   if (labelled.length === 0) {
-    return check('marker_labels', 'Markers sit where their words are spoken', 'skipped', 'No labelled markers.');
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'skipped',
+      'No labelled markers.',
+    );
   }
   if (loop !== undefined) {
     return check(
@@ -2154,6 +2205,15 @@ function checkWordSevered(
     );
   }
   const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  // A cut severs a word only where that word is HEARD. A clip on a muted track — the
+  // footage under a separate voiceover, desktop run `001be135` — carries no speech into the
+  // mix however its edges fall, and judging its picture cuts against its own silent
+  // soundtrack re-opened that run five times and failed it with 162 changes applied.
+  const audible = new Set(
+    project.timeline.tracks.flatMap((track) =>
+      track.clips.filter((clip) => clipIsAudible(track, clip)).map((clip) => clip.id),
+    ),
+  );
   const speechAssets = unattributedSpeechAssets(project);
   // Word frame spans are computed ONCE and searched, not recomputed per boundary. The
   // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
@@ -2192,7 +2252,7 @@ function checkWordSevered(
 
   /** The word a source instant falls strictly inside, for this clip's asset. */
   const severedWordAt = (clip: Clip | undefined, sourceSeconds: number): string | undefined => {
-    if (!clip) return undefined;
+    if (!clip || !audible.has(clip.id)) return undefined;
     const frame = secondsToFrame(sourceSeconds, fps);
     // Binary search to the first word starting at or after `frame`…
     let low = 0;
@@ -2220,8 +2280,7 @@ function checkWordSevered(
     return undefined;
   };
 
-  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] =
-    [];
+  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] = [];
   for (const boundary of boundaries) {
     const from = byId.get(boundary.fromClipId);
     const to = byId.get(boundary.toClipId);
@@ -2276,7 +2335,7 @@ function checkWordSevered(
     'No words cut through',
     'fail',
     `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
-      'Move each boundary to the nearest word edge: read the word\'s startFrame/endFrame ' +
+      "Move each boundary to the nearest word edge: read the word's startFrame/endFrame " +
       'from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate ' +
       `(${String(fps)}) to trim_clip or split_clip — those take SECONDS, and a second ` +
       'between two frames is rounded to the nearest one, which is how a cut aimed at a ' +
@@ -2284,13 +2343,77 @@ function checkWordSevered(
   );
 }
 
+/** A run of dead air, in frames: `[startFrame, endFrame)`. */
+interface DeadAirRun {
+  readonly startFrame: number;
+  readonly endFrame: number;
+}
+
+/** What a head or tail stretch with no words holds. */
+interface StretchReading {
+  /** Runs at least {@link DEAD_AIR_FRAMES} long with no word and nothing audible. */
+  readonly runs: readonly DeadAirRun[];
+  /** Whether any clip there had waveform peaks; `false` means the dialogue alone decided. */
+  readonly measured: boolean;
+}
+
+/**
+ * The dead air inside one wordless stretch: the runs of at least {@link DEAD_AIR_FRAMES}
+ * where nothing reaches {@link DEAD_AIR_PEAK_FLOOR_DBFS}.
+ *
+ * With no clip there carrying peaks (media never probed), the whole stretch counts, as it did
+ * when this check counted words alone. The detail says so.
+ */
+function readStretch(project: Project, window: FrameWindow, fps: number): StretchReading {
+  if (window.endFrame - window.startFrame < DEAD_AIR_FRAMES) return { runs: [], measured: true };
+  const sound = audibleFrames(project, window, fps, DEAD_AIR_PEAK_FLOOR_DBFS);
+  if (!sound.measured) return { runs: [window], measured: false };
+  const runs: DeadAirRun[] = [];
+  let runStart: number | undefined;
+  for (let offset = 0; offset <= sound.audible.length; offset += 1) {
+    const silent = offset < sound.audible.length && !sound.audible[offset];
+    if (silent && runStart === undefined) runStart = offset;
+    if (!silent && runStart !== undefined) {
+      if (offset - runStart >= DEAD_AIR_FRAMES) {
+        runs.push({
+          startFrame: window.startFrame + runStart,
+          endFrame: window.startFrame + offset,
+        });
+      }
+      runStart = undefined;
+    }
+  }
+  return { runs, measured: true };
+}
+
+/** "72 frames (0–2.4s)", one per run. */
+function describeRuns(runs: readonly DeadAirRun[], fps: number): string {
+  return runs
+    .map(
+      (run) =>
+        `${String(run.endFrame - run.startFrame)} frames (${round(frameToSeconds(run.startFrame, fps))}–` +
+        `${round(frameToSeconds(run.endFrame, fps))}s)`,
+    )
+    .join(', ');
+}
+
 /**
  * Is there dead air at the head or the tail?
  *
- * Measured against the DIALOGUE, not against silence detection: the mapped transcript is
- * already on the timeline and needs no analysis pass, so this check costs nothing and can
- * never be `skipped` for want of a render. A run that also gathered `analyze_silence`
- * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
+ * Dead air is a stretch with no WORD and no SOUND. The words come from the mapped transcript.
+ * The sound comes from each heard clip's waveform peaks through its fader (`audible-sound.ts`).
+ * Both are already in the project, so this check still needs no render and is never `skipped`
+ * for want of one.
+ *
+ * It used to count words alone. That is right for a talking head, where the tail after the
+ * last word is room tone. It is wrong for a film with music or natural sound: on run x59-1 it
+ * told the model to ripple_delete 7.54 s of music bed and crowd (-22 to -12 dBFS) after the
+ * last radio call, which is the ending. Room tone peaks under
+ * {@link DEAD_AIR_PEAK_FLOOR_DBFS} (speech-9min's pauses: -30 to -38 dBFS), so a talking
+ * head's quiet tail is still dead air.
+ *
+ * A run that gathered `analyze_silence` evidence has it cited (`CritiqueOptions.silences`).
+ * Its ranges are in one asset's source time, so they are named, not used to measure the cut.
  */
 function checkDeadAir(
   project: Project,
@@ -2326,21 +2449,50 @@ function checkDeadAir(
   const first = Math.min(...mapped.words.map((w) => w.start));
   const last = Math.max(...mapped.words.map((w) => w.end));
   const headFrames = secondsToFrame(first, fps);
+  const lastWordFrame = Math.min(secondsToFrame(last, fps), secondsToFrame(duration, fps));
   const tailFrames = secondsToFrame(Math.max(0, duration - last), fps);
+  const head = readStretch(project, { startFrame: 0, endFrame: headFrames }, fps);
+  const tail = readStretch(
+    project,
+    { startFrame: lastWordFrame, endFrame: lastWordFrame + tailFrames },
+    fps,
+  );
   const problems: string[] = [];
-  if (headFrames >= DEAD_AIR_FRAMES) {
-    problems.push(`${headFrames} frames (${round(first)}s) before the first word`);
+  if (head.runs.length > 0) {
+    problems.push(
+      head.measured
+        ? `${describeRuns(head.runs, fps)} before the first word`
+        : `${headFrames} frames (${round(first)}s) before the first word`,
+    );
   }
-  if (tailFrames >= DEAD_AIR_FRAMES) {
-    problems.push(`${tailFrames} frames (${round(duration - last)}s) after the last word`);
+  if (tail.runs.length > 0) {
+    problems.push(
+      tail.measured
+        ? `${describeRuns(tail.runs, fps)} after the last word`
+        : `${tailFrames} frames (${round(duration - last)}s) after the last word`,
+    );
   }
   const cited = options.silences?.handle ? ` (from ${options.silences.handle})` : '';
+  const unmeasured =
+    (head.runs.length > 0 && !head.measured) || (tail.runs.length > 0 && !tail.measured)
+      ? ' No clip there has waveform peaks, so that stretch is measured against the dialogue ' +
+        'alone; anything it plays was not heard by this check.'
+      : '';
   if (problems.length === 0) {
+    const sounding = [
+      headFrames >= DEAD_AIR_FRAMES ? `the ${round(first)}s before the first word` : '',
+      tailFrames >= DEAD_AIR_FRAMES ? `the ${round(duration - last)}s after the last word` : '',
+    ].filter((part) => part.length > 0);
+    const heard =
+      sounding.length === 0
+        ? ''
+        : ` No words in ${sounding.join(' or ')}, but sound above ` +
+          `${String(DEAD_AIR_PEAK_FLOOR_DBFS)} dBFS plays there, which is not dead air.`;
     return check(
       'dead_air',
       'No dead air at head or tail',
       'pass',
-      `Speech starts at frame ${headFrames} and runs to ${round(last)}s of ${round(duration)}s${cited}.`,
+      `Speech starts at frame ${headFrames} and runs to ${round(last)}s of ${round(duration)}s${cited}.${heard}`,
     );
   }
   return check(
@@ -2349,9 +2501,10 @@ function checkDeadAir(
     // `warn`, not `fail`: a hold at the tail can be a deliberate button, and this check has
     // not been watched on real runs yet. Promotion is a one-line change once it has.
     'warn',
-    `Dead air: ${problems.join(' and ')}${cited}. The threshold is ${DEAD_AIR_FRAMES} frames — ` +
-      'a second at 30fps, past which an opening reads as a mistake rather than a breath. ' +
-      'ripple_delete the head/tail range.',
+    `Dead air: ${problems.join(' and ')}${cited}. Dead air is no word and no sound above ` +
+      `${String(DEAD_AIR_PEAK_FLOOR_DBFS)} dBFS (the level silence detection cuts at) for at ` +
+      `least ${DEAD_AIR_FRAMES} frames — a second at 30fps, past which an opening reads as a ` +
+      `mistake rather than a breath. ripple_delete those ranges.${unmeasured}`,
   );
 }
 
@@ -2628,6 +2781,109 @@ export function standingAgainstAcceptance(
   return standing
     .filter((c) => REQUEST_CHECKS.has(c.id) || inherited.get(c.id) !== inheritedKey(c.detail))
     .map((c) => c.detail);
+}
+
+/** How many findings the in-flight block names before counting the rest. */
+export const STANDING_FINDINGS_SHOWN = 8;
+/** Characters of one finding's detail in the in-flight block — a line, not a report. */
+const STANDING_FINDING_CHARS = 320;
+
+/**
+ * The starting project's own findings, measured once per run rather than on every prompt
+ * build. Keyed by the project object (a run's starting project is one object for the whole
+ * run) and the options' JSON, so a different reading is never served a stale verdict.
+ */
+const beforeFindingsCache = new WeakMap<Project, Map<string, CritiqueReport>>();
+
+function critiqueBefore(before: Project, options: CritiqueOptions): CritiqueReport {
+  const key = JSON.stringify(options);
+  let byOptions = beforeFindingsCache.get(before);
+  if (byOptions === undefined) {
+    byOptions = new Map();
+    beforeFindingsCache.set(before, byOptions);
+  }
+  const cached = byOptions.get(key);
+  if (cached !== undefined) return cached;
+  const report = critique(before, options);
+  byOptions.set(key, report);
+  return report;
+}
+
+/**
+ * Everything the self-check would say about the cut RIGHT NOW that this run is answerable
+ * for — the whole battery, not only the whole-cut checks — as one short line each.
+ *
+ * ## Why the model is shown all of it, every turn
+ *
+ * The final self-check used to be the only place most findings were said, and it said them
+ * as orders: a failed check re-opened a finished run ("The request is not met yet —
+ * continuing"), bought a fix turn, and failed the run if it survived. Desktop run
+ * `001be135` was re-opened five times by "N cut(s) land inside a word" and ended `failed`
+ * with 162 changes applied — and the model had worked out, correctly, that the check was
+ * measuring a muted soundtrack. ADR 0199 inverts that: the findings are measurements the
+ * model weighs while it works, in front of it after every edit, and the end of the run only
+ * reports them. A model that has seen "this cut severs a word" can fix it or say why not;
+ * one that first hears it after it said it was done can only be argued with.
+ *
+ * Same reconciliation as the end-of-run report: a finding the starting project already had
+ * (same check, same detail with ids blanked) is left out, because it is not this run's; a
+ * request-derived check ({@link REQUEST_CHECKS}) never is.
+ *
+ * @param project - The working copy after the last applied patch.
+ * @param options - The same critique options the final self-check uses.
+ * @param before - The project the run started from.
+ * @returns Failures first, then advisories; empty when the checks have nothing to say.
+ */
+export function standingFindings(
+  project: Project,
+  options: CritiqueOptions = {},
+  before?: Project,
+): readonly string[] {
+  // Information must never be able to end a run. These checks now run on every prompt build,
+  // over whatever project state the run holds, so a check that throws on some shape of data
+  // costs the turn its findings — said in the log — not the run its edit.
+  try {
+    return standingFindingsOf(project, options, before);
+  } catch (error) {
+    criticLog.warn('standing findings unavailable this turn', { error: String(error) });
+    return [];
+  }
+}
+
+function standingFindingsOf(
+  project: Project,
+  options: CritiqueOptions,
+  before: Project | undefined,
+): readonly string[] {
+  const standing = critique(project, options).checks.filter(
+    (c) => c.status === 'fail' || c.status === 'warn',
+  );
+  if (standing.length === 0) return [];
+  const inherited =
+    before === undefined
+      ? new Map<CheckId, string>()
+      : new Map(
+          critiqueBefore(before, options)
+            .checks.filter((c) => c.status === 'fail' || c.status === 'warn')
+            .map((c) => [c.id, inheritedKey(c.detail)] as const),
+        );
+  const own = standing.filter(
+    (c) => REQUEST_CHECKS.has(c.id) || inherited.get(c.id) !== inheritedKey(c.detail),
+  );
+  const ordered = [
+    ...own.filter((c) => c.status === 'fail'),
+    ...own.filter((c) => c.status === 'warn'),
+  ];
+  const lines = ordered.slice(0, STANDING_FINDINGS_SHOWN).map((c) => {
+    const detail =
+      c.detail.length > STANDING_FINDING_CHARS
+        ? `${c.detail.slice(0, STANDING_FINDING_CHARS).trimEnd()}…`
+        : c.detail;
+    return `${c.status === 'fail' ? '[fails]' : '[note]'} ${c.label}: ${detail}`;
+  });
+  const rest = ordered.length - lines.length;
+  if (rest > 0) lines.push(`…and ${String(rest)} more`);
+  return lines;
 }
 
 /**

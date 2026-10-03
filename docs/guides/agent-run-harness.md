@@ -56,6 +56,30 @@ nohup node "$TSX" apps/desktop/scripts/agent-run.ts \
 | `--min-free-percent` | `10` | Watchdog floor on system free memory (`memory_pressure -Q`). On a Mac that already carries a lot of swap, swap growth over-reports (idle pages move out under file-cache pressure): loosen `--max-swap-growth-gb` and rely on this floor and `--max-rss-gb`. |
 | `--skip-memory-check` | off | Skips the refusal to start when less than 40% of memory is free. |
 
+## A project from raw footage
+
+The harness edits a copy of a project that already exists. To verify an edit on new footage,
+build that project first with `apps/desktop/scripts/import-project.ts`. It takes each file
+through the path a desktop import takes, so the run sees what an editor's project would hold:
+- the file lands in `media/<projectId>/` (an APFS clone) under the app's naming rules;
+- `/asset-media` makes the proxy, peaks, thumbnails and the brain row;
+- the visual-index enrolment runs with the tiers and credentials the app uses (TwelveLabs
+  and hosted labels when Settings → AI has them, so this spends those credits as an
+  import would).
+
+The project starts with an empty timeline, as a new one does.
+
+```sh
+nohup node "$TSX" apps/desktop/scripts/import-project.ts --name "X-59 first flight" \
+  --media raw_a.mp4 --media raw_b.mp4 --root /path/to/scratch/projects \
+  --width 1920 --height 1080 --fps 30 > import.log 2>&1 &
+```
+
+It prints the project path (`<root>/<projectId>.fp.json`) when the visual index has
+settled. Pass that path to `agent-run.ts --project`, with an `--out` outside `--root`. Each
+run clones the media, proxies and brain, so the import is paid once per project, not per
+run.
+
 ## Outputs (in `--out`)
 
 - `events.jsonl`: every `AiEvent` as published to the renderer, including the `commit` stamp

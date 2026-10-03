@@ -56,6 +56,20 @@ describe('caption emphasis AI contract', () => {
     expect(result).toEqual({ keywords: ['word1', 'word2'], source: 'ai' });
   });
 
+  it('keeps a Devanagari word whole, final vowel sign included (run 001be135)', () => {
+    // The edge trim dropped combining marks, so "लूफी" came back as the keyword "लूफ" —
+    // and "की" and "का" as the same keyword.
+    const hindi: readonly TranscriptWord[] = [
+      { word: 'लूफी,', start: 0, end: 0.4 },
+      { word: 'की', start: 0.4, end: 0.6 },
+      { word: 'का', start: 0.6, end: 0.8 },
+      ...Array.from({ length: 17 }, (_, i) => ({ word: `w${i}`, start: 1 + i, end: 1.5 + i })),
+    ];
+    expect(
+      parseCaptionEmphasisResponse(JSON.stringify({ keywords: ['लूफी', 'की', 'का'] }), hindi),
+    ).toEqual({ keywords: ['लूफी', 'की', 'का'], source: 'ai' });
+  });
+
   it('returns null when every requested keyword is invented or a duplicate', () => {
     expect(
       parseCaptionEmphasisResponse(JSON.stringify({ keywords: ['invented'] }), transcript),

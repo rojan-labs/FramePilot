@@ -74,9 +74,17 @@ export interface HighlightSegment {
  * than exact strings (keyword highlighting here, whole-word transcript search
  * in `transcriptSearch.ts`), so "Cat," and "cat" match but "cat" never matches
  * inside "category".
+ *
+ * Combining marks are kept: Devanagari writes its vowel signs as marks, and dropping them
+ * made "की", "का" and "के" one word. NFKC first, so a precomposed and a decomposed spelling
+ * of a word compare equal. Same fold as the preview's `bareToken` and the engine's
+ * `_bare_token` (`tests/fixtures/captions/bare-token-vectors.json` pins all three).
  */
 export const stripPunctuation = (token: string): string =>
-  token.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+  token
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]/gu, '');
 
 /** Compact `m:ss` clock, floored to whole seconds (matches the ruler style). */
 export function formatClock(seconds: number): string {

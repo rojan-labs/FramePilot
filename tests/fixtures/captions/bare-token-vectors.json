@@ -1,0 +1,60 @@
+{
+  "comment": "Caption word folding, shared by the web preview (captionPreview.ts bareToken / accentWordIndices, captions.ts stripPunctuation) and the export (captions.py _bare_token / _accent_indices). Both test suites assert these exact outputs, so the two renderers accent the same words. Fold: NFKC, lowercase, keep Unicode letters (L), combining marks (M) and numbers (N). Marks matter for Devanagari, whose vowel signs and virama are marks.",
+  "bare": [
+    { "token": "The,", "bare": "the" },
+    { "token": "don't", "bare": "dont" },
+    { "token": "1,50,000", "bare": "150000" },
+    { "token": "Straße", "bare": "straße" },
+    { "token": "Café", "bare": "café" },
+    { "token": "ＡＢＣ", "bare": "abc" },
+    { "token": "🔥", "bare": "" },
+    { "token": "लूफी", "bare": "लूफी" },
+    { "token": "गियर", "bare": "गियर" },
+    { "token": "यहाँ,", "bare": "यहाँ" },
+    { "token": "है।", "bare": "है" },
+    { "token": "की", "bare": "की" },
+    { "token": "का", "bare": "का" },
+    { "token": "के", "bare": "के" },
+    { "token": "कि", "bare": "कि" },
+    { "token": "क़िला", "bare": "क़िला" },
+    { "token": "क़िला", "bare": "क़िला" }
+  ],
+  "accent": [
+    {
+      "name": "a Devanagari keyword accents the word, final vowel sign included",
+      "tokens": ["अब", "क्योंकि", "लूफी", "यहाँ", "पे"],
+      "keywords": ["लूफी"],
+      "indices": [2]
+    },
+    {
+      "name": "words that differ only in their vowel sign stay different words",
+      "tokens": ["की", "का", "के", "कि"],
+      "keywords": ["की"],
+      "indices": [0]
+    },
+    {
+      "name": "a Devanagari phrase accents its whole run",
+      "tokens": ["गियर", "फोर", "मोड"],
+      "keywords": ["गियर फोर"],
+      "indices": [0, 1]
+    },
+    {
+      "name": "a keyword truncated by the old fold no longer matches the full word",
+      "tokens": ["लूफी", "यहाँ"],
+      "keywords": ["लूफ"],
+      "indices": []
+    },
+    {
+      "name": "precomposed and decomposed spellings match each other",
+      "tokens": ["क़िला", "देखो"],
+      "keywords": ["क़िला"],
+      "indices": [0]
+    },
+    {
+      "name": "Latin phrases still match case- and punctuation-insensitively",
+      "tokens": ["Stop", "scrolling!", "now"],
+      "keywords": ["stop scrolling"],
+      "indices": [0, 1]
+    }
+  ]
+}

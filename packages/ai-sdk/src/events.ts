@@ -62,7 +62,13 @@ export interface Reference {
 export interface PlanStep {
   readonly id: string;
   readonly label: string;
-  readonly status: 'pending' | 'running' | 'completed' | 'failed';
+  /**
+   * `stopped` means the run that owned the step ended before the step finished. It is a
+   * statement about the RUN, not about the step: nothing went wrong with the step itself,
+   * so it must not read as `failed`. The view fold assigns it to a step still `pending` or
+   * `running` once its run is over (see `settleStalePlan`); producers may emit it too.
+   */
+  readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
   /**
    * Supporting context for the step: while a planned (ledger) step is running it
    * carries the turn's derived intent (U2); on failure it carries WHY, surfaced on
@@ -841,8 +847,15 @@ const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
  * same quantity the settle event would have carried: how long the model worked before the
  * run visibly moved on. With nothing after it, the node settles with no duration at all
  * rather than a fabricated one.
+ *
+ * Plan nodes are passed through `settlePlan`, which knows which plans' runs are over
+ * (see {@link settleStalePlan}).
  */
-function settleStaleReasoning(nodes: readonly ViewNode[], terminal: boolean): ViewNode[] {
+function settleStaleNodes(
+  nodes: readonly ViewNode[],
+  terminal: boolean,
+  settlePlan: (node: PlanNode) => PlanNode,
+): ViewNode[] {
   let lastReasoning = -1;
   for (let i = nodes.length - 1; i >= 0; i -= 1) {
     if (nodes[i]?.kind === 'reasoning') {
@@ -851,6 +864,9 @@ function settleStaleReasoning(nodes: readonly ViewNode[], terminal: boolean): Vi
     }
   }
   return nodes.map((node, index) => {
+    // Plans settle by their own rule (see `settleStalePlan`), in this same pass so a long
+    // conversation pays for one walk of its nodes per view, not one per rule.
+    if (node.kind === 'plan') return settlePlan(node);
     if (node.kind !== 'reasoning' || node.done) return node;
     // Rule 1 settles every node but the last; rule 2 settles the last one too.
     if (index === lastReasoning && !terminal) return node;
@@ -861,6 +877,36 @@ function settleStaleReasoning(nodes: readonly ViewNode[], terminal: boolean): Vi
       ...(node.thoughtMs === undefined && next ? { thoughtMs: next.ts - node.ts } : {}),
     };
   });
+}
+
+/** True for a step that is not finished: what a run that ended leaves behind. */
+function isUnfinishedStep(step: PlanStep): boolean {
+  return step.status === 'pending' || step.status === 'running';
+}
+
+/**
+ * Present every unfinished step of a plan whose run is over as `stopped`.
+ *
+ * A step only leaves `running` when the producer re-emits the plan, and the producer only
+ * does that on its own clean finish. Every other ending — the host refusing an event (the
+ * durable-log overflow that ended run f8574746), a provider or graph throw, a mid-stream
+ * abort, the app being killed — appends a terminal status and nothing else, so the
+ * checklist kept a spinner on its in-progress step under a run that had stopped minutes
+ * earlier. Settling it here, in the fold, covers every one of those paths at once and
+ * every host that renders the view, the same way {@link settleStaleNodes} settles
+ * reasoning.
+ *
+ * `stopped`, never `failed`: the step did not go wrong, the run ended before it was done.
+ * Pure — the stored node is untouched, so a producer that does re-emit the plan still wins.
+ */
+function settleStalePlan(node: PlanNode): PlanNode {
+  if (!node.steps.some(isUnfinishedStep)) return node;
+  return {
+    ...node,
+    steps: node.steps.map((step) =>
+      isUnfinishedStep(step) ? { ...step, status: 'stopped' as const } : step,
+    ),
+  };
 }
 
 /**
@@ -890,6 +936,26 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
   // ignore it. Ordered by first appearance, updated in place by taskId.
   const taskOrder: string[] = [];
   const tasksById = new Map<string, TaskView>();
+  // Whether a plan's run is over is decided by LOG ORDER, never by turn id: a recovered
+  // run's terminal status arrives under a synthetic `durable-terminal:*` /
+  // `durable-snapshot:*` turn, so matching the plan's turn would leave exactly the runs
+  // that died the hardest with a spinner. A plan is over once a run boundary — a terminal
+  // status, or the editor's next message, which only ever starts a new run — lands after
+  // its latest update. A producer that re-emits the plan later makes it live again.
+  let position = 0;
+  let lastRunBoundary = -1;
+  const planUpdatedAt = new Map<string, number>();
+  // One settled copy per stored plan node, so a settled plan keeps its identity across
+  // views and a memoized renderer does not repaint it on every streamed batch.
+  const settledPlans = new WeakMap<PlanNode, PlanNode>();
+  const settlePlan = (node: PlanNode): PlanNode => {
+    if ((planUpdatedAt.get(node.id) ?? -1) > lastRunBoundary) return node;
+    const cached = settledPlans.get(node);
+    if (cached) return cached;
+    const settled = settleStalePlan(node);
+    settledPlans.set(node, settled);
+    return settled;
+  };
 
   const upsert = (node: ViewNode): void => {
     if (!byId.has(node.id)) order.push(node.id);
@@ -936,8 +1002,10 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
   };
 
   const push = (event: AiEvent): void => {
+    position += 1;
     switch (event.type) {
       case 'user_message':
+        lastRunBoundary = position;
         upsert({
           kind: 'user',
           id: event.id,
@@ -1022,6 +1090,7 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
         break;
       }
       case 'plan':
+        planUpdatedAt.set(event.id, position);
         upsert({
           kind: 'plan',
           id: event.id,
@@ -1178,6 +1247,7 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
         break;
       case 'status':
         status = event.status;
+        if (isTerminalStatus(event.status)) lastRunBoundary = position;
         // A run that finishes successfully supersedes any pending resume checkpoint.
         if (event.status === 'completed') checkpoint = undefined;
         break;
@@ -1238,9 +1308,10 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
   return {
     push,
     view: () => {
-      const nodes = settleStaleReasoning(
+      const nodes = settleStaleNodes(
         order.map((id) => byId.get(id) as ViewNode),
         isTerminalStatus(status),
+        settlePlan,
       );
       return {
         nodes,

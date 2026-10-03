@@ -1390,9 +1390,10 @@ class SearchVisualArgs(BaseModel):
     """Visual grounding search over on-screen content (plan MI5.1/§3.4).
 
     Mirrors the TS ``searchVisualSchema``. The sidecar embeds ``query``
-    cross-modally, runs the vector KNN, and fuses it with caption/transcript
-    recall into ranked evidence packets. Honestly degrades (available with a
-    reason, no packets) when the footage is unindexed or no embedding key is set.
+    cross-modally, runs the vector KNN, and fuses it with frame-caption recall into
+    ranked evidence packets — the picture only; the footage's speech never ranks a
+    hit. Honestly degrades (available with a reason, no packets) when the footage is
+    unindexed or no embedding key is set.
     """
 
     model_config = _STRICT

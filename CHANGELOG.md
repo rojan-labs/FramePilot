@@ -102,8 +102,101 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   The assistant's messages and tools call them text overlays: a title, a description, a label
   or anything else you put on screen.
 
+### Changed
+
+- **The assistant decides how to finish its own work.** It used to be overruled by built-in
+  rules: tools were withheld once it had made its first edit, a finished reply was re-opened
+  with "The request is not met yet — continuing", a second hidden pass edited behind it, and a
+  run that disagreed with an automatic check ended with "the run could not finish" even though
+  its edits were on the timeline. Now it keeps every tool it has loaded for the whole run, sees
+  what the checks find after every edit, and decides what to fix. A run that made its edits
+  completes, and the checks' findings are reported with it. A run only continues past a
+  finished reply when the assistant's own plan still has open items, or when a review of its
+  last edit found something it has not seen
+  ([ADR 0199](docs/adr/0199-the-model-decides-the-harness-informs.md)).
+- **The assistant thinks equally hard on every step.** It used to drop to low effort once it
+  started editing, including the steps where it picks which shot goes where.
+- **"Search what is on screen" searches the picture only.** It used to also match what the
+  footage says, so narrated footage answered from its words. Use the transcript to find speech.
+
+
 ### Fixed
 
+- **Long footage gets indexed.** Importing an interview or event recording of most of an hour
+  used to leave it with no shot list and nothing searchable: the measurement step gave up after a
+  minute, and the upload to the visual index was cut off after five. Long files are now measured
+  and indexed in steps, whatever their length or your connection speed.
+- **"Search what is on screen" works with TwelveLabs again.** Every search failed with an error
+  after it was made to look at the picture only; it returns results again.
+- **An interview under B-roll is not reported as unused footage.** Covering a jump cut with B-roll
+  hides the interview's picture on purpose while its words play; the check used to suggest removing
+  that clip, which would cut the line.
+- **The footage overview works on long recordings.** Asking for the chapter map of footage most of
+  an hour long used to fail after two minutes. It now comes back as soon as it is ready; until then
+  the assistant is told it is still being prepared and carries on with its other work.
+- **The edit checks no longer flag things that are fine in a film with music.** A music bed fading
+  in was reported as an audio jump when the jump was a voice starting in another clip, and the
+  music and crowd sound at the end of a film were reported as dead air because nobody was talking.
+  Both now measure the sound you actually hear.
+- **Word timings are where the words are.** With the local transcriber, a word next to a long
+  stretch of noise or silence could be timed as lasting 20 seconds or more, so cuts and captions
+  aimed at it landed in the wrong place. Words are now timed from where they are spoken.
+  Transcribing takes about twice as long as before.
+- **"Claude (existing login)" no longer sends your Claude Code setup to the model.** Each request
+  used to carry your personal Claude Code instructions, make a second hidden request to name a
+  session, and save itself in your Claude Code history. It now sends only FramePilot's prompt,
+  which uses noticeably fewer tokens per step.
+- **A run that could not do anything says so.** If the assistant's last attempt failed (a media
+  engine that did not answer, a request in a shape no tool accepts) and it then stopped, the run
+  is reported as failed instead of finished.
+- **Captions and word timings follow what you hear.** Speech on a muted track, or on a clip you
+  muted, is no longer captioned, read back as narration, or used to judge where a cut falls.
+  Before, footage muted under a separate voiceover had its own soundtrack captioned, and those
+  captions moved with the shots when you reordered them.
+- **A long edit no longer stops halfway.** A rebuild with more than 200 clips used to be refused
+  outright and end the run. Now the assistant is told to send it in batches, and each clip's
+  automatic crop no longer counts as a second change.
+- **Restyling captions is no longer limited to five times a run.**
+- **Tool calls the assistant sends in a slightly different format are understood.** A list sent
+  as text is read as the list, so loading tools and updating the plan no longer fail on it.
+- **Long runs no longer bloat their history.** Each edit is recorded once per kind of change
+  instead of once per operation, so a caption pass of a thousand changes no longer makes the
+  run's log and the conversation file grow by megabytes.
+- **The media list says whether a video has sound,** so a "video only" file that really
+  carries narration can be noticed.
+- **A run is never stopped by its own log.** A long run could end with "exceeded the
+  67108864-character durable log limit" in the middle of an edit, and keep working in the
+  background with nothing listening. Now the oldest kind of detail (live text and reasoning
+  updates) stops being recorded first and the run carries on. If a run's progress really
+  cannot be recorded, it stops cleanly and says that the edits already on the timeline are
+  kept.
+- **The plan stops spinning when a run ends.** After you stopped or cancelled a run, or it
+  failed, an unfinished plan step kept its spinner. Unfinished steps now show "Not done" the
+  moment the run ends, however it ended.
+- **Long conversations open fast.** The sidebar shows the latest turns first, with "Show
+  earlier messages" to load more, and a caption pass that made hundreds of changes shows one
+  row per kind of change ("Deleted range ×346") that you can expand. A conversation that had
+  grown to 70 MB is rewritten much smaller the next time it is saved.
+
+- **Hindi and other Devanagari captions keep their vowel signs.** Keyword emphasis and "keep these
+  words together" used to drop the vowel signs, so "लूफी" was stored as
+  "लूफ" and "की", "का" and "के" counted as one word. Highlighted words now match the words that
+  were said, the same way in the preview and the export. The danda (।) now ends a sentence, so a
+  caption no longer runs from one Hindi sentence into the next. Keywords saved with the old,
+  shortened spelling no longer match; run the emphasis again to replace them.
+- **Automatic captions are never too short to read.** A cue at the very end of a shot, or a shot
+  with only a word or two of speech, could be shown for a couple of frames. The last cue of a
+  shot now joins the one before it, and a shot too short for a cue of its own holds its words a
+  few frames into the next shot or shares the next cue. The caption check now names a fix that
+  works.
+- **The assistant says when the speech in a project is muted.** If every clip that carries the
+  transcript is muted, captioning and the transcript tool now say which file's speech nobody
+  hears and which audible file has no transcript, instead of reporting that no speech survived.
+- **The assistant is told when a font cannot draw the caption's language.** Each bundled font now
+  lists the writing systems it supports (Latin, Cyrillic, Devanagari, Arabic and others). When a
+  caption or title font has no letters for its words, for example a Latin-only accent font over
+  Hindi, the assistant gets a warning that names the fonts that do. Before, those words came out
+  as empty boxes in the export with no explanation.
 - **Audio files now transcribe with TwelveLabs.** A voiceover or music file (MP3, WAV, M4A)
   always failed with "TwelveLabs API error (HTTP 404) (resource_not_exists)", because TwelveLabs
   indexes only video. FramePilot now puts the audio under a plain black picture before it

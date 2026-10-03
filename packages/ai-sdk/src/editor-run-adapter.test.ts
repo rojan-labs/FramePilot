@@ -393,12 +393,10 @@ describe('streamEditorRun route adapters', () => {
         ),
       );
       // Edit, "Done." (the wait), then ONE more turn carrying the finding — and the second
-      // "Done." ends the run rather than waiting again. The fourth call is the advisory fix
-      // turn (AL37): deleting 0–1s from the only picture track leaves black the self-check
-      // advises on, and a run that delivered work hears its advice once before it ends.
-      expect(provider.callCount).toBe(4);
+      // "Done." ends the run rather than waiting again. The self-check's advice about the
+      // black that deleting 0–1s leaves is reported, not given a turn of its own (ADR 0199).
+      expect(provider.callCount).toBe(3);
       expect(JSON.stringify(provider.requests[2]?.messages)).toContain('Fix only these');
-      expect(JSON.stringify(provider.requests[3]?.messages)).toContain('SELF-CHECK ADVICE');
       const finding = events.findIndex((event) => event.type === 'review_finding');
       const acting = events.findIndex(
         (event) => event.type === 'notification' && /Acting on what the review/.test(event.text),
@@ -422,11 +420,8 @@ describe('streamEditorRun route adapters', () => {
           { temporalEvidence: slowReview(20, true) },
         ),
       );
-      // No REVIEW turn. The one extra call is the advisory fix turn (AL37), which carries
-      // the self-check's advice about the picture gap, not a review finding.
-      expect(provider.callCount).toBe(3);
-      expect(JSON.stringify(provider.requests[2]?.messages)).toContain('SELF-CHECK ADVICE');
-      expect(JSON.stringify(provider.requests[2]?.messages)).not.toContain('Fix only these');
+      // No review turn and no advisory turn (ADR 0199): the edit and "Done." only.
+      expect(provider.callCount).toBe(2);
       expect(events.some((event) => event.type === 'review_finding')).toBe(false);
       expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
     });
@@ -463,9 +458,8 @@ describe('streamEditorRun route adapters', () => {
           { agent: { timers }, temporalEvidence: heldReview },
         ),
       );
-      // Edit, "Done.", and the advisory fix turn (AL37) — never a review turn.
-      expect(provider.callCount).toBe(3);
-      expect(JSON.stringify(provider.requests[2]?.messages)).not.toContain('Fix only these');
+      // Edit and "Done." — never a review turn (and no advisory turn, ADR 0199).
+      expect(provider.callCount).toBe(2);
       const unattempted = events.find(
         (event) => event.type === 'warning' && /after the run had finished/.test(event.text),
       );

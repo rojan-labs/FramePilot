@@ -8,6 +8,7 @@ import type { ConversationRecord, ConversationSummary } from '../ipc/contract.js
 import {
   ConversationStore,
   type ConversationStoreIO,
+  compactConversationDocument,
   isValidConversationId,
 } from './conversation-store.js';
 
@@ -203,5 +204,53 @@ describe('ConversationStore.referencedAttachmentPaths', () => {
       }),
     );
     expect(await store.referencedAttachmentPaths('project-1')).toEqual(new Set());
+  });
+});
+
+describe('superseded run_state events', () => {
+  const runState = (turnId: string, version: number) => ({
+    id: `${turnId}:run-state`,
+    conversationId: 'conv_1',
+    turnId,
+    ts: version,
+    type: 'run_state',
+    working: { version, operations: 'x'.repeat(64) },
+  });
+  const message = { id: 'm', conversationId: 'conv_1', turnId: 't1', ts: 0, type: 'user_message' };
+
+  it('keeps only the newest ledger per id, in place', () => {
+    const compacted = compactConversationDocument({
+      id: 'conv_1',
+      projectId: 'project-1',
+      uiState: {},
+      events: [message, runState('t1', 1), runState('t1', 2), runState('t2', 1), runState('t1', 3)],
+    }) as { events: { id: string; ts: number }[] };
+    expect(compacted.events.map((event) => `${event.id}@${String(event.ts)}`)).toEqual([
+      'm@0',
+      't2:run-state@1',
+      't1:run-state@3',
+    ]);
+  });
+
+  it('returns the very same document when nothing is superseded', () => {
+    const document = { id: 'c', projectId: 'p', uiState: {}, events: [message, runState('t1', 1)] };
+    expect(compactConversationDocument(document)).toBe(document);
+    expect(compactConversationDocument('not a document')).toBe('not a document');
+    expect(compactConversationDocument({ events: 'nope' })).toEqual({ events: 'nope' });
+  });
+
+  it('compacts an existing conversation file as it loads, before it crosses IPC', async () => {
+    const io = fakeIO();
+    io.files.set(
+      'conv_1',
+      JSON.stringify({
+        id: 'conv_1',
+        projectId: 'project-1',
+        uiState: {},
+        events: [message, runState('t1', 1), runState('t1', 2)],
+      }),
+    );
+    const loaded = (await new ConversationStore(io).load('conv_1')) as { events: unknown[] };
+    expect(loaded.events).toHaveLength(2);
   });
 });

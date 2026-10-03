@@ -13,10 +13,15 @@ takes an injectable runner so the whole path is testable offline.
 - **Never fabricate a transcript.** If the ``whisper-cli`` binary or the model
   file is missing, this module raises a typed, actionable error — it never
   invents words or interpolates fake timings.
-- **Real per-word timestamps only.** We ask whisper.cpp for token-level offsets
-  (``-ml 1 -sow --dtw <preset> -ojf``) and merge sub-word BPE tokens into whole
+- **Real per-word timestamps only.** We ask whisper.cpp for token-level timing
+  (``-ml 1 -sow --dtw <preset> -nfa -ojf``) and merge sub-word BPE tokens into whole
   words using the leading-space convention whisper.cpp's tokenizer uses — we do
-  **not** split segment text on whitespace with interpolated timings.
+  **not** split segment text on whitespace with interpolated timings. Word times
+  come from the DTW alignment points (``t_dtw``), which need flash attention off
+  (``-nfa``); whisper.cpp's heuristic ``offsets`` pad non-speech into neighbouring
+  tokens and are only a fallback. Either way a word's end is capped relative to the
+  transcript's median word duration (openai-whisper's rule), so a padded span can
+  never pass for speech, and punctuation-only tokens are never words.
 - **Validated output.** Every merged word is constructed as a
   :class:`~framepilot_engine.timeline.models.TranscriptWord` (the Pydantic model
   shared with the timeline schema); a word that fails validation or has a
@@ -47,10 +52,12 @@ import json
 import logging
 import os
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
 import threading
+import unicodedata
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, replace
@@ -636,6 +643,35 @@ def _is_special_token(text: str) -> bool:
 #: negative, but small enough to stay honest about a near-instant utterance.
 _MIN_WORD_DURATION_SECONDS = 0.01
 
+#: whisper.cpp writes token ``offsets`` in milliseconds.
+_OFFSET_UNITS_PER_SECOND = 1000.0
+
+#: whisper.cpp writes a token's ``t_dtw`` in centiseconds (one DTW step is 20 ms of audio,
+#: so values are even); ``-1`` means no DTW point was computed for that token.
+_DTW_UNITS_PER_SECOND = 100.0
+
+#: The median word duration is capped here before it sizes the longest word allowed.
+#: Value and rule are openai-whisper's ``add_word_timestamps`` (``timing.py``):
+#: ``median_duration = min(0.7, median)``. The cap keeps a transcript made mostly of
+#: non-speech-padded words (radio calls over jet noise) from licensing long words: its
+#: own median would be inflated by the very padding the cap exists to remove.
+_MEDIAN_WORD_DURATION_CAP_SECONDS = 0.7
+
+#: A word may last at most this many median word durations — openai-whisper's
+#: ``max_duration = median_duration * 2``.
+_MAX_WORD_DURATION_IN_MEDIANS = 2.0
+
+#: Unicode general-category prefixes that make a character part of a word: letters (L*),
+#: numbers (N*) and combining marks (M*). Marks count because a Devanagari vowel sign or
+#: virama is category M yet belongs to the syllable it modifies; classifying it as
+#: punctuation would cut a Hindi word's timing short at its last letter.
+_WORD_CATEGORY_PREFIXES = frozenset({"L", "N", "M"})
+
+#: ``surrogateescape`` (how whisper JSON is read, see :func:`transcribe_local`) maps each
+#: undecodable byte to U+DC80..U+DCFF. A token holding such bytes carries part of a
+#: multi-byte character that only becomes whole once the word's tokens are joined.
+_ESCAPED_BYTE_RANGE = ("\udc80", "\udcff")
+
 
 def _token_offsets_seconds(token: dict[str, Any]) -> tuple[float, float] | None:
     offsets = token.get("offsets")
@@ -644,48 +680,271 @@ def _token_offsets_seconds(token: dict[str, Any]) -> tuple[float, float] | None:
     t_from, t_to = offsets.get("from"), offsets.get("to")
     if not isinstance(t_from, (int, float)) or not isinstance(t_to, (int, float)):
         return None
-    return float(t_from) / 1000.0, float(t_to) / 1000.0
+    return float(t_from) / _OFFSET_UNITS_PER_SECOND, float(t_to) / _OFFSET_UNITS_PER_SECOND
 
 
-def _merge_tokens_to_words(tokens: list[dict[str, Any]]) -> list[tuple[str, float, float]]:
-    """Merge whisper.cpp sub-word BPE tokens into whole words (pure).
+def _token_dtw_seconds(token: dict[str, Any]) -> float | None:
+    """The token's DTW point in seconds, or ``None`` when whisper.cpp computed none.
+
+    ``None`` covers ``t_dtw == -1`` (DTW off, e.g. under flash attention), a missing key
+    (a whisper.cpp build that predates DTW), and anything non-numeric.
+    """
+    raw = token.get("t_dtw")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        return None
+    return float(raw) / _DTW_UNITS_PER_SECOND
+
+
+def _has_word_character(text: str) -> bool:
+    """True when ``text`` holds a letter, digit or combining mark in any script."""
+    return any(unicodedata.category(char)[0] in _WORD_CATEGORY_PREFIXES for char in text)
+
+
+def _carries_escaped_bytes(text: str) -> bool:
+    low, high = _ESCAPED_BYTE_RANGE
+    return any(low <= char <= high for char in text)
+
+
+@dataclass(frozen=True)
+class _Token:
+    """One whisper.cpp text token with both of the timings whisper.cpp reports."""
+
+    #: Raw token text; may carry surrogate-escaped bytes of a split character.
+    text: str
+    #: whisper.cpp's heuristic span. It pads non-speech into the neighbouring token, so
+    #: it is only a fallback: on the X-59 radio calls ``" ."`` spanned 0.02-24.96 s.
+    start: float
+    end: float
+    #: Where DTW alignment enters this token (its start), or ``None`` without DTW.
+    dtw: float | None
+    #: Carries a letter/digit/mark, or a byte fragment of a (nearly always) letter.
+    is_content: bool
+
+
+@dataclass(frozen=True)
+class _RawWord:
+    """Tokens grouped into one word by whisper.cpp's leading-space convention."""
+
+    tokens: tuple[_Token, ...]
+    #: The word's text with split characters rejoined; may be punctuation-only or empty.
+    text: str
+
+    def content_indices(self) -> list[int]:
+        return [index for index, token in enumerate(self.tokens) if token.is_content]
+
+
+@dataclass(frozen=True)
+class _TimedWord:
+    """A real word with its uncapped timing and what the duration cap is measured from."""
+
+    text: str
+    start: float
+    end: float
+    #: Start of the word's last content token. Only the stretch after it is unmeasured
+    #: by the token timings, so the cap is anchored here, not at the word's start.
+    anchor: float
+    content_tokens: int
+    #: Whether the start is a DTW point (else whisper.cpp's heuristic offset).
+    dtw_timed: bool
+
+
+def _parse_token(token: object) -> _Token | None:
+    if not isinstance(token, dict):
+        return None
+    raw_text = token.get("text")
+    if not isinstance(raw_text, str) or _is_special_token(raw_text):
+        return None
+    offsets = _token_offsets_seconds(token)
+    if offsets is None:
+        return None
+    return _Token(
+        text=raw_text,
+        start=offsets[0],
+        end=offsets[1],
+        dtw=_token_dtw_seconds(token),
+        is_content=_carries_escaped_bytes(raw_text) or _has_word_character(raw_text),
+    )
+
+
+def _group_segment_tokens(tokens: list[Any]) -> list[_RawWord]:
+    """Group one segment's tokens into words (pure).
 
     whisper.cpp tokens carry a **leading space** on the first sub-token of a new
     word (the GPT-2/BPE convention); a token with no leading space is a
     continuation of the previous word. We never split on ASCII whitespace in the
     *rendered* text — only on this token-boundary convention, so an apostrophe or
-    a hyphenated sub-word token stays attached to its word.
+    a hyphenated sub-word token stays attached to its word. A segment's first token
+    always opens a word: scripts written without spaces (CJK) would otherwise merge
+    every segment of a transcript into one.
     """
-    words: list[tuple[str, float, float]] = []
-    current_text = ""
-    current_start: float | None = None
-    current_end: float | None = None
-
-    def flush() -> None:
-        nonlocal current_text, current_start, current_end
-        stripped = _complete_utf8(current_text).strip()
-        if stripped and current_start is not None and current_end is not None:
-            words.append((stripped, current_start, current_end))
-        current_text = ""
-        current_start = None
-        current_end = None
-
-    for token in tokens:
-        raw_text = token.get("text")
-        if not isinstance(raw_text, str) or _is_special_token(raw_text):
+    groups: list[list[_Token]] = []
+    for raw in tokens:
+        token = _parse_token(raw)
+        if token is None:
             continue
-        offsets = _token_offsets_seconds(token)
-        if offsets is None:
-            continue
-        start_s, end_s = offsets
-        starts_new_word = raw_text.startswith(" ") or current_text == ""
-        if starts_new_word and current_text:
-            flush()
-        current_text += raw_text
-        current_start = start_s if current_start is None else current_start
-        current_end = end_s
-    flush()
-    return words
+        if token.text.startswith(" ") or not groups:
+            groups.append([token])
+        else:
+            groups[-1].append(token)
+    return [
+        _RawWord(tokens=tuple(group), text=_complete_utf8("".join(t.text for t in group)).strip())
+        for group in groups
+    ]
+
+
+def _tokenless_segment_word(segment: dict[str, Any]) -> _RawWord | None:
+    """A segment without token detail, used only when it holds exactly one word.
+
+    We will not fabricate per-word timing by interpolating across a multi-word segment;
+    a single-word segment needs no interpolation, so its own offsets are used directly.
+    """
+    text = _complete_utf8(str(segment.get("text", ""))).strip()
+    if not text or len(text.split()) != 1:
+        return None
+    offsets = _token_offsets_seconds(segment)
+    if offsets is None:
+        return None
+    token = _Token(
+        text=text, start=offsets[0], end=offsets[1], dtw=None, is_content=_has_word_character(text)
+    )
+    return _RawWord(tokens=(token,), text=text)
+
+
+def _is_real_word(word: _RawWord) -> bool:
+    """A token group with a letter/digit/mark — anything else is punctuation, not a word."""
+    return _has_word_character(word.text) and bool(word.content_indices())
+
+
+def _end_boundary_dtw(words: Sequence[_RawWord], index: int, anchor: float) -> float | None:
+    """Where alignment leaves word ``index``'s speech: the next token's DTW point.
+
+    That is openai-whisper's ``end_times = jump_times[word_boundaries[1:]]``, where
+    punctuation is an alignment unit of its own: the token after the last content token
+    — a trailing punctuation token, a punctuation-only group, or the next word — starts
+    where this word's speech stops. On the X-59 file ``" Copy"`` (DTW 33.94) is followed
+    by ``"."`` at 34.54 and by the next word only at 44.76.
+
+    A punctuation boundary aligned at or before the word's last content token measures
+    nothing (DTW gave the word zero frames: ``" One"`` and its ``","`` both at 130.36),
+    so the next boundary is tried; the next real word's start is the last candidate and
+    is taken as is. ``None`` when a boundary token has no DTW point or nothing follows.
+    """
+    word = words[index]
+    last_content = word.content_indices()[-1]
+    boundaries = [token.dtw for token in word.tokens[last_content + 1 :]]
+    for following in words[index + 1 :]:
+        if _is_real_word(following):
+            boundaries.append(following.tokens[0].dtw)
+            break
+        boundaries.extend(token.dtw for token in following.tokens)
+    for position, point in enumerate(boundaries):
+        is_last = position == len(boundaries) - 1
+        if point is None or point > anchor or is_last:
+            return point
+    return None
+
+
+def _time_word(words: Sequence[_RawWord], index: int) -> _TimedWord:
+    """Uncapped timing for one real word: DTW when whisper.cpp computed it, else heuristic."""
+    word = words[index]
+    content = word.content_indices()
+    first, last = word.tokens[content[0]], word.tokens[content[-1]]
+    if first.dtw is not None:
+        anchor = max(last.dtw if last.dtw is not None else first.dtw, first.dtw)
+        boundary = _end_boundary_dtw(words, index, anchor)
+        # No following DTW point (the transcript's last word, or a token whisper.cpp did
+        # not align): the heuristic end is the only time whisper produced. The cap
+        # applied afterwards bounds it like any other end.
+        end = boundary if boundary is not None else word.tokens[-1].end
+        return _TimedWord(
+            text=word.text,
+            start=first.dtw,
+            end=end,
+            anchor=anchor,
+            content_tokens=len(content),
+            dtw_timed=True,
+        )
+    start = word.tokens[0].start
+    return _TimedWord(
+        text=word.text,
+        start=start,
+        end=word.tokens[-1].end,
+        anchor=max(last.start, start),
+        content_tokens=len(content),
+        dtw_timed=False,
+    )
+
+
+def _time_words(words: Sequence[_RawWord]) -> list[_TimedWord]:
+    """Time every real word, folding punctuation-only "words" into their neighbours.
+
+    A punctuation-only token group is no word: it is appended to the preceding word's
+    text, keeping that word's timing (openai-whisper's ``merge_punctuations`` merges text
+    and leaves timings alone), or dropped when nothing precedes it — the X-59 transcript
+    opened with a ``" ."`` that whisper.cpp stretched over the first 25 seconds.
+    Punctuation groups still bound the previous word's end via their DTW point.
+    """
+    timed: list[_TimedWord] = []
+    for index, word in enumerate(words):
+        if _is_real_word(word):
+            timed.append(_time_word(words, index))
+        elif word.text and timed:
+            timed[-1] = replace(timed[-1], text=timed[-1].text + word.text)
+    return timed
+
+
+def _max_word_duration(words: Sequence[_TimedWord]) -> float | None:
+    """Longest duration a word may have: twice the transcript's own median, median ≤ 0.7 s.
+
+    openai-whisper computes the median over the non-zero word durations it aligned, and so
+    do we, across the whole transcript. ``None`` when no word has a positive duration — a
+    cap derived from nothing would only invent times.
+    """
+    durations = [word.end - word.start for word in words if word.end > word.start]
+    if not durations:
+        return None
+    median = min(statistics.median(durations), _MEDIAN_WORD_DURATION_CAP_SECONDS)
+    return median * _MAX_WORD_DURATION_IN_MEDIANS
+
+
+def _cap_word_ends(words: Sequence[_TimedWord]) -> list[tuple[str, float, float]]:
+    """Bound every word's end by the median-relative maximum duration (only shortens).
+
+    openai-whisper truncates over-long words at sentence and segment boundaries, using
+    segment timestamps to trim a word before a pause. whisper.cpp's per-word segments
+    (``-ml 1``) take their timestamps from the same padded heuristic, so there is no
+    independent segment end to trust: every word is capped instead. Two limits apply,
+    both measured from times whisper produced:
+
+    - the tail after the last content token's start is at most one maximum duration —
+      for a one-token word that is openai-whisper's ``start + max_duration`` exactly,
+      and a long multi-token word (or a CJK run, which has no spaces to split on) keeps
+      the internal token boundaries alignment measured;
+    - the whole word is at most one maximum duration per content token, which bounds
+      the heuristic path too, where internal token spans are themselves padded.
+
+    Starts are never moved: a DTW start is a measured point, and on the heuristic path
+    nothing says which side of a padded span the speech is on.
+    """
+    max_duration = _max_word_duration(words)
+    capped: list[tuple[str, float, float]] = []
+    shortened = 0
+    for word in words:
+        end = word.end
+        if max_duration is not None:
+            tail_limit = word.anchor + max_duration
+            token_limit = word.start + max_duration * word.content_tokens
+            end = min(end, tail_limit, token_limit)
+        shortened += end < word.end
+        capped.append((word.text, word.start, end))
+    _log.info(
+        "ASR word timing: %d of %d words timed by DTW; %d ends capped (max word %s)",
+        sum(1 for word in words if word.dtw_timed),
+        len(words),
+        shortened,
+        "uncapped" if max_duration is None else f"{max_duration:.2f}s",
+    )
+    return capped
 
 
 #: Longest repeating unit a hallucination loop is collapsed over. Long enough for a
@@ -797,28 +1056,35 @@ def parse_whisper_json(data: dict[str, Any]) -> list[TranscriptWord]:
     contains more than one word — we will not fabricate per-word timing by
     interpolating across a multi-word segment; a single-word segment's own
     offsets are used directly since no interpolation is needed.
+
+    Word timing (see :data:`TRANSCRIPT_TIMING_VERSION`): a word starts at the DTW point
+    of its first content token and ends at the DTW point of the token that follows its
+    last content token; without DTW points the heuristic ``offsets`` are used. Either
+    way the end is then capped relative to the transcript's median word duration
+    (:func:`_cap_word_ends`), and punctuation-only tokens never become words.
     """
     segments = data.get("transcription")
     if not isinstance(segments, list):
         return []
-    entries: list[tuple[str, float, float]] = []
+    raw_words: list[_RawWord] = []
     for segment in segments:
         if not isinstance(segment, dict):
             continue
         tokens = segment.get("tokens")
         if isinstance(tokens, list) and tokens:
-            entries.extend(_merge_tokens_to_words(tokens))
+            raw_words.extend(_group_segment_tokens(tokens))
             continue
-        text = _complete_utf8(str(segment.get("text", ""))).strip()
-        if text and len(text.split()) == 1:
-            offsets = segment.get("offsets")
-            if isinstance(offsets, dict):
-                t_from, t_to = offsets.get("from"), offsets.get("to")
-                if isinstance(t_from, (int, float)) and isinstance(t_to, (int, float)):
-                    entries.append((text, float(t_from) / 1000.0, float(t_to) / 1000.0))
-    # After BOTH branches have contributed, so a loop that spans a segment boundary
-    # (which the captured 396-repeat loop does) is seen as one run of words.
-    return _clamp_monotonic(collapse_repeated_phrases(entries))
+        tokenless = _tokenless_segment_word(segment)
+        if tokenless is not None:
+            raw_words.append(tokenless)
+    # Timed across the whole transcript, not per segment: with `-ml 1` every word is its
+    # own segment, so a word's end (the next token's DTW point) and a punctuation
+    # token's preceding word both live in neighbouring segments.
+    timed = _time_words(raw_words)
+    # The collapse runs after BOTH segment branches have contributed, so a loop that
+    # spans a segment boundary (which the captured 396-repeat loop does) is seen as one
+    # run of words.
+    return _clamp_monotonic(collapse_repeated_phrases(_cap_word_ends(timed)))
 
 
 # ---------------------------------------------------------------------------
@@ -857,11 +1123,91 @@ _DTW_PRESETS: dict[str, str] = {
     "large-v3-turbo-q5_0": "large.v3.turbo",
 }
 
+#: whisper-cli's switch to turn flash attention off. DTW aligns tokens to audio from the
+#: decoder's cross-attention weights, and flash attention never materializes those
+#: weights, so with it on whisper.cpp silently skips DTW and writes ``t_dtw = -1`` for
+#: every token. whisper.cpp 1.8+ enables flash attention by default (``-fa [true]``), so
+#: ``--dtw`` alone measured nothing: on the X-59 B-roll 0 of 122 tokens carried a DTW
+#: point; with this flag 129 of 129 did.
+_NO_FLASH_ATTN_FLAG = "-nfa"
 
-#: whisper-cli seconds allowed per second of audio. Measured: large-v3-turbo-q5_0 with
-#: DTW word timing took 263 s for a 415 s voiceover on an M-series Mac (~0.63x real
-#: time); 2x leaves room for a loaded or slower machine. A single bound shared with the
-#: 60 s media-probe timeout killed every clip longer than about a minute and a half.
+#: ``-nfa`` as a whole option in ``--help`` text, not as part of another option's name.
+_NO_FLASH_ATTN_IN_HELP = re.compile(r"(?<![\w-])-nfa(?![\w-])")
+
+#: Bound on ``whisper-cli --help``. It prints usage after loading its compute backends
+#: (0.17 s measured); the bound only keeps a hung binary from stalling a transcription.
+_HELP_PROBE_TIMEOUT_SECONDS = 15.0
+
+#: Reads a whisper-cli binary's ``--help`` text, or ``None`` when the binary could not
+#: be asked. Injectable so tests never run a binary.
+HelpReader = Callable[[str], str | None]
+
+_help_text_cache: dict[tuple[str, int | None], str] = {}
+_help_text_cache_lock = threading.Lock()
+
+
+def _run_whisper_help(binary: str) -> str | None:
+    """Run ``binary --help`` and return what it printed (whisper-cli uses stderr)."""
+    try:
+        args = validate_safe_argv([binary, "--help"])
+        completed = subprocess.run(
+            args, capture_output=True, timeout=_HELP_PROBE_TIMEOUT_SECONDS, check=False
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        _log.warning("Could not read %r --help to detect its options: %s", binary, exc)
+        return None
+    return (completed.stdout + completed.stderr).decode("utf-8", errors="replace")
+
+
+def _binary_mtime_ns(binary: str) -> int | None:
+    try:
+        return Path(binary).stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _cached_whisper_help(binary: str) -> str | None:
+    """``--help`` text for ``binary``, run once per binary path and modification time.
+
+    Keyed by mtime as well as path so a Capability Pack upgraded in place is asked
+    again rather than handed the old binary's answer. A failed probe is not cached: a
+    timeout on a busy machine must not switch DTW off for the rest of the session.
+    """
+    key = (binary, _binary_mtime_ns(binary))
+    with _help_text_cache_lock:
+        cached = _help_text_cache.get(key)
+    if cached is not None:
+        return cached
+    text = _run_whisper_help(binary)
+    if text is not None:
+        with _help_text_cache_lock:
+            _help_text_cache[key] = text
+    return text
+
+
+def whisper_cli_supports_no_flash_attn(binary: str, *, read_help: HelpReader | None = None) -> bool:
+    """True when ``binary`` accepts ``-nfa`` (disable flash attention).
+
+    An older whisper-cli rejects an unknown option, so the flag is only passed when the
+    binary's own ``--help`` lists it. Such a build predates default-on flash attention,
+    so its DTW works without the flag. An unreadable ``--help`` answers False: omitting
+    the flag can at worst lose DTW (the capped heuristic timing still applies), while
+    passing an unknown one fails the whole transcription.
+
+    :param binary: The whisper-cli path or command name.
+    :param read_help: Injectable ``--help`` reader; defaults to a cached subprocess run.
+    """
+    help_text = (read_help or _cached_whisper_help)(binary)
+    return help_text is not None and _NO_FLASH_ATTN_IN_HELP.search(help_text) is not None
+
+
+#: whisper-cli seconds allowed per second of audio. Measured: large-v3-turbo-q5_0 took
+#: 263 s for a 415 s voiceover on an M-series Mac (~0.63x real time) — with flash
+#: attention on, so DTW was not actually running. ``-nfa`` roughly doubles whisper time
+#: (200 s of X-59 audio on a busy M1 Pro: 14.1 s → 27.3 s), which puts that voiceover
+#: near 1.2x real time; 2x still leaves room for a loaded or slower machine. A single
+#: bound shared with the 60 s media-probe timeout killed every clip longer than about a
+#: minute and a half.
 WHISPER_SECONDS_PER_AUDIO_SECOND = 2.0
 
 #: Lowest whisper-cli bound: model load and DTW setup cost the same for a 3 s clip.
@@ -981,12 +1327,59 @@ def extract_mono16k_wav(
         return wav_path.read_bytes()
 
 
+def _whisper_argv(
+    whisper_cli: str,
+    *,
+    model: str,
+    model_file: Path,
+    wav_path: Path,
+    out_prefix: Path,
+    read_help: HelpReader | None,
+) -> list[str]:
+    """The whisper-cli command line for one word-timed transcription (pure but for the probe)."""
+    argv = [
+        whisper_cli,
+        "-m",
+        str(model_file),
+        "-f",
+        str(wav_path),
+        "-ml",
+        "1",
+        "-sow",
+        "--dtw",
+        _DTW_PRESETS.get(model, model),
+    ]
+    if whisper_cli_supports_no_flash_attn(whisper_cli, read_help=read_help):
+        argv.append(_NO_FLASH_ATTN_FLAG)
+    else:
+        _log.warning(
+            "%s does not list %s; passing --dtw alone. Word times fall back to capped "
+            "heuristic offsets if this build's flash attention suppresses DTW.",
+            whisper_cli,
+            _NO_FLASH_ATTN_FLAG,
+        )
+    argv += [
+        # Multilingual auto-detection is required for the professional
+        # model; base.en safely resolves to English. Suppressing non-speech
+        # tokens reduces hallucinated text over music beds/leading silence.
+        "-l",
+        "auto",
+        "-sns",
+        "-ojf",
+        "-of",
+        str(out_prefix),
+        "-np",
+    ]
+    return argv
+
+
 def transcribe_local(
     media_path: Path,
     *,
     model: str = DEFAULT_ASR_MODEL,
     run: SubprocessRunner | None = None,
     timeout: float | None = 300.0,
+    read_help: HelpReader | None = None,
 ) -> list[TranscriptWord]:
     """Transcribe ``media_path`` with the local whisper-cli binary.
 
@@ -1000,6 +1393,8 @@ def transcribe_local(
     :param timeout: Timeout in seconds for the ffmpeg audio decode, and the floor of
         whisper-cli's own bound, which scales with the audio's length
         (:func:`whisper_timeout_seconds`).
+    :param read_help: Injectable whisper-cli ``--help`` reader, used to detect ``-nfa``
+        support (:func:`whisper_cli_supports_no_flash_attn`).
     :returns: Word-level transcript entries in chronological order.
     :raises WhisperCliNotFoundError: If the binary cannot be located.
     :raises AsrModelMissingError: If the model is not installed locally.
@@ -1020,29 +1415,14 @@ def transcribe_local(
             raise AsrTranscriptionError(f"ffmpeg unavailable for ASR audio prep: {exc}") from exc
 
         out_prefix = tmp_dir / "transcript"
-        dtw_preset = _DTW_PRESETS.get(model, model)
-        argv = [
+        argv = _whisper_argv(
             whisper_cli,
-            "-m",
-            str(model_file),
-            "-f",
-            str(wav_path),
-            "-ml",
-            "1",
-            "-sow",
-            "--dtw",
-            dtw_preset,
-            # Multilingual auto-detection is required for the professional
-            # model; base.en safely resolves to English. Suppressing non-speech
-            # tokens reduces hallucinated text over music beds/leading silence.
-            "-l",
-            "auto",
-            "-sns",
-            "-ojf",
-            "-of",
-            str(out_prefix),
-            "-np",
-        ]
+            model=model,
+            model_file=model_file,
+            wav_path=wav_path,
+            out_prefix=out_prefix,
+            read_help=read_help,
+        )
         runner(argv, whisper_timeout_seconds(_wav_duration_seconds(wav_path), floor=timeout))
 
         json_path = out_prefix.with_suffix(".json")
@@ -1077,9 +1457,30 @@ def cache_dir() -> Path:
     return model_dir().parent / "asr-cache"
 
 
-def _content_hash(media_path: Path, model: str, *, chunk_size: int = 1024 * 1024) -> str:
+#: Version of how whisper output becomes words and times. It salts the cache key, so a
+#: change here re-transcribes instead of serving words parsed by the old rules.
+#:
+#: - 1: heuristic ``offsets`` only (whisper.cpp pads non-speech into neighbouring tokens).
+#: - 2: DTW word starts and ends with ``-nfa``, a median-relative duration cap, and
+#:   punctuation-only tokens folded into words. v1 entries carry spans like ``"."``
+#:   0.02-24.96 s and must not be served again.
+#:
+#: The ``/analyze`` brain cache keys on ``ANALYZER_VERSIONS[TRANSCRIPTION]`` in
+#: ``analysis/tiers.py``; bump it together with this.
+TRANSCRIPT_TIMING_VERSION = 2
+
+
+def _content_hash(
+    media_path: Path,
+    model: str,
+    *,
+    timing_version: int = TRANSCRIPT_TIMING_VERSION,
+    chunk_size: int = 1024 * 1024,
+) -> str:
     digest = hashlib.sha256()
     digest.update(model.encode("utf-8"))
+    # Separated from the model name by NUL so no model name can collide with a salt.
+    digest.update(f"\0timing-v{timing_version}\0".encode())
     with media_path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(chunk_size), b""):
             digest.update(chunk)
@@ -1093,16 +1494,19 @@ def transcribe(
     run: SubprocessRunner | None = None,
     timeout: float | None = 300.0,
     use_cache: bool = True,
+    read_help: HelpReader | None = None,
 ) -> list[TranscriptWord]:
     """Content-hash-cached wrapper over :func:`transcribe_local`.
 
     Re-transcribing the same file with the same model is common (retries,
     re-imports, repeated dev/test runs) and whisper.cpp is comparatively slow —
-    memoizing by a hash of (model, file bytes) avoids redundant work, per the
-    plan's "model results are content-hash cached" invariant.
+    memoizing by a hash of (model, timing version, file bytes) avoids redundant
+    work, per the plan's "model results are content-hash cached" invariant.
     """
     if not use_cache:
-        return transcribe_local(media_path, model=model, run=run, timeout=timeout)
+        return transcribe_local(
+            media_path, model=model, run=run, timeout=timeout, read_help=read_help
+        )
 
     key = _content_hash(media_path, model)
     cache_file = cache_dir() / f"{key}.json"
@@ -1113,7 +1517,7 @@ def transcribe(
         except (OSError, json.JSONDecodeError, ValidationError):
             _log.warning("Discarding unreadable ASR cache entry %s", cache_file)
 
-    words = transcribe_local(media_path, model=model, run=run, timeout=timeout)
+    words = transcribe_local(media_path, model=model, run=run, timeout=timeout, read_help=read_help)
     try:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps([w.model_dump() for w in words]), encoding="utf-8")

@@ -230,8 +230,12 @@ export function presetForWordsPerLine(suggestedWordsPerLine: number): CaptionSeg
  * Sentence-final punctuation. A break after one of these is the best break
  * available: the thought is complete, so the next cue starts fresh.
  * Closing quotes/brackets are allowed to trail (`said."`).
+ *
+ * The Devanagari danda "।" (and the double danda "॥") is the full stop of Hindi, Marathi
+ * and Nepali. Without it a Hindi narration had no sentence ends at all, so every cue was cut
+ * by pauses and fullness alone and ran straight through the end of one sentence into the next.
  */
-const SENTENCE_END = /[.!?…]["'”’)\]]*$/;
+const SENTENCE_END = /[.!?…।॥]["'”’)\]]*$/;
 
 /**
  * Clause-final punctuation — a real syntactic seam, just a weaker one than a
@@ -367,8 +371,20 @@ const CLAUSE_STARTERS = new Set([
   'before',
 ]);
 
-/** Strip punctuation and case, so "The," and "the" classify the same. */
-const bareWord = (token: string): string => token.replace(/[^\p{L}\p{N}']/gu, '').toLowerCase();
+/**
+ * Strip punctuation and case, so "The," and "the" classify the same.
+ *
+ * Combining marks (`\p{M}`) are part of the word, not punctuation. Devanagari writes its
+ * vowel signs and virama as marks, so a letters-and-digits-only filter turned "गियर" into
+ * "गयर" and collapsed "की", "का", "के" and "कि" into one skeleton "क" — a `keepTogether`
+ * phrase then protected breaks around words it never named. NFKC first, so the same word
+ * typed precomposed or decomposed compares equal (the renderers fold the same way).
+ */
+const bareWord = (token: string): string =>
+  token
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}']/gu, '');
 
 /** True when `token` ends a sentence (and is not a known abbreviation). */
 export function isSentenceEnd(token: string): boolean {
@@ -447,6 +463,53 @@ function splitsUnit(words: readonly TranscriptWord[], index: number): boolean {
     startsCapitalised(next.word) &&
     !isFirstPersonI(next.word)
   );
+}
+
+/** What a set of `keepTogether` phrases can protect in some speech; see {@link keepTogetherReach}. */
+export interface KeepTogetherReach {
+  /** Phrases spoken nowhere as consecutive words within one run of speech, as given. */
+  readonly unmatched: readonly string[];
+  /** Phrases of a single word, as given: there is no break inside one to protect. */
+  readonly singleWords: readonly string[];
+}
+
+/**
+ * Which `keepTogether` phrases can do nothing for these runs of speech.
+ *
+ * {@link captionSegmentConfig} drops a one-word phrase, and a phrase whose words are never
+ * spoken consecutively inside one run protects no break — both silently. A caller that
+ * asked for a phrase and got an identical cue set back has no way to tell "kept" from
+ * "never matched", so it re-sends the same call (and hears that it changed nothing). This
+ * answers with the same bare-word matching the segmenter uses.
+ *
+ * @param phrases - The phrases as the caller wrote them.
+ * @param runs - The words, one array per run of continuous speech (a phrase cannot be kept
+ *   together across a run boundary, which no cue crosses).
+ */
+export function keepTogetherReach(
+  phrases: readonly string[],
+  runs: readonly (readonly TranscriptWord[])[],
+): KeepTogetherReach {
+  const bareRuns = runs.map((run) => run.map((word) => bareWord(word.word)));
+  const unmatched: string[] = [];
+  const singleWords: string[] = [];
+  for (const phrase of new Set(phrases)) {
+    const parts = phraseWords(phrase);
+    if (parts.length === 1) {
+      singleWords.push(phrase);
+      continue;
+    }
+    const spoken =
+      parts.length > 1 &&
+      bareRuns.some((bare) => {
+        for (let start = 0; start + parts.length <= bare.length; start += 1) {
+          if (parts.every((part, offset) => bare[start + offset] === part)) return true;
+        }
+        return false;
+      });
+    if (!spoken) unmatched.push(phrase);
+  }
+  return { unmatched, singleWords };
 }
 
 /**
@@ -992,13 +1055,18 @@ export function layoutLines(
  *
  * @param fps - Supplied, the minimum hold is measured on the frame grid the patch
  *   boundary snaps to (see {@link heldUntil}); omitted, in plain seconds.
+ * @param until - The latest instant the LAST cue may reach (the end of the footage the words
+ *   play over). Only a cap: the last cue is held and bridged exactly as if unbounded, then
+ *   cut here, which is what clamping it to its run afterwards always did.
  */
 export function enforceTiming(
   cues: readonly (readonly TranscriptWord[])[],
   config: CaptionSegmentConfig,
   fps?: number,
   starts?: readonly number[],
+  until?: number,
 ): readonly { readonly words: readonly TranscriptWord[]; start: number; end: number }[] {
+  const cap = until ?? Infinity;
   return cues.map((words, index) => {
     // A cue's on-screen start is its first word's, unless `borrowHoldTime` moved the boundary
     // a few frames to give a neighbour the readable floor.
@@ -1023,8 +1091,29 @@ export function enforceTiming(
     // overlap resolution downstream would push that cue back under the floor it was moved
     // to reach. Every window is at least the floor by then, so this cannot make a cue too
     // short. Finite even for the last cue: an unbounded `ceiling` only widens the `min`.
-    return { words, start, end: Math.min(ceiling, Math.max(spokenEnd, Math.min(wanted, ceiling))) };
+    const end = Math.min(ceiling, Math.max(spokenEnd, Math.min(wanted, ceiling)));
+    return { words, start, end: Math.min(end, cap) };
   });
+}
+
+/**
+ * When a cue starting at `start` has been on screen for {@link MIN_CAPTION_CUE_SECONDS}, as
+ * the timeline will measure it once the patch boundary snaps it (see {@link heldUntil}).
+ * `deriveCaptionCues` holds a cue the segmenter could not give the floor to this instant.
+ */
+export function readableUntil(start: number, fps?: number): number {
+  return heldUntil(start, MIN_CAPTION_CUE_SECONDS, fps);
+}
+
+/**
+ * Does `[start, end)` stay on screen for {@link MIN_CAPTION_CUE_SECONDS} — measured, when
+ * `fps` is given, on the frame grid the patch boundary snaps both edges to, with the same
+ * epsilon `verify_captions` allows?
+ */
+export function clearsCaptionFloor(start: number, end: number, fps?: number): boolean {
+  const window =
+    fps === undefined ? end - start : snapSecondsToFrame(end, fps) - snapSecondsToFrame(start, fps);
+  return window >= MIN_CAPTION_CUE_SECONDS - FLOOR_EPSILON_SECONDS;
 }
 
 /**
@@ -1138,12 +1227,18 @@ const FLOOR_EPSILON_SECONDS = 1e-6;
  * @param fps - Supplied, windows are measured on the frame grid the patch boundary
  *   will snap to, so a window that is just over the floor in seconds but under it in
  *   frames is still merged — `verify_captions` reads the snapped clip.
+ * @param options.until - The end of the footage these words play over. Supplied, the LAST
+ *   cue's window runs to it instead of being unbounded, and a last cue that cannot clear the
+ *   floor before it is merged into the cue before it.
  */
 export function absorbUnreadableCues(
   cues: readonly (readonly TranscriptWord[])[],
   config: CaptionSegmentConfig,
   fps?: number,
-  options: { readonly withinMaxWords?: boolean } = {},
+  options: {
+    readonly withinMaxWords?: boolean | undefined;
+    readonly until?: number | undefined;
+  } = {},
 ): readonly (readonly TranscriptWord[])[] {
   const onGrid = (seconds: number): number =>
     fps === undefined ? seconds : snapSecondsToFrame(seconds, fps);
@@ -1181,7 +1276,44 @@ export function absorbUnreadableCues(
     // pushes its ceiling later, so it still does; examine what is now `index`.
     result.splice(index - 1, 2, [...result[index - 1]!, ...cue]);
   }
+  absorbShortLastCue(result, config, onGrid, options);
   return result;
+}
+
+/**
+ * Merge the last cue into the one before it while it cannot clear the floor before
+ * `options.until` (mutates `result`).
+ *
+ * The loop above never looks at the last cue, because unbounded it can be held as long as
+ * it likes. `deriveCaptionCues` segments each run of speech on its own, though, and a run
+ * ENDS — at a cut — so its last cue was clamped there afterwards and nothing checked what
+ * was left. Desktop run `001be135` captioned "लोकी" for 0.067 s that way: the last word of
+ * a 0.13 s run, and `verify_captions` then told the agent to regenerate through
+ * `caption_the_edit`, which made the same flash again. The run is the unit that keeps a cue
+ * from crossing a cut, so merging inside it cannot bridge one.
+ */
+function absorbShortLastCue(
+  result: TranscriptWord[][],
+  config: CaptionSegmentConfig,
+  onGrid: (seconds: number) => number,
+  options: {
+    readonly withinMaxWords?: boolean | undefined;
+    readonly until?: number | undefined;
+  },
+): void {
+  const { until } = options;
+  if (until === undefined) return;
+  while (result.length > 1) {
+    const last = result[result.length - 1]!;
+    const previous = result[result.length - 2]!;
+    const window = onGrid(until) - onGrid(last[0]!.start);
+    if (window >= MIN_CAPTION_CUE_SECONDS - FLOOR_EPSILON_SECONDS) return;
+    // As above: a merge that breaks the preset is left for `borrowHoldTime` to hold.
+    if (options.withinMaxWords === true && previous.length + last.length > config.maxWordsPerCue) {
+      return;
+    }
+    result.splice(result.length - 2, 2, [...previous, ...last]);
+  }
 }
 
 /**
@@ -1237,11 +1369,16 @@ export const MAX_CUE_SHIFT_SECONDS = 0.08;
  *
  * @param cues - Cues in time order.
  * @param fps - Project frame rate; supplied, every start lands on the frame grid.
- * @returns A start per cue, and the indices of cues still under the floor.
+ * @param until - The end of the footage the words play over. Supplied, the last cue's window
+ *   ends there, so it is held (or reported short) like every other cue; omitted, it is
+ *   unbounded and never short.
+ * @returns A start per cue, and the indices of cues still under the floor. A sole cue is never
+ *   reported: there is no neighbour to merge it into.
  */
 export function borrowHoldTime(
   cues: readonly (readonly TranscriptWord[])[],
   fps?: number,
+  until?: number,
 ): { readonly starts: readonly number[]; readonly stillShort: readonly number[] } {
   // Work in frames when there is a grid (integer arithmetic, no drift), else in seconds.
   const toUnit = (seconds: number): number =>
@@ -1268,6 +1405,7 @@ export function borrowHoldTime(
   );
   const tiny = fps === undefined ? 1e-9 : 0;
   const starts = cues.map((cue) => toUnit(cue[0]!.start));
+  const end = until === undefined ? undefined : toUnit(until);
   const stillShort: number[] = [];
   for (let index = 0; index < cues.length - 1; index += 1) {
     let deficit = floor - (starts[index + 1]! - starts[index]!);
@@ -1280,7 +1418,9 @@ export function borrowHoldTime(
       deficit -= take;
     }
     if (deficit > tiny) {
-      const after = starts[index + 2];
+      // The cue after the next one bounds what the next can lend — or, for the last cue,
+      // the end of its footage.
+      const after = starts[index + 2] ?? end;
       const spare = after === undefined ? deficit : after - starts[index + 1]! - floor;
       const room = latest[index + 1]! - starts[index + 1]!;
       const take = Math.max(0, Math.min(deficit, spare, room));
@@ -1288,6 +1428,20 @@ export function borrowHoldTime(
       deficit -= take;
     }
     if (deficit > tiny) stillShort.push(index);
+  }
+  const last = cues.length - 1;
+  if (end !== undefined && last > 0) {
+    // The last cue's ceiling is the end of its footage, which cannot move; only the boundary
+    // with the cue before it can, by the same bounded shift as every other boundary.
+    let deficit = floor - (end - starts[last]!);
+    if (deficit > tiny) {
+      const spare = starts[last]! - starts[last - 1]! - floor;
+      const room = starts[last]! - earliest[last]!;
+      const take = Math.max(0, Math.min(deficit, spare, room));
+      starts[last] = starts[last]! - take;
+      deficit -= take;
+    }
+    if (deficit > tiny) stillShort.push(last);
   }
   return { starts: starts.map(fromUnit), stillShort };
 }
@@ -1310,12 +1464,17 @@ export function borrowHoldTime(
  *   boundary, and the readable floor and minimum hold are measured on that grid;
  *   omitted, segmentation is unquantised (the Captions panel preview and unit
  *   tests, which never build operations).
+ * @param until - The end of the footage these words play over (`deriveCaptionCues` passes
+ *   its run's end). Supplied, no cue reaches past it and the last cue is held to the
+ *   readable floor before it like every other cue — merged into the cue before it when it
+ *   cannot be. Omitted, the last cue is unbounded.
  * @returns Cues in time order, each with display text, its words, and its range.
  */
 export function segmentCaptions(
   words: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
   fps?: number,
+  until?: number,
 ): readonly CaptionCueDraft[] {
   // Drop zero/negative-duration entries up front: they carry no readable time
   // and would otherwise skew every pause and reading-speed calculation.
@@ -1329,17 +1488,19 @@ export function segmentCaptions(
   // Merge what the preset allows, hold the rest by moving a boundary a frame or two, and
   // merge past the preset only the cues no boundary can hold (fast speech where every
   // neighbour is itself short) — one at a time, so the rest keep their own cue.
-  let holdable = absorbUnreadableCues(gridded, config, fps, { withinMaxWords: true });
-  let borrowed = borrowHoldTime(holdable, fps);
+  let holdable = absorbUnreadableCues(gridded, config, fps, { withinMaxWords: true, until });
+  let borrowed = borrowHoldTime(holdable, fps, until);
   while (borrowed.stillShort.length > 0) {
     holdable = mergeShortCues(holdable, borrowed.stillShort, config);
-    borrowed = borrowHoldTime(holdable, fps);
+    borrowed = borrowHoldTime(holdable, fps, until);
   }
   const { starts } = borrowed;
-  return enforceTiming(holdable, config, fps, starts).map(({ words: cueWords, start, end }) => ({
-    text: layoutLines(cueWords, config),
-    words: cueWords,
-    start,
-    end,
-  }));
+  return enforceTiming(holdable, config, fps, starts, until).map(
+    ({ words: cueWords, start, end }) => ({
+      text: layoutLines(cueWords, config),
+      words: cueWords,
+      start,
+      end,
+    }),
+  );
 }

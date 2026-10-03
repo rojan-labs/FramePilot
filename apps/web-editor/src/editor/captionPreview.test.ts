@@ -3,10 +3,14 @@
  * the web-side mirror of the engine's display/emphasis/entrance/loop rules
  * (see engine/python/tests/test_caption_interpreter.py for the pixel side).
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { TranscriptWord } from '@framepilot/timeline-schema';
+import { stripPunctuation } from './captions.js';
 import {
   accentWordIndices,
+  bareToken,
   captionBoxCss,
   captionKaraokeFraction,
   captionKaraokeWipeVars,
@@ -28,6 +32,40 @@ const WORDS: readonly TranscriptWord[] = [
   { word: 'really', start: 2, end: 3 },
   { word: 'viral', start: 3, end: 4 },
 ];
+
+/**
+ * The fold the export applies too (`captions.py#_bare_token` / `_accent_indices`), from one
+ * shared vector file: a keyword must accent the same words in the preview and the render.
+ */
+const BARE_TOKEN_VECTORS = JSON.parse(
+  readFileSync(
+    path.resolve(__dirname, '../../../../tests/fixtures/captions/bare-token-vectors.json'),
+    'utf-8',
+  ),
+) as {
+  readonly bare: readonly { readonly token: string; readonly bare: string }[];
+  readonly accent: readonly {
+    readonly name: string;
+    readonly tokens: readonly string[];
+    readonly keywords: readonly string[];
+    readonly indices: readonly number[];
+  }[];
+};
+
+describe('caption word folding (engine parity vectors)', () => {
+  it.each(BARE_TOKEN_VECTORS.bare)('folds $token to $bare', ({ token, bare }) => {
+    expect(bareToken(token)).toBe(bare);
+    // The panel's keyword highlight and transcript search fold the same way.
+    expect(stripPunctuation(token)).toBe(bare);
+  });
+
+  it.each(BARE_TOKEN_VECTORS.accent)('$name', ({ tokens, keywords, indices }) => {
+    const words = tokens.map((word, index) => ({ word, start: index, end: index + 1 }));
+    expect([...accentWordIndices(words, 'keywords', keywords)].sort((a, b) => a - b)).toEqual(
+      indices,
+    );
+  });
+});
 
 describe('wordState', () => {
   it('classifies upcoming/active/spoken by time', () => {

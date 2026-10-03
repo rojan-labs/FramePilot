@@ -15,6 +15,7 @@ import pytest
 from framepilot_engine.brain import twelvelabs_index
 from framepilot_engine.brain.described import described_from_summary
 from framepilot_engine.brain.ledger_models import ShotRecord
+from framepilot_engine.brain.slice_work import PENDING, Pending, SliceWork
 from framepilot_engine.brain.store import BrainStore, open_brain
 from framepilot_engine.brain.twelvelabs import (
     TL_UPLOAD_POLICY_VERSION,
@@ -22,11 +23,14 @@ from framepilot_engine.brain.twelvelabs import (
     TLChapter,
     TLClip,
     TwelveLabsAssetInaccessibleError,
+    TwelveLabsError,
     TwelveLabsMediaRejectedError,
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_DESCRIBED_MODEL,
     TL_REJECTED_STATUS,
+    TL_UPLOADING_STATUS,
+    UPLOADING_REASON,
     TLIndexOutcome,
     bind_index,
     chapters_to_packets,
@@ -251,7 +255,7 @@ class _RejectingUpload:
 def _poll(
     store: BrainStore,
     fake: _FakeTL,
-    upload: Callable[[], str],
+    upload: Callable[[], str | Pending],
     content_hash: str = "sha-vid",
 ) -> TLIndexOutcome:
     return poll_index_asset(
@@ -534,6 +538,158 @@ def test_a_rejection_still_holds_after_a_rebind(tmp_path: Path) -> None:
         )
     assert rejecting.calls == 1
     assert outcome.status == TL_REJECTED_STATUS
+
+
+# --- an upload longer than a slice ------------------------------------------------
+#
+# A 1.05 GB source is 100 multipart chunks — 5.3 minutes on the measured link — and the
+# host abandons a request at 300 s. The route runs the upload on a `SliceWork` thread and
+# its thunk answers `PENDING` while the upload outlives the slice's wait.
+
+
+def _in_flight() -> Pending:
+    return PENDING
+
+
+def test_an_upload_in_flight_yields_the_slice_and_persists_no_mapping(tmp_path: Path) -> None:
+    _seed_asset(tmp_path)
+    fake = _FakeTL()
+    with open_brain(tmp_path, "p1") as store:
+        outcome = poll_index_asset(
+            fake, store, "idx", "vid", "vid.mp4", upload=_in_flight, content_hash="sha-vid"
+        )
+        mapping = read_video_mapping(store, "vid")
+    assert outcome == TLIndexOutcome(
+        advanced=False,
+        ok=True,
+        newly_indexed=0,
+        status=TL_UPLOADING_STATUS,
+        reason=UPLOADING_REASON,
+    )
+    # No task exists yet: nothing to poll, and nothing to remember. The next slice must
+    # read exactly what this one read, so it takes the same branch and collects.
+    assert mapping is None
+    assert fake.polls == 0
+
+
+def test_an_upload_in_flight_leaves_a_failed_mapping_exactly_as_it_was(tmp_path: Path) -> None:
+    _seed_asset(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(
+            store, "vid", content_hash="sha-vid", status="failed", task_id="failed-task"
+        )
+        outcome = poll_index_asset(
+            _FakeTL(), store, "idx", "vid", "vid.mp4", upload=_in_flight, content_hash="sha-vid"
+        )
+        mapping = read_video_mapping(store, "vid")
+    assert not outcome.advanced and outcome.reason == UPLOADING_REASON
+    assert mapping is not None
+    assert (mapping.status, mapping.task_id) == ("failed", "failed-task")
+
+
+def test_a_later_slice_collects_the_same_upload_and_polls_it(tmp_path: Path) -> None:
+    _seed_asset(tmp_path)
+    fake = _FakeTL(ready_after=0)
+    queued: list[Callable[[], None]] = []
+    work = SliceWork(spawn=lambda target, _name: queued.append(target))
+
+    def upload() -> str | Pending:
+        return work.run(
+            ("tl-upload", "idx", "vid", "sha-vid"),
+            lambda: fake.create_index_task("idx", Path("vid.mp4")),
+            budget=0.0,
+        )
+
+    with open_brain(tmp_path, "p1") as store:
+        first = poll_index_asset(
+            fake, store, "idx", "vid", "vid.mp4", upload=upload, content_hash="sha-vid"
+        )
+        second_while_running = poll_index_asset(
+            fake, store, "idx", "vid", "vid.mp4", upload=upload, content_hash="sha-vid"
+        )
+        queued.pop()()  # the upload finishes between slices
+        collected = poll_index_asset(
+            fake, store, "idx", "vid", "vid.mp4", upload=upload, content_hash="sha-vid"
+        )
+        mapping = read_video_mapping(store, "vid")
+
+    assert first.status == second_while_running.status == TL_UPLOADING_STATUS
+    assert not queued  # two slices asked, one upload ever started
+    assert fake.uploads == 1
+    assert collected.advanced and collected.ok and collected.newly_indexed == 1
+    assert fake.polls == 1
+    assert mapping is not None and mapping.ready and mapping.video_id == "video-xyz"
+
+
+def test_an_upload_that_failed_while_nobody_waited_raises_on_collection(
+    tmp_path: Path,
+) -> None:
+    # The route's existing failure path then records `failed` and advances; here it is
+    # enough that the failure is not swallowed into a pending or a success.
+    _seed_asset(tmp_path)
+    queued: list[Callable[[], None]] = []
+    work = SliceWork(spawn=lambda target, _name: queued.append(target))
+
+    def boom() -> str:
+        raise TwelveLabsError("chunk 37 upload failed: HTTP 503")
+
+    def upload() -> str | Pending:
+        return work.run(("tl-upload", "idx", "vid", "sha-vid"), boom, budget=0.0)
+
+    with open_brain(tmp_path, "p1") as store:
+        _poll(store, _FakeTL(), upload)
+        queued.pop()()
+        with pytest.raises(TwelveLabsError, match="chunk 37 upload failed"):
+            _poll(store, _FakeTL(), upload)
+        assert read_video_mapping(store, "vid") is None
+
+
+def test_a_re_upload_in_flight_after_an_unreadable_re_attach_keeps_the_mapping(
+    tmp_path: Path,
+) -> None:
+    """The re-attach is not persisted until TwelveLabs answers for it.
+
+    Persisting it first left the next slice resuming a re-attach already known to be
+    another account's — which raises, and failed the asset — instead of taking the
+    re-attach branch again and collecting the upload still in flight.
+    """
+    _seed_asset(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store_video_mapping(
+            store,
+            "vid",
+            content_hash="sha-vid",
+            status="indexing",
+            task_id="asset-v1:idx-old:upl-1",
+        )
+        outcome = poll_index_asset(
+            _AttachTL(upload_readable=False),
+            store,
+            "idx-new",
+            "vid",
+            "vid.mp4",
+            upload=_in_flight,
+            content_hash="sha-vid",
+        )
+        kept = read_video_mapping(store, "vid")
+        # The next slice: the same unreadable re-attach, and now the upload has landed.
+        tl = _AttachTL(upload_readable=False)
+        collected = poll_index_asset(
+            tl,
+            store,
+            "idx-new",
+            "vid",
+            "vid.mp4",
+            upload=lambda: "asset-v1:idx-new:upl-2",
+            content_hash="sha-vid",
+        )
+        final = read_video_mapping(store, "vid")
+    assert outcome.status == TL_UPLOADING_STATUS and not outcome.advanced
+    assert kept is not None
+    assert (kept.task_id, kept.index_id) == ("asset-v1:idx-old:upl-1", "idx-old")
+    assert tl.tokens == ["asset-v1:idx-new:upl-1", "asset-v1:idx-new:upl-2"]
+    assert collected.ok and collected.newly_indexed == 1
+    assert final is not None and final.ready_in("idx-new")
 
 
 # --- clip → packet mapping -------------------------------------------------------

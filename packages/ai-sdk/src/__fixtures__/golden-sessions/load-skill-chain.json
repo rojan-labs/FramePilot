@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14944,
+      "usedTokens": 14941,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2612,
+            "tokenEstimate": 2609,
             "included": true
           },
           {
@@ -215,9 +215,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14944,
+          "estimatedInputTokensBeforeSend": 14941,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 176864,
+          "estimatedRemainingCapacity": 176867,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -444,7 +444,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 15154,
+      "usedTokens": 15151,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -512,7 +512,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2612,
+            "tokenEstimate": 2609,
             "included": true
           },
           {
@@ -541,9 +541,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 15154,
+          "estimatedInputTokensBeforeSend": 15151,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 176654,
+          "estimatedRemainingCapacity": 176657,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -896,7 +896,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 14752,
+      "usedTokens": 15408,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -964,14 +964,14 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2612,
+            "tokenEstimate": 2609,
             "included": true
           },
           {
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 431,
+            "tokenEstimate": 469,
             "included": true
           },
           {
@@ -985,7 +985,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 8862,
+            "tokenEstimate": 9483,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -993,10 +993,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14752,
+          "estimatedInputTokensBeforeSend": 15408,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 177056,
-          "toolSchemaTokensRebilled": 8862,
+          "estimatedRemainingCapacity": 176400,
+          "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1015,7 +1015,7 @@
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         },
-        "reasoningEffort": "low"
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -1177,13 +1177,12 @@
       }
     },
     {
-      "id": "turn_golden:notice:12",
+      "id": "turn_golden:status:12",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
-      "type": "notification",
-      "text": "Deterministic self-check: Passed with 1 warning(s).",
-      "reason": "self_check"
+      "type": "status",
+      "status": "verifying"
     },
     {
       "id": "turn_golden:notice:13",
@@ -1191,7 +1190,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
+      "text": "Deterministic self-check: Passed with 1 warning(s).",
       "reason": "self_check"
     },
     {
@@ -1200,471 +1199,6 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "One turn to act on the self-check's advice, or leave it if intended: Picture covers the programme."
-    },
-    {
-      "id": "turn_golden:run-state",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "run_state",
-      "working": {
-        "schemaVersion": 2,
-        "runId": "turn_golden",
-        "identity": {
-          "conversationId": "conv_golden",
-          "projectId": "proj_1",
-          "attemptId": "turn_golden"
-        },
-        "version": 14,
-        "objective": {
-          "request": "tighten the intro using your pacing playbook",
-          "outcome": "tighten the intro using your pacing playbook",
-          "provisional": true,
-          "acceptance": [
-            {
-              "id": "criterion_1",
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
-            }
-          ]
-        },
-        "stage": "repair",
-        "completedStages": [
-          "interpret",
-          "inspect",
-          "analyze",
-          "plan",
-          "apply",
-          "enhance",
-          "verify"
-        ],
-        "stageEnteredAtTurn": 3,
-        "facts": [
-          {
-            "id": "fact_1",
-            "kind": "derived",
-            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
-            "scope": "run_local",
-            "observedAtRevision": 0,
-            "stage": "analyze"
-          },
-          {
-            "id": "fact_2",
-            "kind": "project",
-            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
-            "evidenceIds": [],
-            "scope": "timeline_dependent",
-            "observedAtRevision": 1,
-            "stage": "apply"
-          }
-        ],
-        "decisions": [
-          {
-            "id": "decision_1",
-            "decision": "tighten the intro using your pacing playbook",
-            "evidenceIds": [],
-            "stage": "plan",
-            "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
-            "source": "inferred",
-            "until": "revision",
-            "turnsCarried": 0
-          }
-        ],
-        "plan": {
-          "status": "committed",
-          "id": "plan_turn_golden_1",
-          "committedAtTurn": 0,
-          "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
-        },
-        "execution": {
-          "authorized": true
-        },
-        "evidence": [
-          {
-            "id": "ev_1",
-            "source": "load_skill",
-            "descriptor": "Reading the pacing playbook",
-            "scope": "revision_independent",
-            "observedAtRevision": 0
-          }
-        ],
-        "objectives": [
-          {
-            "id": "objective_1",
-            "description": "tighten the intro using your pacing playbook",
-            "stage": "verify",
-            "status": "pending"
-          }
-        ],
-        "operations": [
-          {
-            "id": "op_1",
-            "intent": "Deleted range",
-            "status": "succeeded",
-            "atRevision": 1,
-            "attempts": 1,
-            "planId": "plan_turn_golden_1",
-            "decisionId": "decision_1",
-            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
-            "projectRevisionBefore": 0,
-            "projectRevisionAfter": 1,
-            "patchId": "patch_bce93659",
-            "objectiveId": "objective_1"
-          }
-        ],
-        "verifications": [],
-        "nextAction": null,
-        "blockedOn": null,
-        "integrity": {
-          "status": "valid",
-          "diagnostics": []
-        },
-        "baseProjectRevision": 0,
-        "currentProjectRevision": 1,
-        "minted": {
-          "fact": 2,
-          "decision": 0,
-          "objective": 0,
-          "op": 1,
-          "verify": 0
-        }
-      }
-    },
-    {
-      "id": "turn_golden:status:14",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "status",
-      "status": "generating"
-    },
-    {
-      "id": "turn_golden:reasoning:4",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "reasoning",
-      "summaries": [],
-      "done": false
-    },
-    {
-      "id": "turn_golden:context-usage",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "context_usage",
-      "usedTokens": 14934,
-      "contextWindow": 200000,
-      "estimated": true,
-      "manifest": {
-        "requestId": "turn_golden:assistant:seg-4",
-        "provider": "mock",
-        "model": "unknown",
-        "sections": [
-          {
-            "id": "s1",
-            "type": "system",
-            "label": "system contract",
-            "tokenEstimate": 150,
-            "included": true
-          },
-          {
-            "id": "s2",
-            "type": "system",
-            "label": "project header",
-            "tokenEstimate": 59,
-            "included": true
-          },
-          {
-            "id": "s3",
-            "type": "retrieved_evidence",
-            "label": "timeline summary",
-            "tokenEstimate": 46,
-            "included": true
-          },
-          {
-            "id": "s4",
-            "type": "retrieved_evidence",
-            "label": "media bin",
-            "tokenEstimate": 15,
-            "included": true
-          },
-          {
-            "id": "s5",
-            "type": "retrieved_evidence",
-            "label": "source media",
-            "tokenEstimate": 23,
-            "included": true
-          },
-          {
-            "id": "s6",
-            "type": "retrieved_evidence",
-            "label": "transcript slice",
-            "tokenEstimate": 11,
-            "included": true
-          },
-          {
-            "id": "s7",
-            "type": "skill",
-            "label": "skills manifest",
-            "tokenEstimate": 2374,
-            "included": true
-          },
-          {
-            "id": "s8",
-            "type": "latest_user_message",
-            "label": "user request",
-            "tokenEstimate": 15,
-            "included": true
-          },
-          {
-            "id": "s9",
-            "type": "system",
-            "label": "agent contract",
-            "tokenEstimate": 2612,
-            "included": true
-          },
-          {
-            "id": "s10",
-            "type": "system",
-            "label": "run briefing",
-            "tokenEstimate": 438,
-            "included": true
-          },
-          {
-            "id": "s11",
-            "type": "system",
-            "label": "turn steering",
-            "tokenEstimate": 172,
-            "included": true
-          },
-          {
-            "id": "s12",
-            "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 157,
-            "included": true
-          },
-          {
-            "id": "s13",
-            "type": "tool_schemas",
-            "label": "tool definitions",
-            "tokenEstimate": 8862,
-            "included": true,
-            "cacheSide": "cached_prefix"
-          }
-        ],
-        "usage": {
-          "modelContextLimit": 200000,
-          "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 14934,
-          "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 176874,
-          "toolSchemaTokensRebilled": 0,
-          "calculationSource": "local_estimate"
-        },
-        "compaction": {
-          "occurred": false,
-          "removedTokenEstimate": 0,
-          "removedSections": []
-        },
-        "memory": {
-          "runId": "turn_golden",
-          "stage": "repair",
-          "projectRevision": 1,
-          "objectiveKnown": true,
-          "committedDecisions": 1,
-          "facts": 2,
-          "evidenceHandles": 1,
-          "remainingObjectives": 1,
-          "nextAction": "Continue repair: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        },
-        "reasoningEffort": "medium"
-      }
-    },
-    {
-      "id": "turn_golden:delta:15",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "assistant_delta",
-      "parentId": "turn_golden:assistant:seg-4",
-      "chunk": "done"
-    },
-    {
-      "id": "turn_golden:reasoning:4",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "reasoning",
-      "summaries": [],
-      "done": true
-    },
-    {
-      "id": "turn_golden:assistant:seg-4",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "assistant_message",
-      "text": "done"
-    },
-    {
-      "id": "turn_golden:run-state",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "run_state",
-      "working": {
-        "schemaVersion": 2,
-        "runId": "turn_golden",
-        "identity": {
-          "conversationId": "conv_golden",
-          "projectId": "proj_1",
-          "attemptId": "turn_golden"
-        },
-        "version": 14,
-        "objective": {
-          "request": "tighten the intro using your pacing playbook",
-          "outcome": "tighten the intro using your pacing playbook",
-          "provisional": true,
-          "acceptance": [
-            {
-              "id": "criterion_1",
-              "description": "Everything else the request asks for — taste, pacing, structure — which no automatic check settles. Judge it against the request itself."
-            }
-          ]
-        },
-        "stage": "repair",
-        "completedStages": [
-          "interpret",
-          "inspect",
-          "analyze",
-          "plan",
-          "apply",
-          "enhance",
-          "verify"
-        ],
-        "stageEnteredAtTurn": 3,
-        "facts": [
-          {
-            "id": "fact_1",
-            "kind": "derived",
-            "statement": "Reading the pacing playbook → Unknown skill \"pacing\". Available: audio-polish, beat-synced-editing, broll-and-layering, caption-design, cinematic-storytelling, color-grading, cut-a",
-            "evidenceIds": [
-              "ev_1"
-            ],
-            "scope": "run_local",
-            "observedAtRevision": 0,
-            "stage": "analyze"
-          },
-          {
-            "id": "fact_2",
-            "kind": "project",
-            "statement": "Timeline now: sequence 10s, 2 tracks, 2 clips — video_1 [video] 2 clips 3–10s; audio_1 [audio] empty",
-            "evidenceIds": [],
-            "scope": "timeline_dependent",
-            "observedAtRevision": 1,
-            "stage": "apply"
-          }
-        ],
-        "decisions": [
-          {
-            "id": "decision_1",
-            "decision": "tighten the intro using your pacing playbook",
-            "evidenceIds": [],
-            "stage": "plan",
-            "status": "committed",
-            "reconsiderIf": "The project revision changes outside this run or verification disproves it.",
-            "source": "inferred",
-            "until": "revision",
-            "turnsCarried": 0
-          }
-        ],
-        "plan": {
-          "status": "committed",
-          "id": "plan_turn_golden_1",
-          "committedAtTurn": 0,
-          "basedOnProjectRevision": 0,
-          "decisionIds": [
-            "decision_1"
-          ]
-        },
-        "execution": {
-          "authorized": true
-        },
-        "evidence": [
-          {
-            "id": "ev_1",
-            "source": "load_skill",
-            "descriptor": "Reading the pacing playbook",
-            "scope": "revision_independent",
-            "observedAtRevision": 0
-          }
-        ],
-        "objectives": [
-          {
-            "id": "objective_1",
-            "description": "tighten the intro using your pacing playbook",
-            "stage": "verify",
-            "status": "pending"
-          }
-        ],
-        "operations": [
-          {
-            "id": "op_1",
-            "intent": "Deleted range",
-            "status": "succeeded",
-            "atRevision": 1,
-            "attempts": 1,
-            "planId": "plan_turn_golden_1",
-            "decisionId": "decision_1",
-            "idempotencyKey": "turn_golden:plan_turn_golden_1:decision_1:delete_range:{\"trackId\":\"video_1\",\"start\":0,\"end\":3}:0",
-            "projectRevisionBefore": 0,
-            "projectRevisionAfter": 1,
-            "patchId": "patch_bce93659",
-            "objectiveId": "objective_1"
-          }
-        ],
-        "verifications": [],
-        "nextAction": null,
-        "blockedOn": null,
-        "integrity": {
-          "status": "valid",
-          "diagnostics": []
-        },
-        "baseProjectRevision": 0,
-        "currentProjectRevision": 1,
-        "minted": {
-          "fact": 2,
-          "decision": 0,
-          "objective": 0,
-          "op": 1,
-          "verify": 0
-        }
-      }
-    },
-    {
-      "id": "turn_golden:notice:16",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "notification",
-      "text": "Deterministic self-check: Passed with 1 warning(s).",
-      "reason": "self_check"
-    },
-    {
-      "id": "turn_golden:notice:17",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "notification",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "reason": "self_check"
     },
@@ -1682,7 +1216,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 17,
+        "version": 15,
         "objective": {
           "request": "tighten the intro using your pacing playbook",
           "outcome": "tighten the intro using your pacing playbook",
@@ -1702,10 +1236,9 @@
           "plan",
           "apply",
           "enhance",
-          "verify",
-          "repair"
+          "verify"
         ],
-        "stageEnteredAtTurn": 4,
+        "stageEnteredAtTurn": 3,
         "facts": [
           {
             "id": "fact_1",
@@ -1789,7 +1322,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "A validated edit landed and the run’s deterministic checks passed",
+            "criterion": "A validated edit landed on the timeline",
             "passed": true,
             "atRevision": 1,
             "detail": "Passed with 1 warning(s)."
@@ -1813,14 +1346,14 @@
       }
     },
     {
-      "id": "turn_golden:usage:18",
+      "id": "turn_golden:usage:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "usage",
       "tokens": 0,
       "usd": 0,
-      "modelCalls": 4,
+      "modelCalls": 3,
       "priced": false,
       "cacheReadTokens": 0,
       "cacheWriteTokens": 0
@@ -1834,7 +1367,7 @@
       "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_golden:status:19",
+      "id": "turn_golden:status:16",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

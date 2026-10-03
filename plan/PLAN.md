@@ -25,6 +25,10 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
 [`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
 section near the end of this file.
+**Agent run audit 2 (2026-10-03, run `001be135`, the same complaint again):** the forced
+continuations, tool gates and verdict rules added by the 09-28 audits are removed — the model
+decides, the harness informs (ADR 0199). Section "Agent run audit — the model decides" near the
+end of this file; PR #169.
 **Agent run audit (2026-09-28, maintainer: "it keeps on saying goal not met and redoing things
 … not able to load proper tools").** Evidence: desktop run `6cb12e30` (`run.md` + the conversation
 JSON + the project file + real-media renders). Scope gate: no new subsystem; two small tools
@@ -11400,6 +11404,108 @@ Branch `fix/transcribe-audio-tl-local-timeout`. No schema change, no new depende
   dropped. _Evidence: `test_asr.py` split + orphan test; the real whisper JSON parses to 866
   words over 0–414.8 s, none broken. Live, patched sidecar on :8811 with the 60 s media timeout
   still set: uncached `/transcribe` of the 415 s voiceover → HTTP 200 in 190 s, 866 words._
+
+## Agent run audit — the model decides, the harness informs — `[x]` done (2026-10-03)
+
+Maintainer report on desktop run `001be135` (voiceover-synced recap, then captions; `run.md`):
+"it keep on saying goal not met and redoing things … run could not finish and self check fails …
+lazy load the conversation … exceeded the 67108864-character durable log limit … handle the
+orchestrator in general way … plan on the ui still shows loading … not able to load proper tools".
+Evidence: `run.md`, the conversation JSON, the run WAL, the project file and its media. Branch
+`fix/agent-run-orchestration-2026-10-03`, PR #169. ADR 0199. The maintainer chose the structural
+change explicitly ("do the necessary changes even if its structural").
+
+- [x] **MD1** No turn is narrowed: the stage gate, action-recovery and commit-only scopes and
+  their exemption lists are removed; every step thinks at one effort. _Run: `describe_footage`
+  held back on step 2; the beat-matching step ran at `low`._
+- [x] **MD2** A reply with no tool call ends the run except for the model's own open plan items
+  and an unseen late review; the shortfall continuation, AL39, the research budget, the
+  semantic-loop/no-progress recovery and the exact-repeat stop are removed.
+- [x] **MD3** The self-check reports: no repair pass, no fix/advisory turn, no "could not finish"
+  card; a run's status rests on what landed; a cut-off or empty turn is `unanswered`.
+- [x] **MD4** Every finding the run is answerable for is in the briefing after every edit
+  (`critic.ts#standingFindings`), worded as measurements to weigh.
+- [x] **MD5** A per-turn cap overage is a rejection the run continues past;
+  `ToolSpec.derivedOpTypes` stops `add_clip`'s fill crop counting twice.
+- [x] **MD6** JSON-text array arguments decode even when zod's length rules fired on the string
+  (`load_tools`, `update_plan` refusals).
+- [x] **MD7** The per-run caption restyle cap is removed.
+- [x] **MD8** Speech follows what is heard: `clipIsAudible`; `mapTranscript` and `word_severed`
+  skip muted clips. _Run: 81 "severed" cuts on a muted soundtrack; captions followed it._
+- [x] **MD9** `search_visual` ranks by the picture only (TwelveLabs `visual`; no transcript lane);
+  Pegasus chapters describe what is seen.
+- [x] **MD10** The asset view says whether a probed video carries sound.
+- [x] **MD11** The run ledger keeps one row per action kind per patch (was 5,730 rows ×
+  every `run_state`); huge patches get grouped action cards.
+- [x] **MD12** Captions: Devanagari marks kept by every word normaliser (TS + Python parity, shared
+  vector file), no sub-floor cues from the builder, unmatched `keepTogether` reported,
+  unheard-speech message (and `caption_the_edit` refuses rather than wipe a track), font script
+  coverage + warnings. _Verified: Pillow draws Bebas Neue's missing Devanagari as boxes; only
+  Poppins and Teko have Devanagari._
+- [x] **MD13** Persistence/UI: plan settles (`stopped`) when the run ends by any path; a
+  durable-log overflow never ends a run (tiered WAL budget, `run_state` kept out of the WAL) and a
+  publish failure aborts it; superseded `run_state` events compacted in conversations; lazy
+  conversation rendering; grouped action rows (6,102 → 45 on the evidence conversation).
+- [x] **MD14** Parked as issues: #170 full before/after timelines in persisted `diff` events;
+  #171 import reports success after a refused `add_asset`, orphans copies, no original name;
+  #172 the export does not shape Devanagari; #173 brain FTS drops Devanagari marks; #174 one-word
+  preset vs the verifier's slack; #175 durable-log memory follow-ups.
+- [x] **MD15** ai-sdk dist rebuilt; tool-description mirror, golden corpus, frozen stream snapshot
+  and langchain parity sessions regenerated with reviewed diffs.
+
+**End-to-end verification on large raw projects (2026-10-03, maintainer: "pull massive raw
+projects … use framepilot to do the complete edit … compare and contrast").** Raw footage and the
+official edits from NASA's public-domain library, kept outside the repo: the 58:51 / 1.05 GB
+"Artemis II Orion MER Interview and B-Roll Reel" against NASA's "Moon Watch – Jeb Stefan" cut, and
+the X-59 first-flight B-roll (7:47 + 0:47) against NASA's "X-59 Completes Historic First Flight".
+Runs: `apps/desktop/scripts/agent-run.ts`, claude-agent-sdk + claude-opus-5-5.
+- [x] **MD16** `scripts/import-project.ts`: a project from raw files through the desktop import
+  path (proxy, peaks, brain row, visual-index enrolment); shared `visual-index-credentials.ts`
+  and `harness-sidecar.ts` instead of third copies.
+- [x] **MD17** A reply after a failed call is the model reporting a failure, not an answer
+  (`lastToolTurnFailed`); CI's runtime-conformance scenarios caught the gap in ADR 0199 §5.
+- [x] **MD18** Visual index on long media: tier 0's whole-file decode had a flat 60 s timeout
+  (72.7 s needed for the reel → no shot ledger) and the TwelveLabs upload ran inside one request
+  (Node gave up at 300 s → never indexed). `brain/slice_work.py` + bounded slices; verified: the
+  reel indexes (165 shots, TwelveLabs ready) with no request over 49 s.
+- [x] **MD19** Local whisper word timing: DTW never ran (flash attention on by default) and the
+  parser ignored it, so words absorbed silence ("." 0.02–24.96 s). `-nfa` when supported, DTW
+  starts, median-relative caps, punctuation is not a word; caches versioned. Verified on the X-59
+  audio: words over 2 s 12 → 0.
+- [x] **MD20** claude-agent-sdk provider: the CLI sent a second "naming a coding session" request
+  per call with the whole prompt, attached the user's `~/.claude/CLAUDE.md` + rules (18k chars)
+  despite `settingSources: []`, and saved every call as a session. `title`, `persistSession:
+  false`, `verbatimPrompts: true`, inline `claudeMdExcludes`/`autoMemoryEnabled: false`; verified
+  through a body-layout proxy.
+- [x] **MD21** Checks that measured the wrong thing in a B-roll film: the edit-boundary audio jump
+  measured the MIX (a radio call inside a continuous clip read as the music entry's discontinuity),
+  and dead air counted words, not sound. The boundary is measured on the spliced source above a
+  -60 dBFS RMS floor, with entries judged by their onset (159c180e, ADR 0115 amended); dead air is
+  no words AND nothing above -30 dBFS peak in the clips' waveform peaks (5ade63f0). X-59: the music
+  entry 21.7 dB → 0.0 dB; the 7.5 s "dead air" tail (music + crowd) passes. Refined in 91f738fa
+  after CI's rendered scorecard flagged `timeline.lift` (a1 stopping under a continuing cover
+  clip): the spliced source's step is judged over what the other tracks play (mix − source,
+  background held at its quieter side) — masked splices pass (3 dB), a true hard stop into silence
+  still flags (36 dB).
+- [x] **MD23** Footage map on long media: Pegasus `/analyze` ran under a flat 120 s read timeout
+  (the 58:51 reel timed out at 121 s) and the route held the request for every asset's three calls.
+  Duration-scaled Pegasus timeout + a `SliceWork` unit per asset with a 90 s route budget and
+  `pendingAssets` ("still being generated… call again"); verified on the reel (6c74c65a).
+- [x] **MD22** Re-runs on the fixed build, compared against NASA's cuts (claude-opus-5-5):
+  - X-59, run 1 → run 2: 101 s / 14 shots → 100.2 s / 16 shots (NASA 103 s, ~20 cuts); the liftoff
+    (missing in run 1, misled by Pegasus chapters labelling takeoff footage "Landing") is in run 2
+    from three angles; music now under the radio calls as briefed; self-check from 1 failed +
+    1 warning (all false positives) to all passed; input cost per call 49.8k → 17.4k units (−65%),
+    whole run 1.19M → 0.49M.
+  - Moon Watch (58:51 reel): 78.2 s (brief 75–80, NASA 76), only Jeb, the MER intro, his console
+    role and NASA's exact closing line; middle beat = his "Super Bowl" moment where NASA used the
+    flight-day-one demo (brief: "the moment that mattered most to him"); 4 jump cuts, all covered by
+    his B-roll; title + name/role lower third; no slates. 45% soundbite overlap with NASA's cut.
+  - Found during the runs and fixed: picture-only TwelveLabs search 400'd on every call
+    (`transcription_options=None`, d338bfec); covered A-roll whose speech is heard was reported as
+    buried picture with "Remove them" (5fe32e0e).
+  - Parked: #176 (long-media proxies / silent preview), #177 (built-in tier 1 synchronous), #178
+    (per-call cache write; persistent session), #179 (whisper speed/VAD/old transcripts).
 
 **Last updated:** 2026-10-03
 

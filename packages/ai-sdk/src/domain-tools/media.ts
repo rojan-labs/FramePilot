@@ -221,7 +221,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'any content-dependent edit ("cut to the product shot", "where does the whiteboard ' +
         'appear", "find the b-roll of the city"). Retrieves ranked evidence packets ' +
         '{ assetId, t0, t1 (asset seconds), sceneId, score, caption, transcriptOverlap, ' +
-        'sources } fusing visual-vector, caption, and transcript recall. Prefer this over ' +
+        'sources } ranked by the PICTURE alone — frame vectors and frame captions. What the ' +
+        'footage SAYS never ranks a hit (find speech with search_media or the transcript); ' +
+        'transcriptOverlap only reports the words heard under each span. Prefer this over ' +
         'guessing from dialogue: read the captions/spans and cite them. Honestly degrades ' +
         '(available with a reason, no packets) when the footage is not indexed or no ' +
         'embedding key is set. Optional k (1-50), assetIds, and timeRange narrow recall; `facts` ' +

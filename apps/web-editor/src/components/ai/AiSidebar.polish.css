@@ -965,3 +965,97 @@
 .ai-face-consent p {
   margin: 0;
 }
+
+/* ── Plan steps the run never finished ─────────────────────────────────────
+   `stopped` is how a step reads once its run is over: not done, and not failed. It takes
+   the pending step's quiet ink rather than the failed step's danger tone. */
+.ai-plan-step[data-status='stopped'],
+.ai-plan-step[data-status='stopped'] .ai-plan-mark {
+  color: var(--ai-ink-3);
+}
+
+/* ── Grouped timeline actions ──────────────────────────────────────────────
+   One counted row per action kind of a turn's run of actions ("Deleted range ×346"). It
+   keeps the action row's spine and bead; the opened list sits under the label with no
+   second spine. */
+.ai-event--action .ai-action-group-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ai-action-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 4px 0 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-action-group-toggle:hover {
+  background: var(--ai-hover);
+}
+
+.ai-action-group-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.ai-action-group-count {
+  color: var(--ai-ink-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.ai-action-group-chevron {
+  margin-left: auto;
+  color: var(--ai-ink-3);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.ai-action-group[data-expanded='true'] .ai-action-group-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-action-group-chevron {
+    transition: none;
+  }
+}
+
+.ai-action-group-list .ai-step-slot {
+  display: none;
+}
+
+.ai-action-group-list .ai-event--action .ai-step-body {
+  width: 100%;
+}
+
+.ai-action-group-more {
+  margin: 2px 0 4px;
+  color: var(--ai-ink-3);
+  font-size: 11.5px;
+}
+
+/* ── "Show earlier messages" ───────────────────────────────────────────────
+   The top row of a long conversation that opened on its most recent turns. */
+.ai-earlier-turns {
+  display: flex;
+  justify-content: center;
+  margin-left: var(--ai-thread-slot);
+  width: calc(100% - var(--ai-thread-slot));
+  padding: 2px 0 8px;
+  box-sizing: border-box;
+}
+
+.ai-earlier-turns-count {
+  color: var(--ai-ink-3);
+  font-size: 11.5px;
+}

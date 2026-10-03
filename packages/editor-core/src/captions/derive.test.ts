@@ -28,6 +28,7 @@ import {
   spanSequenceToSource,
   spanSourceToSequence,
 } from '../timeline-map.js';
+import { snapSecondsToFrame } from '../frame-grid.js';
 import * as segmentModule from './segment.js';
 import { captionSegmentConfig, type CaptionSegmentConfig } from './segment.js';
 import { deriveCaptionCues, mapTranscript, speechAssetIdsFor } from './derive.js';
@@ -1251,5 +1252,194 @@ describe('stacked clips over the same sequence time', () => {
     for (let i = 1; i < cues.length; i += 1) {
       expect(cues[i]!.start).toBeGreaterThanOrEqual(cues[i - 1]!.end - 1e-9);
     }
+  });
+});
+
+describe('speech follows what is heard (clipIsAudible)', () => {
+  // Run `001be135`: a narrated recap's own soundtrack, muted under a separate voiceover,
+  // carried the project transcript. Reordering its shots then moved the captions with the
+  // silent soundtrack's words instead of the narration the viewer hears.
+  const muted = (timeline: Timeline): Timeline => ({
+    ...timeline,
+    tracks: timeline.tracks.map((track) => ({ ...track, muted: true })),
+  });
+
+  it('marks every span on a muted track as inaudible, and others as audible', () => {
+    expect(buildTimelineMap(rippledTimeline()).spans.every((s) => s.audible === true)).toBe(true);
+    expect(buildTimelineMap(muted(rippledTimeline())).spans.every((s) => s.audible === false)).toBe(
+      true,
+    );
+  });
+
+  it('maps no word through a muted track', () => {
+    const mapped = mapTranscript(buildTimelineMap(muted(rippledTimeline())), sourceTranscript());
+    expect(mapped.words).toHaveLength(0);
+    expect(mapped.runs).toHaveLength(0);
+    expect(mapped.droppedCount).toBe(sourceTranscript().length);
+  });
+
+  it('maps no word through a clip whose audio_gain is muted, and still maps its neighbours', () => {
+    const timeline = rippledTimeline();
+    const silenced: Timeline = {
+      ...timeline,
+      tracks: timeline.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip, index) =>
+          index === 0
+            ? {
+                ...clip,
+                effects: [
+                  {
+                    id: `${clip.id}__gain`,
+                    type: 'audio_gain',
+                    params: { gainDb: 0, muted: true },
+                    keyframes: [],
+                  },
+                ],
+              }
+            : clip,
+        ),
+      })),
+    };
+    const mapped = mapTranscript(buildTimelineMap(silenced), sourceTranscript());
+    expect(mapped.words.some((word) => word.clipId === 'clip_0')).toBe(false);
+    expect(mapped.words.some((word) => word.clipId === 'clip_1')).toBe(true);
+  });
+
+  it('derives no caption cue from speech nobody hears', () => {
+    const cues = deriveCaptionCues(
+      buildTimelineMap(muted(rippledTimeline())),
+      sourceTranscript(),
+      config(),
+    );
+    expect(cues).toHaveLength(0);
+  });
+});
+
+describe('no derived cue is shorter than the readable floor', () => {
+  // Desktop run 001be135: caption_the_edit wrote "लोकी" for 0.067 s (the last word of a run
+  // clamped at its cut), verify_captions called it caption_too_short and told the agent to
+  // regenerate through caption_the_edit — which made the same cue again.
+  const FPS = 30;
+  const oneWord = captionSegmentConfig('one-word');
+  type Spec = readonly [start: number, end: number, sourceStart: number, sourceEnd: number];
+  const timelineOf = (specs: readonly Spec[]): Timeline => ({
+    revision: 1,
+    tracks: [
+      {
+        id: 'track_v1',
+        type: 'video' as const,
+        clips: specs.map(([start, end, sourceStart, sourceEnd], index) => ({
+          id: `clip_${index}`,
+          assetId: ASSET,
+          trackId: 'track_v1',
+          start,
+          end,
+          sourceStart,
+          sourceEnd,
+          effects: [],
+          keyframes: [],
+        })),
+      },
+    ],
+  });
+  const said = (timed: readonly (readonly [string, number, number])[]): TranscriptWord[] =>
+    timed.map(([word, start, end]) => ({ word, start, end, assetId: ASSET }));
+  const window = (cue: { readonly start: number; readonly end: number }): number =>
+    snapSecondsToFrame(cue.end, FPS) - snapSecondsToFrame(cue.start, FPS);
+
+  it('merges a run’s short LAST cue into the cue before it, inside the run', () => {
+    const map = buildTimelineMap(
+      timelineOf([
+        [0, 1.1333, 0, 1.1333],
+        [1.1333, 3, 5, 6.8667],
+      ]),
+    );
+    const words = said([
+      ['अब', 0.0, 0.3],
+      ['लूफी', 0.3, 0.8],
+      ['का', 0.8, 1.0],
+      ['लोकी', 1.07, 1.12],
+      ['फिर', 5.0, 5.4],
+      ['से', 5.4, 5.8],
+    ]);
+    const cues = deriveCaptionCues(map, words, oneWord, FPS);
+    for (const cue of cues) expect(window(cue), cue.text).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    const loki = cues.find((cue) => cue.words.some((w) => w.word === 'लोकी'))!;
+    expect(loki.words.map((w) => w.word)).toEqual(['का', 'लोकी']);
+    // Absorbed INSIDE its run: it still ends at the cut, never past it.
+    expect(loki.clipId).toBe('clip_0');
+    expect(loki.end).toBeLessThanOrEqual(1.1333 + 1e-9);
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
+  });
+
+  it('holds a run’s only cue into the free time after its cut', () => {
+    const map = buildTimelineMap(
+      timelineOf([
+        [0, 2, 0, 2],
+        [2, 2.1, 10, 10.1],
+        [2.1, 4, 20, 21.9],
+      ]),
+    );
+    const words = said([
+      ['पहले', 0.5, 1.0],
+      ['हाँ', 10.0, 10.1],
+      ['ठीक', 21.0, 21.4],
+    ]);
+    const cues = deriveCaptionCues(map, words, oneWord, FPS);
+    const yes = cues.find((cue) => cue.text === 'हाँ')!;
+    expect(yes.clipId).toBe('clip_1');
+    expect(yes.start).toBeCloseTo(2, 9);
+    expect(window(yes)).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    // Only as far as the floor: it borrows a few frames of the next shot, not the next cue.
+    expect(yes.end).toBeLessThan(2 + 0.25 + 1 / FPS + 1e-9);
+    const next = cues.find((cue) => cue.text === 'ठीक')!;
+    expect(yes.end).toBeLessThanOrEqual(next.start + 1e-9);
+  });
+
+  it('merges a run’s only cue into the cue right after the cut when that time is taken', () => {
+    const map = buildTimelineMap(
+      timelineOf([
+        [0, 2, 0, 2],
+        [2, 2.1, 10, 10.1],
+        [2.1, 4, 20, 21.9],
+      ]),
+    );
+    const words = said([
+      ['पहले', 0.5, 1.0],
+      ['हाँ', 10.0, 10.1],
+      ['ठीक', 20.0, 20.6],
+      ['है', 20.6, 21.0],
+    ]);
+    const cues = deriveCaptionCues(map, words, oneWord, FPS);
+    const merged = cues.find((cue) => cue.words.some((w) => w.word === 'हाँ'))!;
+    expect(merged.words.map((w) => w.word)).toEqual(['हाँ', 'ठीक']);
+    expect(merged.start).toBeCloseTo(2, 9);
+    expect(window(merged)).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    // Provenance is the longer cue's: a real range of ONE clip, not a stitched one.
+    expect(merged.clipId).toBe('clip_2');
+    expect(merged.sourceStart).toBe(20.0);
+    for (const cue of cues) expect(window(cue), cue.text).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
+  });
+
+  it('holds the sequence’s last cue from earlier when the sequence ends under it', () => {
+    const map = buildTimelineMap(
+      timelineOf([
+        [0, 4, 0, 4],
+        [4, 4.1, 30, 30.1],
+      ]),
+    );
+    const words = said([
+      ['पहले', 0.5, 1.0],
+      ['अंत', 30.0, 30.1],
+    ]);
+    const cues = deriveCaptionCues(map, words, oneWord, FPS);
+    const last = cues[cues.length - 1]!;
+    expect(last.text).toBe('अंत');
+    expect(window(last)).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    // Never past the end of the sequence, where nothing would show it.
+    expect(last.end).toBeLessThanOrEqual(map.duration + 1e-9);
+    expect(last.start).toBeGreaterThanOrEqual(cues[cues.length - 2]!.end - 1e-9);
   });
 });

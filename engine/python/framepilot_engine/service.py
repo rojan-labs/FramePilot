@@ -74,7 +74,7 @@ from framepilot_engine.analysis.reference import (
     analyze_reference_image as analyze_reference_image,
 )
 from framepilot_engine.analysis.scenes import DEFAULT_SCENE_THRESHOLD, SceneCut, detect_scenes
-from framepilot_engine.analysis.shot_stats import measure_asset
+from framepilot_engine.analysis.shot_stats import ShotStats, measure_asset
 from framepilot_engine.analysis.silence import (
     DEFAULT_MIN_SILENCE_SECONDS,
     DEFAULT_NOISE_FLOOR_DB,
@@ -182,11 +182,13 @@ from framepilot_engine.brain.models import (
 from framepilot_engine.brain.pack_worker import PackWorkerError, parse_pack_handle
 from framepilot_engine.brain.sidecars import export_asset_sidecar, import_sidecars
 from framepilot_engine.brain.similar import (
+    OWNER_TYPE_CAPTION,
     AssetDigest,
     blend_hits,
     build_embedding_rows,
     semantic_hits,
 )
+from framepilot_engine.brain.slice_work import Pending, SliceWork
 from framepilot_engine.brain.soul import (
     SoulDoc,
     append_soul_note,
@@ -205,8 +207,11 @@ from framepilot_engine.brain.store import (
     shot_cursor,
 )
 from framepilot_engine.brain.twelvelabs import (
+    PEGASUS_MAP_PROMPT_VERSION,
     PEGASUS_UNAVAILABLE_REASON,
+    VISUAL_SEARCH_OPTIONS,
     TLChapter,
+    TLHighlight,
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
@@ -217,6 +222,7 @@ from framepilot_engine.brain.twelvelabs import (
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_REJECTED_STATUS,
+    TL_SLICE_POLL_BUDGET_SECONDS,
     bind_index,
     chapters_to_packets,
     clips_to_packets,
@@ -1566,6 +1572,25 @@ _ATTACHED_PICTURE_MIN_FPS = 1000.0
 #: and the carrier is 1 fps); the margin covers a loaded machine. Floored by the media
 #: timeout, so a short clip keeps the usual bound.
 _TL_CARRIER_SECONDS_PER_MEDIA_SECOND = 0.25
+#: ffmpeg bound for tier 0's whole-file passes (the measurement decode, the loudness
+#: pass), per second of media. A decode's cost is proportional to duration, and the flat
+#: media timeout (60 s) failed a 58:51 interview whose measurement takes 72.7 s — so a
+#: long source never got a shot ledger at all. Measured on that 1080x608 H.264 file at
+#: 0.021 s/s; a 4K source is ~13x its pixels and HEVC decodes at about twice H.264's cost
+#: in software, which puts 4K HEVC near 0.5 s/s. One second per media second (a decode
+#: may take as long as the footage plays) leaves 2x over that for a loaded machine. It
+#: is a stuck-process bound, not an expected time, and is floored by the media timeout
+#: so a short clip keeps the usual bound.
+_TIER0_SECONDS_PER_MEDIA_SECOND = 1.0
+#: How long one index slice waits on an asset's tier-0 decodes before yielding with the
+#: cursor kept on that asset. The decodes run on their own thread (``SliceWork``) and
+#: the next slice collects them, so a long source spans several slices instead of
+#: holding one request open past the host's timeout. Long enough that a short clip still
+#: finishes in the slice that started it, as it always did: at the measured 0.021 s/s the
+#: measurement covers about twenty minutes of footage like that file in this time.
+TIER0_SLICE_WAIT_SECONDS = 30.0
+#: The ``pending`` reason while tier 0's decodes are still running.
+TIER0_MEASURING_REASON = "measuring"
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
 NOT_REQUESTED_REASON = "tier not requested"
@@ -1574,6 +1599,19 @@ NOT_REQUESTED_REASON = "tier not requested"
 #: longer exists: descriptions are a tier of the shot ledger with their own producers
 #: (VU6), so a vision provider on its own — or a local pack on its own — is enough.
 NO_VISION_PRODUCER_REASON = "no local visual-describe pack and no vision provider"
+#: How long one footage-map or TwelveLabs describe request waits on Pegasus before it
+#: answers with what it has. Pegasus reads the whole video before it answers, so its time
+#: scales with the footage: a 58:51 reel's chapters alone outlasted a 120 s bound, and the
+#: route used to hold the request for all of it, behind Node's 300 s headers timeout. The
+#: map is now fetched on a `SliceWork` thread and a request waits at most this long — the
+#: same per-asset budget tier 2 has in an index slice — so a short clip's map still
+#: arrives in the call that asked for it and a long one arrives in a later call.
+PEGASUS_MAP_WAIT_SECONDS = 90.0
+#: The ``reason`` on a footage map or describe answer when nothing could be served yet
+#: because the Pegasus map is still being generated. Not terminal: the next call collects
+#: it. A partial map (some assets served) carries no reason and lists the rest in
+#: ``pendingAssets`` instead.
+MAPPING_IN_PROGRESS_REASON = "mapping"
 
 
 #: The ledger's three provenance groups, as a request may name them (ADR 0175,
@@ -2176,6 +2214,16 @@ class FootageMapResponse(BaseModel):
             "must place the asset first. Listing them beats silently mixing two clocks."
         ),
     )
+    pending_assets: list[str] = Field(
+        default_factory=list,
+        alias="pendingAssets",
+        description=(
+            "Assets whose Pegasus map is still being generated, so they are NOT in this "
+            "map yet. A long video takes minutes; the request waits a bounded time and "
+            "answers with what it has. Call again to collect them — the work continues "
+            "between calls and is never started twice."
+        ),
+    )
     duration_sec: float = Field(
         default=0.0, alias="durationSec", description="Total footage duration in seconds."
     )
@@ -2542,6 +2590,7 @@ def create_app(
     *,
     render_queue: RenderQueue | None = None,
     asr_setup: AsrSetupTracker | None = None,
+    slice_work: SliceWork | None = None,
 ) -> FastAPI:
     """Construct the FastAPI application.
 
@@ -2553,6 +2602,10 @@ def create_app(
     :param asr_setup: Single-slot tracker backing the ``/asr/setup`` routes.
         Scoped to the app (not a module global) so each process/TestClient gets
         its own; tests inject one built with a fake downloader.
+    :param slice_work: Registry of the long steps a ``/brain/visual/index`` slice starts
+        and a later slice collects (tier-0 decodes, TwelveLabs uploads). Scoped to the
+        app for the same reason as ``asr_setup``; tests inject one whose work runs on
+        demand, so a "still running" slice needs no sleep.
     :returns: A configured :class:`fastapi.FastAPI` instance.
     """
     settings = settings or get_settings()
@@ -2561,6 +2614,7 @@ def create_app(
         default_timeout=float(settings.render_timeout_seconds)
     )
     asr_setup = asr_setup or AsrSetupTracker()
+    slice_work = slice_work or SliceWork()
 
     # Which project brains have had their non-terminal jobs swept this process
     # lifetime (plan B5.1). Scoped to this app instance so a fresh process
@@ -2617,6 +2671,28 @@ def create_app(
     # exactly the four foreground surfaces named there — export, preview, frame grab and
     # the temporal-evidence batch — and its rules live in `brain/governor.py`, not here.
     index_governor = IndexGovernor(external_busy=_render_queue_busy)
+    # The governor's tier-0 CPU bound is the MEASURED pass's pool size
+    # (`tier_workers("measured")`, see the built-in route). Tier 0's decodes now run on
+    # `SliceWork` threads that outlive the pool worker that started them (a long source
+    # spans several slices), so a worker that moves on from a still-decoding asset could
+    # start another ffmpeg beside it and the pool would no longer bound the decodes. This
+    # gate restores exactly that bound, for that pass only, and is sized to the pass's
+    # own pool ceiling so it never binds tighter than the pool did.
+    #
+    # Deliberately NOT applied to the deep pass or the TwelveLabs path. There, tier 0
+    # sits in front of a provider call in the same worker (tier 1/2, the upload), and
+    # those pools are sized for overlapping network waits. A global gate made every
+    # tier-0 decode there queue on the CPU bound, and each provider call queued behind
+    # its asset's decode: on a few-core runner the embeds went strictly serial.
+    _measured_pass_decode_gate = threading.BoundedSemaphore(
+        min(index_governor.tier_workers("measured"), settings.visual_index_concurrency)
+    )
+    # Concurrent Pegasus maps. A map used to be fetched inside its request, one asset after
+    # another; each asset's map now runs as its own `SliceWork` unit, and a project of
+    # eleven unmapped assets would otherwise send eleven `/analyze` calls at once to a
+    # rate-limited endpoint. Sized by the configured concurrency of hosted understanding
+    # work, the bound an index slice already puts on TwelveLabs uploads and polls.
+    _pegasus_map_gate = threading.BoundedSemaphore(settings.visual_index_concurrency)
     # P5.4: identical requests that arrive while one is already running share its answer
     # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
     _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
@@ -3427,21 +3503,30 @@ def create_app(
     class _TierOutcome:
         """What one ledger tier did to one asset.
 
-        Three states, because the three are genuinely different facts and collapsing them
+        Distinct states, because they are genuinely different facts and collapsing them
         is the defect ADR 0175 exists to fix: ``ok`` ran, ``skipped`` could not run (no
-        key, no pack, not asked for), ``failed`` tried and could not finish. Only the last
-        is an error; a skipped tier is coverage the agent is allowed to read.
+        key, no pack, not asked for), ``failed`` tried and could not finish. Only
+        ``failed`` is an error; a skipped tier is coverage the agent is allowed to read.
+        ``pending`` is the fourth: the work is running and this slice will not wait for
+        it (always with ``complete`` False). Neither an error nor coverage.
         """
 
-        state: Literal["ok", "skipped", "failed"]
+        state: Literal["ok", "skipped", "failed", "pending"]
         reason: str | None = None
         shots: int = 0
-        #: False when the tier ran out of its per-asset time budget with work still to do.
-        #: Only tier 2 can set it: a VLM call is seconds, and an asset with sixty shots
-        #: would otherwise hold one HTTP slice open for minutes. The caller keeps the job
-        #: cursor on this asset so the next slice resumes it — exactly the mechanism the
-        #: hosted "still indexing" case already uses — rather than advancing past shots
-        #: nobody has described.
+        #: False when the tier has work still to do that this slice must not wait for. No
+        #: index slice may hold its HTTP request open for as long as the MEDIA takes — the
+        #: host abandons a request at 300 s — so each long step gets a budget instead:
+        #:
+        #: - tier 2 when its per-asset budget expires (a VLM call is seconds, and an asset
+        #:   with sixty shots would otherwise take minutes);
+        #: - tier 0, as ``pending``, while its whole-file decodes are still running past
+        #:   :data:`TIER0_SLICE_WAIT_SECONDS` (72.7 s for a 58:51 source, and it scales
+        #:   with the media). They run on their own thread and a later slice collects them.
+        #:
+        #: The caller keeps the job cursor on this asset so the next slice resumes it —
+        #: exactly the mechanism the hosted "still indexing" case already uses — rather
+        #: than advancing past work nobody has finished.
         complete: bool = True
 
         @property
@@ -3472,7 +3557,12 @@ def create_app(
         return out
 
     def _measure_tier0(
-        store: BrainStore, asset_id: str, resolved_root: Path, timeout: float
+        store: BrainStore,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+        *,
+        decode_gate: threading.Semaphore | None = None,
     ) -> _TierOutcome:
         """Run tier 0 for one asset unless the current bytes already carry it (VU1.4).
 
@@ -3488,6 +3578,18 @@ def create_app(
         are a resume, not repeated work. Bumping that version is what re-measures a
         library without touching the other two tiers.
 
+        The decodes themselves (:func:`_tier0_measurements`) cost time proportional to
+        the media — 72.7 s for a 58:51 source — so they run on a :class:`SliceWork`
+        thread and this call waits for them at most :data:`TIER0_SLICE_WAIT_SECONDS`.
+        Still running after that is ``pending`` with ``complete`` False: the caller keeps
+        the cursor on the asset, and the next slice's call joins the SAME decode rather
+        than starting another. Every brain read and write stays here, on the slice
+        thread, under the route's per-project lock.
+
+        :param decode_gate: Held by the decode for its whole run, when the caller's pass
+            bounds tier 0's CPU (the built-in measured pass); ``None`` leaves the decode
+            bounded by the caller's pool alone, as it always was. A resumed asset returns
+            before any decode, so it never touches the gate.
         :returns: The tier's disposition; ``shots`` counts rows written THIS call, so a
             resumed asset reports ``ok`` with zero.
         """
@@ -3525,32 +3627,25 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         try:
-            stats = measure_asset(media_path, duration=duration, is_image=is_image, timeout=timeout)
+            # Keyed by everything the result depends on — above all the bytes' hash, so a
+            # file replaced mid-decode is measured again rather than answered with the
+            # old file's shots.
+            measured = slice_work.run(
+                ("tier0", str(media_path), content_hash, TIER0_VERSION, duration, is_image),
+                lambda: _tier0_measurements(media_path, info, asset_id, timeout, decode_gate),
+                budget=TIER0_SLICE_WAIT_SECONDS,
+            )
         except (FFmpegError, OSError) as exc:
             _log.warning("tier 0 measurement failed: asset=%s reason=%s", asset_id, exc)
             return _TierOutcome("failed", str(exc))
-        # VU5.3's duplicate detection needs a keyframe hash, and the measurement pass
-        # above computes none — it reads `signalstats` off a 160px decode and never looks
-        # at a frame as pixels. Without this, `MeasuredFacts.phash` had no producer at all,
-        # so `_link_duplicate_shots` filtered on `phash is not None` and matched nothing on
-        # every project. One 9x8 grayscale frame per shot, and a frame that will not decode
-        # yields no entry rather than a zero every other shot would look like.
-        phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
-        # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
-        # producer: null for every shot of every asset, including assets with an audio
-        # stream, which is indistinguishable from "this asset is silent". One `ebur128`
-        # pass over the whole asset yields momentary loudness every 100ms; the shot spans
-        # bucket it. Skipped for an asset with no audio stream (`-vn` would leave ffmpeg
-        # nothing to output) and for a still, and never fatal: a measurement that fails
-        # leaves the field null, exactly as it was.
-        loudness: dict[int, float] = {}
-        if info.has_audio and not is_image:
-            try:
-                loudness = measure_shot_loudness(
-                    media_path, [(s.t0, s.t1) for s in stats], timeout=timeout
-                )
-            except (FFmpegError, OSError) as exc:
-                _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        if isinstance(measured, Pending):
+            _log.info(
+                "tier 0 still measuring: asset=%s duration=%.0fs (yielding to re-post)",
+                asset_id,
+                duration,
+            )
+            return _TierOutcome("pending", TIER0_MEASURING_REASON, complete=False)
+        stats, phashes, loudness = measured
         rows = shots_from_stats(
             asset_id, content_hash, stats, phashes=phashes, loudness_lufs=loudness
         )
@@ -3571,6 +3666,61 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         return _TierOutcome("ok", shots=len(rows))
+
+    def _tier0_measurements(
+        media_path: Path,
+        info: MediaInfo,
+        asset_id: str,
+        timeout: float,
+        decode_gate: threading.Semaphore | None,
+    ) -> tuple[list[ShotStats], dict[int, str], dict[int, float]]:
+        """Tier 0's ffmpeg passes over one asset — and nothing else.
+
+        Runs on a :class:`SliceWork` thread, so it touches the FILE only: no brain, no
+        store. The store's connection belongs to the slice thread that opened it, and
+        the writes must happen under the route's per-project lock, which a background
+        thread outliving its request does not hold. Holds ``decode_gate``, when given,
+        for the whole of it.
+
+        :param timeout: The media timeout. The whole-file passes are bounded by
+            :func:`_tier0_decode_timeout` instead; per-frame seeks keep this one.
+        :returns: ``(stats, phashes, loudness)`` for :func:`shots_from_stats`.
+        :raises FFmpegError: When the measurement decode cannot run (the asset's
+            failure, collected by the slice that asks next).
+        """
+        is_image = info.is_image
+        duration = info.duration_seconds or 0.0
+        decode_timeout = _tier0_decode_timeout(duration, timeout)
+        loudness: dict[int, float] = {}
+        with decode_gate if decode_gate is not None else contextlib.nullcontext():
+            stats = measure_asset(
+                media_path, duration=duration, is_image=is_image, timeout=decode_timeout
+            )
+            # VU5.3's duplicate detection needs a keyframe hash, and the measurement pass
+            # above computes none — it reads `signalstats` off a 160px decode and never
+            # looks at a frame as pixels. Without this, `MeasuredFacts.phash` had no
+            # producer at all, so `_link_duplicate_shots` filtered on `phash is not None`
+            # and matched nothing on every project. One 9x8 grayscale frame per shot, and a
+            # frame that will not decode yields no entry rather than a zero every other
+            # shot would look like. Each frame is its own short seek, so the per-call
+            # bound stays the media timeout.
+            phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
+            # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
+            # producer: null for every shot of every asset, including assets with an
+            # audio stream, which is indistinguishable from "this asset is silent". One
+            # `ebur128` pass over the whole asset yields momentary loudness every 100ms;
+            # the shot spans bucket it. Skipped for an asset with no audio stream (`-vn`
+            # would leave ffmpeg nothing to output) and for a still, and never fatal: a
+            # measurement that fails leaves the field null, exactly as it was. A
+            # whole-file pass, so it takes the duration-scaled bound like the measurement.
+            if info.has_audio and not is_image:
+                try:
+                    loudness = measure_shot_loudness(
+                        media_path, [(s.t0, s.t1) for s in stats], timeout=decode_timeout
+                    )
+                except (FFmpegError, OSError) as exc:
+                    _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        return stats, phashes, loudness
 
     #: Nudge a keyframe that lands exactly on the asset's last second back inside the
     #: media handle. The worker refuses a keyframe outside the approved range rather than
@@ -4711,12 +4861,17 @@ def create_app(
 
         Mirrors the built-in route's journaled-job pacing (``_resolve_visual_job``
         + cursor), but each asset is uploaded to a TwelveLabs index and its
-        ``video_id`` recorded in the brain. An asset still indexing does NOT
-        advance the cursor — the slice is re-posted (like the built-in loop) until
-        every asset is terminal. Captioning is a no-op: TwelveLabs understands the
-        audio track natively, so no per-scene VLM captions are needed. Honest-
+        ``video_id`` recorded in the brain. An asset still measuring, uploading or
+        indexing does NOT advance the cursor — the slice is re-posted (like the built-in
+        loop) until every asset is terminal. Captioning is a no-op: TwelveLabs understands
+        the audio track natively, so no per-scene VLM captions are needed. Honest-
         unavailable: an auth failure reports ``invalid_api_key``; other API
         failures surface their message; no key never reaches here.
+
+        Those three "still working" states surface ONLY as an un-advanced item (its
+        ``reason`` is ``measuring``/``uploading``/``indexing``), never as the response's
+        ``reason``: the host's loop treats a response-level reason on a not-done slice as
+        terminal (``visual-index-client.ts``), and these are the opposite of terminal.
         """
         # The governor's pause, on this route too (plan VU8 §8.3). "Hosted means network"
         # is true for tiers 1 and 2 and FALSE for tier 0: the measurement below is a local
@@ -4858,6 +5013,19 @@ def create_app(
                 else _TierOutcome("skipped", NOT_REQUESTED_REASON)
             )
             tiers = {**tier_states, "measured": tier0.label()}
+            if not tier0.complete:
+                # Tier 0 is still decoding on its own thread: keep the cursor here and
+                # leave TwelveLabs alone until it finishes. Running the hosted step
+                # alongside would be worse than waiting — a terminal TwelveLabs failure
+                # is recorded as a `failed` mapping, which the next slice reads as
+                # "upload afresh", so every re-post until the measurement finished would
+                # send the whole file again. Not a failure, so it counts toward nothing.
+                return _AssetOutcome(
+                    item=VisualIndexItem(
+                        asset_id=asset_id, ok=True, reason=tier0.reason, tiers=tiers
+                    ),
+                    advanced=False,
+                )
             asset = store.get_asset(asset_id)
             if asset is None:
                 return _AssetOutcome(
@@ -4900,7 +5068,9 @@ def create_app(
                 )
             content_hash = asset.content_sha256 or _sha256_file(media_path)
 
-            def _upload(idx: str = index_id, path: Path = media_path) -> str:
+            def _send(idx: str, path: Path) -> str:
+                # Runs on the `SliceWork` thread: the file and the network only, never the
+                # brain (the mapping is written by the slice that collects the task id).
                 # Classified here, not up front: only a fresh upload needs it, and a
                 # probe-less asset would otherwise pay an ffprobe on every slice.
                 audio_only = _audio_only_media(asset, path, timeout)
@@ -4925,6 +5095,19 @@ def create_app(
                             f"Could not prepare {path.name} for TwelveLabs: {exc}"
                         ) from exc
                     return client.create_index_task(idx, carrier)
+
+            def _upload(idx: str = index_id, path: Path = media_path) -> str | Pending:
+                # The upload is minutes for a long source (a 1.05 GB file is 100 x 10 MB
+                # chunks, 5.3 min on the measured link) and scales with the user's
+                # bandwidth, so it runs on its own thread. This slice waits on it for the
+                # poll budget; a later slice's call collects the SAME upload. Keyed by the
+                # bytes as well as the asset, so a file re-exported mid-upload is uploaded
+                # anew rather than answered with the old bytes' task.
+                return slice_work.run(
+                    ("tl-upload", idx, asset_id, content_hash),
+                    lambda: _send(idx, path),
+                    budget=TL_SLICE_POLL_BUDGET_SECONDS,
+                )
 
             try:
                 outcome = poll_index_asset(
@@ -5120,6 +5303,25 @@ def create_app(
         unavailable: no sandbox root, no embedding key, or a mid-batch key
         exhaustion all report a typed ``reason`` instead of crashing. Keys are
         never logged.
+
+        ## How long one call may take
+
+        Bounded by per-step budgets, not by the media. A step whose cost scales with
+        the file — tier 0's whole-file decode, a TwelveLabs upload — is started by a
+        slice on its own thread (``SliceWork``) and waited on for a budget
+        (:data:`TIER0_SLICE_WAIT_SECONDS`, then
+        :data:`~framepilot_engine.brain.twelvelabs_index.TL_SLICE_POLL_BUDGET_SECONDS`
+        for the upload and the same again for task polling; tier 2 has its own
+        per-asset budget). Still running when the budget expires, the asset keeps the
+        cursor and the next call collects the same work. So a TwelveLabs call costs
+        tens of seconds whatever the file's length or the user's bandwidth. Before, a
+        58:51, 1.05 GB source held one request open through a 72.7 s decode (which
+        failed its flat 60 s bound) and a 5.3-minute upload, the host gave up at 300 s,
+        and the asset was never indexed.
+
+        Not yet bounded this way: the built-in tier-1 arms (``_index_one_asset``'s
+        scene detection, sampling and embedding; ``_label_tier1_local``'s per-shot
+        keyframes) still run inside the call and scale with the asset.
         """
         with _visual_index_lock(req.project_id):
             root = settings.projects_root
@@ -5325,11 +5527,35 @@ def create_app(
                 # resolved above, and running it after them would make the keyless floor
                 # depend on the keyed tiers again.
                 tier0 = (
-                    _measure_tier0(store, asset_id, resolved_root, timeout)
+                    _measure_tier0(
+                        store,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                        # Only the measured pass carries the governor's tier-0 CPU bound
+                        # (its pool is `tier_workers("measured")`). The deep pass is sized
+                        # for overlapping provider waits, and a tier-0 decode there sits
+                        # in front of this asset's tier-1 call: gating it would serialise
+                        # the provider calls behind the CPU bound.
+                        decode_gate=(
+                            _measured_pass_decode_gate if current.phase == MEASURED_PHASE else None
+                        ),
+                    )
                     if want_measured
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
                 tiers = {**tier_states, "measured": tier0.label()}
+                if not tier0.complete:
+                    # Tier 0 is still decoding on its own thread; the next slice collects
+                    # it. Tiers 1 and 2 wait with the cursor: tier 2 and the local tier-1
+                    # arm work from the shots tier 0 writes, so they would find none yet,
+                    # and the cursor cannot advance past an asset whose floor is not laid.
+                    return _AssetOutcome(
+                        item=VisualIndexItem(
+                            asset_id=asset_id, ok=True, reason=tier0.reason, tiers=tiers
+                        ),
+                        advanced=False,
+                    )
 
                 def _with_tier2(item: VisualIndexItem, advanced: bool) -> _AssetOutcome:
                     """Run tier 2 for this asset, after whichever tier-1 arm ran.
@@ -5795,10 +6021,12 @@ def create_app(
     ) -> VisualSearchResponse:
         """Serve visual search through TwelveLabs (the ``twelveLabsKey`` backend).
 
-        TwelveLabs fuses visual + audio + speech internally, so its ranked clips
-        are mapped straight onto the evidence-packet contract (no local vector KNN
-        / FTS). A project doc still supplies the clips + transcript used to enrich
-        ``transcriptOverlap`` (plan MI5.2). Honest-unavailable: an unindexed
+        Asks for the ``visual`` modality only (:data:`VISUAL_SEARCH_OPTIONS`): this route
+        answers what is ON SCREEN, and the speech and audio modalities made narrated
+        footage answer from its words instead. Ranked clips map straight onto the
+        evidence-packet contract (no local vector KNN / FTS). A project doc still
+        supplies the clips + transcript used to enrich ``transcriptOverlap`` (plan
+        MI5.2). Honest-unavailable: an unindexed
         project reports ``not_indexed``; an auth failure ``invalid_api_key``; a
         transport failure is ``available=False`` so the caller degrades cleanly.
         """
@@ -5816,7 +6044,9 @@ def create_app(
         if index_id is None:
             return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         try:
-            clips = client.search(index_id, req.query, page_limit=max(req.k, 10))
+            clips = client.search(
+                index_id, req.query, options=VISUAL_SEARCH_OPTIONS, page_limit=max(req.k, 10)
+            )
         except TwelveLabsIndexInaccessibleError:
             return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         except TwelveLabsAuthError:
@@ -5886,6 +6116,26 @@ def create_app(
         )
         return [{"word": w.value, "start": w.start, "end": w.end} for w in words]
 
+    @dataclass(frozen=True)
+    class _PegasusFetch:
+        """An asset's Pegasus map that has to be asked for: no cache, a live mapping."""
+
+        asset_ref: str
+        content_hash: str
+        duration_seconds: float | None
+
+    PegasusMap = tuple[list[Any], list[Any], str]
+
+    def _asset_duration(store: BrainStore, asset_id: str) -> float | None:
+        """The asset's probed duration, or ``None`` when it has no usable probe."""
+        asset = store.get_asset(asset_id)
+        if asset is None or asset.probe is None:
+            return None
+        try:
+            return MediaInfo.model_validate(asset.probe).duration_seconds
+        except PydanticValidationError:
+            return None
+
     def _pegasus_asset_map(
         client: TwelveLabsClient,
         store: Any,
@@ -5897,7 +6147,7 @@ def create_app(
         index_id: str | None,
         can_fetch: bool,
         refresh: bool,
-    ) -> tuple[list[Any], list[Any], str] | None:
+    ) -> PegasusMap | _PegasusFetch | None:
         """One asset's Pegasus map (asset time): the CACHE is authoritative.
 
         Cache-first and index-INDEPENDENT (plan FI2.3): a stored map for the current
@@ -5910,8 +6160,8 @@ def create_app(
         A miss can be fetched only when ``can_fetch`` (a ready live mapping with a
         ``video_id``); otherwise ``None`` (no cache, nothing to charge for). ``refresh``
         forces a re-fetch past the cache — the explicit "rebuild" escape hatch, never
-        the default. Raises the typed TwelveLabs errors so the route degrades honestly
-        (auth / pegasus_unavailable / transport) — never a fabricated map.
+        the default. A fetchable miss is returned as a :class:`_PegasusFetch` for
+        :func:`_collect_pegasus_map`, which runs it without holding the request.
 
         Pegasus 1.5 generates from the UPLOADED asset, so a fetch needs
         ``source_asset_id``. Mappings written before that id was persisted fall back to
@@ -5946,20 +6196,73 @@ def create_app(
                 asset_id,
             )
             return None
-        chapters = client.summarize_chapters(asset_ref)
-        highlights = client.summarize_highlights(asset_ref)
-        gist = client.summarize_gist(asset_ref)
-        # Persist even an empty-but-successful result so an unchanged asset is never
-        # re-charged on the next open (plan FI2.3).
+        return _PegasusFetch(
+            asset_ref=asset_ref,
+            content_hash=content_hash,
+            duration_seconds=_asset_duration(store, asset_id),
+        )
+
+    def _collect_pegasus_map(
+        client: TwelveLabsClient,
+        store: Any,
+        asset_id: str,
+        fetch: _PegasusFetch,
+        *,
+        wait: float,
+    ) -> PegasusMap | Pending:
+        """Start (or join) one asset's Pegasus map and wait for it at most ``wait`` seconds.
+
+        Pegasus reads the whole video before it answers, so a map takes time in
+        proportion to the footage — minutes for an hour of it. The three calls therefore
+        run as one :class:`SliceWork` unit, shared by every request that asks while it
+        runs, and a request that runs out of ``wait`` gets :data:`PENDING` and leaves the
+        work running for the next call to collect. Keyed by the uploaded asset, the bytes
+        and :data:`~framepilot_engine.brain.twelvelabs.PEGASUS_MAP_PROMPT_VERSION`, so a
+        re-export or a changed prompt is a new map, never the old answer.
+
+        The cache is written HERE, on the request's thread, never on the unit's: the
+        store's connection belongs to this thread. Even an empty-but-successful result is
+        cached, so an unchanged asset is never re-charged on the next open (plan FI2.3).
+
+        :raises TwelveLabsError: Whatever the unit raised, to the call that collects it —
+            the typed errors the routes already degrade on.
+        """
+        fetched = slice_work.run(
+            ("pegasus-map", fetch.asset_ref, fetch.content_hash, PEGASUS_MAP_PROMPT_VERSION),
+            lambda: _fetch_pegasus_map(client, fetch),
+            budget=wait,
+        )
+        if isinstance(fetched, Pending):
+            return fetched
+        chapters, highlights, summary = fetched
         store_cached_pegasus(
             store,
             asset_id,
-            content_hash=content_hash,
+            content_hash=fetch.content_hash,
             chapters=chapters,
             highlights=highlights,
-            summary=gist.summary,
+            summary=summary,
         )
-        return list(chapters), list(highlights), gist.summary
+        return list(chapters), list(highlights), summary
+
+    def _fetch_pegasus_map(
+        client: TwelveLabsClient, fetch: _PegasusFetch
+    ) -> tuple[list[TLChapter], list[TLHighlight], str]:
+        """The three Pegasus calls for one asset: the network only, never the brain.
+
+        Runs on a :class:`SliceWork` thread, holding a :data:`_pegasus_map_gate` slot.
+        Each call's read bound scales with the asset's duration
+        (:func:`~framepilot_engine.brain.twelvelabs.pegasus_timeout_seconds`).
+        """
+        with _pegasus_map_gate:
+            chapters = client.summarize_chapters(
+                fetch.asset_ref, duration_seconds=fetch.duration_seconds
+            )
+            highlights = client.summarize_highlights(
+                fetch.asset_ref, duration_seconds=fetch.duration_seconds
+            )
+            gist = client.summarize_gist(fetch.asset_ref, duration_seconds=fetch.duration_seconds)
+        return chapters, highlights, gist.summary
 
     def _clips_by_asset(project_doc: Project | None) -> dict[str, list[Any]]:
         """Group a working project's clips by asset id (for span→timeline projection)."""
@@ -5986,15 +6289,84 @@ def create_app(
         mapping calls Pegasus (chapters/highlights/summary), which is then cached. Each
         asset's map is projected onto timeline time and merged in time order.
 
+        ## How long one call may take
+
+        At most :data:`PEGASUS_MAP_WAIT_SECONDS` of waiting on Pegasus, whatever the
+        footage's length or the number of assets. Every miss is STARTED first, as its own
+        :class:`SliceWork` unit (bounded by ``_pegasus_map_gate``), and then all of them
+        share one deadline. An asset still mapping when it passes is listed in
+        ``pendingAssets`` and left running; the next call collects it. Before, the route
+        held the request for every asset's three Pegasus calls in turn, and a 58:51 reel's
+        chapters alone outlasted the client's 120 s read bound, so an hour of footage
+        never got a map.
+
         Honest-unavailable: nothing cached and nothing live to fetch → ``not_indexed``;
-        no Pegasus entitlement → ``pegasus_unavailable``; auth failure →
-        ``invalid_api_key``; transport failure → ``available=False``.
+        nothing cached yet but a map on its way → ``mapping``; no Pegasus entitlement →
+        ``pegasus_unavailable``; auth failure → ``invalid_api_key``; transport failure →
+        ``available=False``.
         """
         clips_by_asset = _clips_by_asset(project_doc)
         chapters: list[FootageChapter] = []
         highlights: list[FootageHighlight] = []
         summaries: list[str] = []
+        pending_assets: list[str] = []
         coverage: FootageMapCoverage | None = None
+
+        def serve(asset_id: str, pegasus: PegasusMap) -> None:
+            """Merge one asset's map into the response, in the clock the caller asked for."""
+            tl_chapters, tl_highlights, gist = pegasus
+            if req.asset_time:
+                # Asset-native: the footage's OWN structure, independent of the
+                # timeline (so it is complete even when the asset is unplaced or
+                # trimmed). The UI projects onto the timeline itself when editing.
+                for c in tl_chapters:
+                    chapters.append(
+                        FootageChapter(
+                            t0=c.start,
+                            t1=c.end,
+                            title=c.title,
+                            summary=c.summary,
+                            asset_id=asset_id,
+                        )
+                    )
+                for rank, h in enumerate(tl_highlights, start=1):
+                    highlights.append(
+                        FootageHighlight(
+                            t0=h.start,
+                            t1=h.end,
+                            label=h.label,
+                            score=1.0 / rank,
+                            asset_id=asset_id,
+                        )
+                    )
+            else:
+                for mc in map_pegasus_chapters(
+                    tl_chapters, asset_id=asset_id, clips_by_asset=clips_by_asset
+                ):
+                    chapters.append(
+                        FootageChapter(
+                            t0=mc.t0,
+                            t1=mc.t1,
+                            title=mc.title,
+                            summary=mc.summary,
+                            asset_id=asset_id,
+                        )
+                    )
+                for mh in map_pegasus_highlights(
+                    tl_highlights, asset_id=asset_id, clips_by_asset=clips_by_asset
+                ):
+                    highlights.append(
+                        FootageHighlight(
+                            t0=mh.t0,
+                            t1=mh.t1,
+                            label=mh.label,
+                            score=mh.score,
+                            asset_id=asset_id,
+                        )
+                    )
+            if gist:
+                summaries.append(gist)
+
         try:
             with open_brain(resolved_root, req.project_id) as store:
                 coverage = _map_coverage(store)
@@ -6006,6 +6378,7 @@ def create_app(
                 if req.asset_id is not None:
                     targets = [a for a in targets if a == req.asset_id]
                 served_assets = 0
+                waiting: list[tuple[str, _PegasusFetch]] = []
                 for asset_id in targets:
                     mapping = read_video_mapping(store, asset_id)
                     # content_hash falls back to the asset row so the cache is reachable
@@ -6023,7 +6396,7 @@ def create_app(
                         and mapping.ready_in(index_id)
                         and mapping.video_id is not None
                     )
-                    pegasus = _pegasus_asset_map(
+                    planned = _pegasus_asset_map(
                         client,
                         store,
                         asset_id,
@@ -6037,7 +6410,7 @@ def create_app(
                         can_fetch=can_fetch and not req.cached_only,
                         refresh=req.refresh,
                     )
-                    if pegasus is None:
+                    if planned is None:
                         # No cache and no live index to fetch from — skip this asset
                         # rather than charge for or fabricate a map.
                         _log.debug(
@@ -6046,59 +6419,31 @@ def create_app(
                             can_fetch and not req.cached_only,
                         )
                         continue
+                    if isinstance(planned, _PegasusFetch):
+                        # Started now and waited on below, so every miss runs while the
+                        # others do and the request waits one budget, not one per asset.
+                        # A map that finished since an earlier call is collected here.
+                        started = _collect_pegasus_map(client, store, asset_id, planned, wait=0.0)
+                        if isinstance(started, Pending):
+                            waiting.append((asset_id, planned))
+                            continue
+                        planned = started
                     served_assets += 1
-                    tl_chapters, tl_highlights, gist = pegasus
-                    if req.asset_time:
-                        # Asset-native: the footage's OWN structure, independent of the
-                        # timeline (so it is complete even when the asset is unplaced or
-                        # trimmed). The UI projects onto the timeline itself when editing.
-                        for c in tl_chapters:
-                            chapters.append(
-                                FootageChapter(
-                                    t0=c.start,
-                                    t1=c.end,
-                                    title=c.title,
-                                    summary=c.summary,
-                                    asset_id=asset_id,
-                                )
-                            )
-                        for rank, h in enumerate(tl_highlights, start=1):
-                            highlights.append(
-                                FootageHighlight(
-                                    t0=h.start,
-                                    t1=h.end,
-                                    label=h.label,
-                                    score=1.0 / rank,
-                                    asset_id=asset_id,
-                                )
-                            )
-                    else:
-                        for mc in map_pegasus_chapters(
-                            tl_chapters, asset_id=asset_id, clips_by_asset=clips_by_asset
-                        ):
-                            chapters.append(
-                                FootageChapter(
-                                    t0=mc.t0,
-                                    t1=mc.t1,
-                                    title=mc.title,
-                                    summary=mc.summary,
-                                    asset_id=asset_id,
-                                )
-                            )
-                        for mh in map_pegasus_highlights(
-                            tl_highlights, asset_id=asset_id, clips_by_asset=clips_by_asset
-                        ):
-                            highlights.append(
-                                FootageHighlight(
-                                    t0=mh.t0,
-                                    t1=mh.t1,
-                                    label=mh.label,
-                                    score=mh.score,
-                                    asset_id=asset_id,
-                                )
-                            )
-                    if gist:
-                        summaries.append(gist)
+                    serve(asset_id, planned)
+                deadline = time.monotonic() + PEGASUS_MAP_WAIT_SECONDS
+                for asset_id, fetch in waiting:
+                    collected = _collect_pegasus_map(
+                        client,
+                        store,
+                        asset_id,
+                        fetch,
+                        wait=max(0.0, deadline - time.monotonic()),
+                    )
+                    if isinstance(collected, Pending):
+                        pending_assets.append(asset_id)
+                        continue
+                    served_assets += 1
+                    serve(asset_id, collected)
                 # Assets the hosted backend never mapped are understood by the
                 # built-in index instead — stills are routed there because
                 # TwelveLabs cannot index a photo. Their chapters ARE the entire
@@ -6143,6 +6488,22 @@ def create_app(
         except TwelveLabsError as exc:
             return FootageMapResponse(available=False, reason=str(exc))
 
+        if served_assets == 0 and pending_assets:
+            # Nothing to show YET, which is not the same as nothing indexed: a `not_indexed`
+            # here would tell the model to give up on footage whose map is minutes away.
+            _log.info(
+                "twelvelabs footage-map: project=%s still mapping=%s",
+                req.project_id,
+                ",".join(pending_assets),
+            )
+            return FootageMapResponse(
+                available=True,
+                backend="twelvelabs",
+                reason=MAPPING_IN_PROGRESS_REASON,
+                time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
+                pending_assets=pending_assets,
+            )
         if served_assets == 0:
             return FootageMapResponse(
                 available=True,
@@ -6161,11 +6522,12 @@ def create_app(
             highlights.sort(key=lambda h: (-h.score, h.t0))
         duration = max([c.t1 for c in chapters] + [h.t1 for h in highlights] + [0.0])
         _log.info(
-            "ACT twelvelabs footage-map: project=%s assets=%d chapters=%d highlights=%d",
+            "ACT twelvelabs footage-map: project=%s assets=%d chapters=%d highlights=%d pending=%d",
             req.project_id,
             served_assets,
             len(chapters),
             len(highlights),
+            len(pending_assets),
         )
         return FootageMapResponse(
             available=True,
@@ -6177,6 +6539,7 @@ def create_app(
                 if req.asset_time or project_doc is None
                 else _unplaced_assets([c.asset_id for c in chapters if c.asset_id], clips_by_asset)
             ),
+            pending_assets=pending_assets,
             duration_sec=duration,
             chapters=chapters,
             highlights=highlights,
@@ -6383,6 +6746,11 @@ def create_app(
         (cached, content-hash keyed); the built-in arm derives the map from indexed
         spans/captions. Honest-unavailable at every gate — no sandbox root / no key /
         no Pegasus entitlement / not indexed → a typed reason, never a fabricated map.
+
+        Bounded whatever the footage's length: a Pegasus fetch runs off the request and
+        the call waits at most :data:`PEGASUS_MAP_WAIT_SECONDS`, answering with what is
+        cached plus ``pendingAssets`` (or ``reason="mapping"`` when nothing is ready).
+        The next call collects the rest. See :func:`_tl_footage_map`.
         """
         root = settings.projects_root
         if root is None:
@@ -6401,12 +6769,16 @@ def create_app(
 
     @app.post("/brain/visual/search", response_model=VisualSearchResponse)
     def brain_visual_search_route(req: VisualSearchRequest) -> VisualSearchResponse:
-        """Fused visual search over vectors + captions + transcript (plan MI5.1/§3.4).
+        """Fused visual search over frame vectors + frame captions (plan MI5.1/§3.4).
 
         Embeds the query cross-modally (nemotron ``input_type='query'`` — never
-        stored), runs the visual KNN, caption/transcript FTS, and text-vector
-        recall in one brain session, then fuses them by reciprocal rank into
-        evidence packets (:mod:`framepilot_engine.brain.visual_search`). An
+        stored), runs the visual KNN, caption FTS, and text-vector recall over
+        CAPTIONS in one brain session, then fuses them by reciprocal rank into
+        evidence packets (:mod:`framepilot_engine.brain.visual_search`). The
+        transcript is deliberately not a lane: this route answers what is on screen,
+        and a narrated video's words used to rank its spans by when something was
+        SAID (desktop run 001be135). ``transcriptOverlap`` still reports the words
+        under each span, labelled as such. An
         optional project source supplies the clips that project spans onto
         timeline time and the transcript for ``transcriptOverlap`` (plan MI5.2).
         Honest-unavailable: no sandbox root or unusable brain → ``available=False``;
@@ -6477,10 +6849,11 @@ def create_app(
                     model=query_space,
                 )
                 caption_fts = store.search_captions(req.query, limit=VISUAL_SEARCH_POOL)
-                transcript_fts = store.search_transcript(req.query, limit=VISUAL_SEARCH_POOL)
                 semantic: list[SearchHit] = []
                 if text_res.embedder is not None:
-                    rows = store.list_embeddings(text_res.embedder.model_id)
+                    rows = store.list_embeddings(
+                        text_res.embedder.model_id, owner_type=OWNER_TYPE_CAPTION
+                    )
                     semantic = semantic_hits(
                         text_res.embedder, req.query, rows, limit=VISUAL_SEARCH_POOL
                     )
@@ -6502,7 +6875,7 @@ def create_app(
         packets = build_evidence_packets(
             visual_hits=visual_hits,
             caption_fts_hits=caption_fts,
-            transcript_fts_hits=transcript_fts,
+            transcript_fts_hits=[],
             semantic_hits=semantic,
             spans=spans,
             captions=captions,
@@ -6513,13 +6886,11 @@ def create_app(
             time_range=req.time_range,
         )
         _log.info(
-            "ACT visual search: project=%s backend=%s visual=%d caption=%d transcript=%d "
-            "semantic=%d packets=%d",
+            "ACT visual search: project=%s backend=%s visual=%d caption=%d semantic=%d packets=%d",
             req.project_id,
             backend,
             len(visual_hits),
             len(caption_fts),
-            len(transcript_fts),
             len(semantic),
             len(packets),
         )
@@ -6567,6 +6938,12 @@ def create_app(
         The chapters are also written into the shot ledger as tier-2 descriptions
         (:func:`_ledger_tl_chapters`), so what this paid for reaches every later
         run's clip rows instead of dying with the turn that asked.
+
+        A map that is not cached yet is fetched exactly as the footage-map route fetches
+        it — the same :class:`SliceWork` unit, so the two routes never pay for one asset
+        twice — and this request waits at most :data:`PEGASUS_MAP_WAIT_SECONDS` for it.
+        Still running after that answers ``mapping`` and leaves the work running for the
+        next call to collect.
         """
         project_doc: Project | None = None
         if req.project_path is not None or req.project is not None:
@@ -6587,7 +6964,7 @@ def create_app(
                     return VisualSearchResponse(
                         available=True, backend="twelvelabs", reason="not_indexed"
                     )
-                pegasus = _pegasus_asset_map(
+                planned = _pegasus_asset_map(
                     client,
                     store,
                     req.asset_id,
@@ -6598,6 +6975,22 @@ def create_app(
                     can_fetch=True,
                     refresh=False,
                 )
+                pegasus: PegasusMap | Pending | None = (
+                    _collect_pegasus_map(
+                        client, store, req.asset_id, planned, wait=PEGASUS_MAP_WAIT_SECONDS
+                    )
+                    if isinstance(planned, _PegasusFetch)
+                    else planned
+                )
+                if isinstance(pegasus, Pending):
+                    _log.info(
+                        "twelvelabs describe: project=%s asset=%s still mapping",
+                        req.project_id,
+                        req.asset_id,
+                    )
+                    return VisualSearchResponse(
+                        available=True, backend="twelvelabs", reason=MAPPING_IN_PROGRESS_REASON
+                    )
                 # The guard above guarantees a live mapping, so the cache miss is
                 # always fetchable — `None` cannot occur here, but stay honest if it does.
                 if pegasus is None:
@@ -8812,6 +9205,16 @@ def _sha256_file(path: Path, *, chunk_bytes: int = 1 << 20) -> str:
         while chunk := handle.read(chunk_bytes):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _tier0_decode_timeout(duration_seconds: float, media_timeout: float) -> float:
+    """The ffmpeg bound for one of tier 0's whole-file passes over ``duration_seconds``.
+
+    Scaled by :data:`_TIER0_SECONDS_PER_MEDIA_SECOND` because a decode costs time in
+    proportion to the footage, and floored by the media timeout so a short clip (or a
+    still, whose duration is a nominal 0.04 s) keeps the usual bound.
+    """
+    return max(media_timeout, duration_seconds * _TIER0_SECONDS_PER_MEDIA_SECOND)
 
 
 def _replace_file_text(path: Path, text: str) -> None:
