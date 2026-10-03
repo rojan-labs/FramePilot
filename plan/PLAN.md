@@ -11372,6 +11372,28 @@ schema migration (new optional keys on the existing `tl:video` mapping row), no 
   that stops answering mid-run (re-checked next slice, never `invalid_api_key`); the TL suites
   around them 248 passed in all; `mypy .` and ruff clean. Live re-run pending (coordinator)._
 
+## Transcription: audio files on TwelveLabs + local timeout — `[x]` done (2026-10-03)
+
+Maintainer report: "transcription of audio file is not working with twelve labs, and when I do
+local it times out in 60 seconds". The project: `ro_voiceover.m4a`, 415 s, Hindi narration.
+Branch `fix/transcribe-audio-tl-local-timeout`. No schema change, no new dependency.
+
+- [x] **TRX1** TwelveLabs refuses to attach an audio-only upload to an index (`404
+  resource_not_exists` on `/indexed-assets`, for MP3/WAV/M4A, even on an audio-only Marengo
+  index — probed live), while the same sound under a black picture indexes. The hosted index
+  route now uploads audio-only media (no moving picture; cover art at the 90 kHz timebase is not
+  picture) through a 1 fps black carrier encoded into a temp dir (`wrap_audio_in_video`,
+  `media/derive.py`); footage is untouched; an encode failure fails the asset with a reason.
+  _Evidence: `test_service_twelvelabs_audio.py` 4 + `test_media_derive.py` argv tests; TL suites
+  98 passed; mypy/ruff clean. Live, isolated project copy + sidecar on :8811: one slice indexed
+  the voiceover, `/transcribe` (twelvelabs) returned 1497 words spanning 0–413.9 s._
+- [x] **TRX2** Local whisper-cli shared the 60 s `FRAMEPILOT_ASSET_MEDIA_TIMEOUT_SECONDS` with
+  the decode; it took 263 s for the 415 s clip. Now bounded at max(300 s, 2 s/audio-second,
+  caller's bound), read from the decoded WAV. _Evidence: `test_asr.py` (bound scales, floor)._
+- [x] **TRX3** The agent executor's fixed 900 s `transcribe` ceiling would undercut the engine's
+  bound past ~7 minutes of audio; it is now max(900 s, 2 s/audio-second + 120 s) for the named
+  asset. _Evidence: `sidecar-executor.test.ts` budget test (20-minute asset → 2,520 s)._
+
 **Last updated:** 2026-10-03
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)

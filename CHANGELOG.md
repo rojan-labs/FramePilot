@@ -104,6 +104,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Audio files now transcribe with TwelveLabs.** A voiceover or music file (MP3, WAV, M4A)
+  always failed with "TwelveLabs API error (HTTP 404) (resource_not_exists)", because TwelveLabs
+  indexes only video. FramePilot now puts the audio under a plain black picture before it
+  uploads. The copy is made in a temporary folder and deleted after the upload, never next to
+  your footage. Your file is not changed.
+- **Local transcription no longer stops after 60 seconds.** Any clip longer than about a minute
+  and a half failed with "Timed out after 60.0s". The time allowed now grows with the length of
+  the audio. A 7-minute voiceover takes about 4½ minutes on an M-series Mac.
 - **Camera files over 200 MB now index with TwelveLabs.** They used to upload in full, be
   refused as too large, and then upload again on the next try. Video up to 10 GB now uploads in
   parts. A file TwelveLabs can't take (over 10 GB, say, or too long) is reported once in plain
