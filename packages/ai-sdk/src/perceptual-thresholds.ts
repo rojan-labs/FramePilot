@@ -69,6 +69,37 @@ export const AUDIO_PEAK_DBFS = {
 export const MAX_AUDIO_BOUNDARY_JUMP_DB = 12;
 
 /**
+ * The quietest level an edit-boundary check counts as sound, in dBFS RMS (pre-encode
+ * composite). Each side of a splice is raised to it before the jump is taken.
+ *
+ * The jump used to floor at digital silence (-120 dBFS), so a music bed fading in from
+ * nothing read its first frames (-86.6 dBFS on run x59-1) as a 34 dB step up from the
+ * silence before it. -60 sits just under the quietest real background in the recordings this
+ * was measured on: room tone in `speech-9min.mp4` and the X-59 runway ambience reach -58 and
+ * -57 dBFS RMS (20 ms windows, 1st percentile). So a change in room tone across a cut still
+ * counts, and a fade's first moments do not. It is 46 dB under the -14 LUFS the loudness check
+ * aims at. With {@link MAX_AUDIO_BOUNDARY_JUMP_DB} that means a jump needs its louder side at
+ * -48 dBFS or above.
+ *
+ * Not the silence detector's -30 dB (`analysis/silence.py#DEFAULT_NOISE_FLOOR_DB`): that is a
+ * PEAK level, set high on purpose so room tone counts as a pause to cut. As an RMS floor here
+ * it would hide the room-tone and quiet-bed steps a viewer does hear.
+ */
+export const AUDIBLE_RMS_FLOOR_DBFS = -60;
+
+/**
+ * How much of a sound's first (or last) moment an entry from silence (or an exit into it)
+ * is judged by, in seconds.
+ *
+ * A clip that enters at its full level clicks. One that fades in does not, but the RMS of the
+ * three frames after the boundary cannot tell them apart, since a half-second fade has
+ * covered a fifth of its range by then. Ten milliseconds (480 samples at 48 kHz) is where a
+ * hard entry is already at its level and any fade worth the name is still near silence: a
+ * 0.5 s linear fade is 39 dB under its content there.
+ */
+export const AUDIO_ONSET_SECONDS = 0.01;
+
+/**
  * Black-frame ceilings.
  *
  * `review` is per FRAME: one near-black frame inside an edit boundary is a visible flash, and

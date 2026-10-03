@@ -2,10 +2,18 @@
 import { z } from 'zod/v4';
 import { fromEngine } from './engine-optional.js';
 import { framePlanAt, type EditorCommand, type EditorCommandFact } from '@framepilot/editor-core';
-import { effectLayersOf, masksOf, type Keyframe, type Project } from '@framepilot/timeline-schema';
+import {
+  effectLayersOf,
+  masksOf,
+  type Keyframe,
+  type Project,
+  type Timeline,
+} from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import type { EditResult } from './assemble.js';
 import {
+  AUDIBLE_RMS_FLOOR_DBFS,
+  AUDIO_ONSET_SECONDS,
   AUDIO_PEAK_DBFS,
   BLACK_FRAME,
   MAX_AUDIO_BOUNDARY_JUMP_DB,
@@ -100,6 +108,27 @@ const MotionEvidenceRequestSchema = RequestBaseSchema.extend({
     message: 'Motion evidence requires endFrame > startFrame.',
   });
 
+/** How many tracks or clips one splice may name; a boundary is a handful of clip edges. */
+const MAX_SPLICE_IDS = 16;
+
+/**
+ * What a boundary is made of: the tracks whose clip edges meet on `boundaryFrame`, and the
+ * clips that end (`from`) and start (`to`) there.
+ *
+ * The engine measures `trackIds` ALONE for the jump. It used to measure the mix, so on run
+ * x59-1 a radio call starting inside a continuous clip on the picture track (-55 → -20 dBFS)
+ * read as the music bed's entry: "Audio discontinuity 21.7 dB" at a bed that faded in from
+ * -86.6 dBFS, three turns of re-fading that never moved it. The clip ids are for the finding,
+ * so it can say which clip to fade. Mirrors `temporal_evidence.py#AudioSplice`.
+ */
+const AudioSpliceSchema = z
+  .object({
+    trackIds: z.array(id).min(1).max(MAX_SPLICE_IDS),
+    fromClipIds: z.array(id).max(MAX_SPLICE_IDS).default([]),
+    toClipIds: z.array(id).max(MAX_SPLICE_IDS).default([]),
+  })
+  .strict();
+
 const AudioEvidenceRequestSchema = RequestBaseSchema.extend({
   kind: z.literal('audio'),
   ...frameRangeFields,
@@ -107,6 +136,8 @@ const AudioEvidenceRequestSchema = RequestBaseSchema.extend({
   maxPeakDbfs: finite.max(0).default(AUDIO_PEAK_DBFS.review.value),
   maxBoundaryJumpDb: finite.nonnegative().default(MAX_AUDIO_BOUNDARY_JUMP_DB),
   boundaryFrame: frame.optional(),
+  /** Absent on a request from before the splice was named: its jump is measured on the mix. */
+  splice: AudioSpliceSchema.optional(),
 })
   .strict()
   .refine((value) => value.endFrame > value.startFrame, {
@@ -121,7 +152,15 @@ const AudioEvidenceRequestSchema = RequestBaseSchema.extend({
       path: ['boundaryFrame'],
       message: 'boundaryFrame must sit strictly inside the window, with frames on both sides.',
     },
-  );
+  )
+  .refine((value) => value.splice === undefined || value.boundaryFrame !== undefined, {
+    path: ['splice'],
+    message: 'splice names the source of a boundary, so it needs boundaryFrame.',
+  })
+  .refine((value) => value.splice === undefined || value.channels === 'mix', {
+    path: ['splice'],
+    message: "splice isolates its own tracks, so channels must be 'mix'.",
+  });
 
 const LoudnessEvidenceRequestSchema = RequestBaseSchema.extend({
   kind: z.literal('loudness'),
@@ -277,9 +316,17 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
           .object({
             startFrame: frame,
             endFrame: frame,
+            /** The MIX's peak and RMS over the window, whatever the boundary was measured on. */
             peakDbfs: finite,
             rmsDbfs: finite,
             boundaryJumpDb: fromEngine(finite.nonnegative()),
+            /**
+             * The level each side of the boundary was compared at, dBFS RMS, raised to
+             * {@link AUDIBLE_RMS_FLOOR_DBFS}. A side AT the floor was silent, which is how the
+             * finding tells an entry or an exit from a cut.
+             */
+            boundaryBeforeDbfs: fromEngine(finite),
+            boundaryAfterDbfs: fromEngine(finite),
           })
           .strict(),
       )
@@ -412,6 +459,66 @@ function motionIssues(
     }
   }
   return issues;
+}
+
+type AudioRequest = Extract<TemporalEvidenceRequest, { kind: 'audio' }>;
+type AudioSample = Extract<TemporalEvidenceResult, { kind: 'audio' }>['samples'][number];
+
+const dbText = (value: number): string => (Math.round(value * 10) / 10).toFixed(1);
+
+/** ` (a, b)` naming the clips, or nothing when the planner named none. */
+const clipsText = (ids: readonly string[]): string =>
+  ids.length === 0 ? '' : ` (${ids.slice(0, 3).join(', ')}${ids.length > 3 ? ', …' : ''})`;
+
+/**
+ * A boundary jump as a finding the model can act on: which track and clip, which side was
+ * silent, the levels, and the fix.
+ *
+ * "Audio discontinuity 21.7 dB exceeds 12 dB" named no source and no remedy, so the model
+ * re-faded the only clip it could see starting there, three times, and the number never moved:
+ * it came from a radio call on another track. The levels come from the engine; a side at
+ * {@link AUDIBLE_RMS_FLOOR_DBFS} was silent, which makes the boundary an entry (judged by its
+ * first {@link AUDIO_ONSET_SECONDS} s) or an exit (by its last) rather than a cut.
+ */
+function describeBoundaryJump(
+  request: AudioRequest,
+  boundary: number,
+  sample: AudioSample,
+): string {
+  const jump = sample.boundaryJumpDb ?? 0;
+  const limit = `limit ${String(request.maxBoundaryJumpDb)} dB`;
+  const splice = request.splice;
+  const where =
+    splice === undefined
+      ? `at frame ${String(boundary)} in the mix`
+      : `at frame ${String(boundary)} on track ${splice.trackIds.join(', ')}`;
+  const before = sample.boundaryBeforeDbfs;
+  const after = sample.boundaryAfterDbfs;
+  const onsetMs = String(Math.round(AUDIO_ONSET_SECONDS * 1000));
+  if (before !== undefined && after !== undefined && before <= AUDIBLE_RMS_FLOOR_DBFS) {
+    return (
+      `Audio enters abruptly ${where}${clipsText(splice?.toClipIds ?? [])}: its first ` +
+      `${onsetMs} ms are at ${dbText(after)} dBFS, ${dbText(jump)} dB over silence (${limit}). ` +
+      'Fade it in (professional_audio level fadeInFrames) unless a hard entry is meant.'
+    );
+  }
+  if (before !== undefined && after !== undefined && after <= AUDIBLE_RMS_FLOOR_DBFS) {
+    return (
+      `Audio stops abruptly ${where}${clipsText(splice?.fromClipIds ?? [])}: its last ` +
+      `${onsetMs} ms are at ${dbText(before)} dBFS, ${dbText(jump)} dB over silence (${limit}). ` +
+      'Fade it out (professional_audio level fadeOutFrames) unless a hard stop is meant.'
+    );
+  }
+  const levels =
+    before !== undefined && after !== undefined
+      ? `, ${dbText(before)} → ${dbText(after)} dBFS`
+      : '';
+  const clips = clipsText([...(splice?.fromClipIds ?? []), ...(splice?.toClipIds ?? [])]);
+  return (
+    `Audio level steps ${dbText(jump)} dB across the cut ${where}${clips}${levels} (${limit}). ` +
+    'Fade the clips into each other (fadeOutFrames / fadeInFrames) or match their gain ' +
+    '(adjust_audio).'
+  );
 }
 
 function issuesFor(
@@ -556,9 +663,7 @@ function issuesFor(
         sample.boundaryJumpDb !== null &&
         sample.boundaryJumpDb > request.maxBoundaryJumpDb
       ) {
-        issues.push(
-          `Audio discontinuity ${sample.boundaryJumpDb} dB exceeds ${request.maxBoundaryJumpDb} dB.`,
-        );
+        issues.push(describeBoundaryJump(request, request.boundaryFrame, sample));
       }
     }
     return issues;
@@ -943,6 +1048,42 @@ function boundedMotionWindows(startFrame: number, endFrame: number): readonly [n
   ];
 }
 
+/** An interior cut on one or more audio tracks, as the edit planner found it. */
+interface AudioBoundary {
+  readonly frame: number;
+  readonly trackIds: Set<string>;
+}
+
+/**
+ * The splice at `boundaryFrame`: its tracks, and the clips on them that end or start there
+ * in the edited timeline, matched on the frame grid the boundary was found on.
+ *
+ * Read from the AFTER timeline because that is what is reviewed. A frame where a moved clip
+ * used to be may have no clip edge left on it; the track still names what to measure.
+ */
+function spliceAt(
+  after: Timeline,
+  trackIds: ReadonlySet<string>,
+  boundaryFrame: number,
+  fps: number,
+): z.infer<typeof AudioSpliceSchema> {
+  const clips = after.tracks
+    .filter((track) => trackIds.has(track.id))
+    .flatMap((track) => track.clips);
+  const onFrame = (seconds: number): boolean => Math.round(seconds * fps) === boundaryFrame;
+  const ids = (edge: 'start' | 'end'): string[] =>
+    clips
+      .filter((clip) => onFrame(clip[edge]))
+      .map((clip) => clip.id)
+      .sort()
+      .slice(0, MAX_SPLICE_IDS);
+  return {
+    trackIds: [...trackIds].sort().slice(0, MAX_SPLICE_IDS),
+    fromClipIds: ids('end'),
+    toClipIds: ids('start'),
+  };
+}
+
 /** Plan review directly from the validated before/after edit, independent of route/model prose. */
 export function planTemporalEvidenceForEdit(
   input: TemporalEditReviewPlanInput,
@@ -955,12 +1096,22 @@ export function planTemporalEvidenceForEdit(
   const afterTracks = new Map(diff.after.tracks.map((track) => [track.id, track]));
   const trackIds = [...new Set([...beforeTracks.keys(), ...afterTracks.keys()])].sort();
   const visualFrames = new Set<number>();
-  const audioFrames = new Map<number, number | undefined>();
-  const addAudioFrame = (rawFrame: number, splice = false): void => {
+  // Each audio window's centre, and — when a clip edge on an audio track makes it a cut — the
+  // tracks that cut is made of. The engine measures those tracks alone for the jump.
+  const audioFrames = new Map<number, AudioBoundary | undefined>();
+  const addAudioFrame = (rawFrame: number, spliceTrackId?: string): void => {
     const centre = Math.max(0, Math.min(input.durationFrames - 1, rawFrame));
-    const boundary =
-      splice && rawFrame > 0 && rawFrame < input.durationFrames ? rawFrame : undefined;
-    audioFrames.set(centre, audioFrames.get(centre) ?? boundary);
+    const interior = rawFrame > 0 && rawFrame < input.durationFrames;
+    const known = audioFrames.get(centre);
+    if (spliceTrackId === undefined || !interior) {
+      audioFrames.set(centre, known);
+      return;
+    }
+    if (known === undefined) {
+      audioFrames.set(centre, { frame: rawFrame, trackIds: new Set([spliceTrackId]) });
+    } else {
+      known.trackIds.add(spliceTrackId);
+    }
   };
   const motionRequests: TemporalEvidenceRequest[] = [];
   let visualChanged = false;
@@ -1029,7 +1180,7 @@ export function planTemporalEvidenceForEdit(
         }
       }
       if (trackType === 'audio') {
-        edgeFrames.forEach((edgeFrame) => addAudioFrame(edgeFrame, true));
+        edgeFrames.forEach((edgeFrame) => addAudioFrame(edgeFrame, trackId));
       } else {
         visualChanged = true;
         frames.forEach((criticalFrame) => visualFrames.add(criticalFrame));
@@ -1124,12 +1275,12 @@ export function planTemporalEvidenceForEdit(
     });
   }
   const audioRequests: TemporalEvidenceRequest[] = [];
-  for (const [criticalFrame, splice] of [...audioFrames].sort(([left], [right]) => left - right)) {
+  for (const [criticalFrame, cut] of [...audioFrames].sort(([left], [right]) => left - right)) {
     const startFrame = Math.max(0, criticalFrame - 2);
     const endFrame = Math.min(input.durationFrames, criticalFrame + 3);
     if (endFrame <= startFrame) continue;
     const boundaryFrame =
-      splice !== undefined && splice > startFrame && splice < endFrame ? splice : undefined;
+      cut !== undefined && cut.frame > startFrame && cut.frame < endFrame ? cut.frame : undefined;
     audioRequests.push({
       schemaVersion: TEMPORAL_EVIDENCE_VERSION,
       requestId: `edit_audio_${criticalFrame}`,
@@ -1140,7 +1291,12 @@ export function planTemporalEvidenceForEdit(
       channels: 'mix',
       maxPeakDbfs: AUDIO_PEAK_DBFS.review.value,
       maxBoundaryJumpDb: MAX_AUDIO_BOUNDARY_JUMP_DB,
-      ...(boundaryFrame === undefined ? {} : { boundaryFrame }),
+      ...(boundaryFrame === undefined || cut === undefined
+        ? {}
+        : {
+            boundaryFrame,
+            splice: spliceAt(diff.after, cut.trackIds, boundaryFrame, input.sequenceFps),
+          }),
       reason: boundaryFrame === undefined ? 'Changed audio level' : 'Changed audio edit boundary',
     });
   }

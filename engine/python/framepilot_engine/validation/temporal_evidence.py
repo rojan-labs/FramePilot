@@ -56,11 +56,16 @@ from framepilot_engine.render.composition_cache import (
 from framepilot_engine.render.composition_cache import (
     REVIEW_WINDOW_CACHE as REVIEW_WINDOW_CACHE,
 )
+from framepilot_engine.render.frame_plan import clip_kind
 from framepilot_engine.render.masks import clip_source_clock, mask_frame_box, mask_scalar_at
 from framepilot_engine.render.picture_window import PictureWindow, picture_window_at
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Effect, Project, TrackType
+from framepilot_engine.validation.perceptual_thresholds import (
+    AUDIBLE_RMS_FLOOR_DBFS,
+    AUDIO_ONSET_SECONDS,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -184,15 +189,42 @@ class MotionEvidenceRequest(_WindowRequest):
     require_inside_frame: bool = False
 
 
+#: How many tracks or clips one splice may name; a boundary is a handful of clip edges.
+MAX_SPLICE_IDS = 16
+_SpliceId = Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class AudioSplice(_ContractModel):
+    """The source a splice is made of: the tracks whose clip edges meet at ``boundaryFrame``.
+
+    Mirrors ``temporal-review.ts#AudioSpliceSchema``. The engine measures ``track_ids`` alone
+    for the boundary jump, so a sound starting on ANOTHER track near the cut (run x59-1: a radio
+    call inside a continuous clip, 35 dB up, at the music bed's first frame) is not read as
+    this splice's discontinuity. The clip ids name the clips in the reviewer's finding; this
+    side only carries them.
+    """
+
+    track_ids: list[_SpliceId] = Field(min_length=1, max_length=MAX_SPLICE_IDS)
+    from_clip_ids: list[_SpliceId] = Field(default_factory=list, max_length=MAX_SPLICE_IDS)
+    to_clip_ids: list[_SpliceId] = Field(default_factory=list, max_length=MAX_SPLICE_IDS)
+
+
 class AudioEvidenceRequest(_WindowRequest):
     kind: Literal["audio"]
     channels: Literal["mix", "dialogue", "music", "sfx"]
     max_peak_dbfs: float = Field(default=-0.1, le=0)
     max_boundary_jump_db: float = Field(default=12, ge=0)
     boundary_frame: int | None = Field(default=None, ge=0)
+    #: Absent on a request from before the splice was named: its jump is measured on the mix.
+    splice: AudioSplice | None = None
 
     @model_validator(mode="after")
     def _valid_boundary(self) -> AudioEvidenceRequest:
+        if self.splice is not None:
+            if self.boundary_frame is None:
+                raise ValueError("splice names the source of a boundary, so it needs boundaryFrame")
+            if self.channels != "mix":
+                raise ValueError("splice isolates its own tracks, so channels must be 'mix'")
         if self.boundary_frame is None:
             return self
         if not self.start_frame < self.boundary_frame < self.end_frame:
@@ -264,9 +296,15 @@ class MotionSample(_ContractModel):
 class AudioSample(_ContractModel):
     start_frame: int = Field(ge=0)
     end_frame: int = Field(ge=0)
+    #: The MIX's peak and RMS over the window, whatever the boundary was measured on.
     peak_dbfs: float
     rms_dbfs: float
     boundary_jump_db: float | None = Field(default=None, ge=0)
+    #: The level each side of the boundary was compared at (dBFS RMS, raised to the audibility
+    #: floor): the side's mean for a cut between two sounds; for an entry from silence the
+    #: floor, then the sound's first moment (an exit mirrors it). ``None`` without a boundary.
+    boundary_before_dbfs: float | None = None
+    boundary_after_dbfs: float | None = None
 
 
 class LoudnessSample(_ContractModel):
@@ -713,34 +751,175 @@ def _audio_sample(
     request: AudioEvidenceRequest,
     fps: int,
     cancelled: CancelCheck | None,
+    spliced: _CompositionLike | None = None,
 ) -> AudioSample:
+    """Peak and RMS of the mix over the window, and the jump across its boundary, if named.
+
+    ``spliced`` is the composition of the request's splice tracks alone
+    (:func:`_track_isolated_project`); the boundary is measured on it, so another source's
+    content near the cut is not this cut's discontinuity. Without it (a request from before
+    the splice was named) the boundary is measured on the mix, as it always was. The peak
+    stays the mix's either way: a sum over full scale is what that ceiling exists to catch.
+    """
     samples = _audio_frames(
         composition, request.start_frame / fps, request.end_frame / fps, cancelled
     )
     amplitudes = np.abs(samples)
     peak = float(np.max(amplitudes))
     rms = float(np.sqrt(np.mean(np.square(samples))))
+    boundary_samples = samples
+    if spliced is not None and request.boundary_frame is not None:
+        boundary_samples = (
+            np.zeros_like(samples)
+            if spliced.audio is None
+            else _audio_frames(
+                spliced, request.start_frame / fps, request.end_frame / fps, cancelled
+            )
+        )
+    levels = _boundary_levels(boundary_samples, request)
     return AudioSample(
         start_frame=request.start_frame,
         end_frame=request.end_frame,
         peak_dbfs=_dbfs(peak),
         rms_dbfs=_dbfs(rms),
-        boundary_jump_db=_boundary_jump_db(samples, request),
+        boundary_jump_db=None if levels is None else abs(levels[1] - levels[0]),
+        boundary_before_dbfs=None if levels is None else levels[0],
+        boundary_after_dbfs=None if levels is None else levels[1],
     )
 
 
-def _boundary_jump_db(
+def _rms_dbfs(samples: npt.NDArray[np.float64]) -> float:
+    """RMS of ``samples`` in dBFS, raised to :data:`AUDIBLE_RMS_FLOOR_DBFS`."""
+    if samples.size == 0:
+        return AUDIBLE_RMS_FLOOR_DBFS
+    return max(AUDIBLE_RMS_FLOOR_DBFS, _dbfs(float(np.sqrt(np.mean(np.square(samples))))))
+
+
+def _boundary_levels(
     samples: npt.NDArray[np.float64], request: AudioEvidenceRequest
-) -> float | None:
+) -> tuple[float, float] | None:
+    """The level each side of the boundary is compared at, floored at the audibility floor.
+
+    Both sides audible: each side's mean RMS (2 frames before, 3 after, as the planner asks),
+    so the comparison is a cut's level change rather than one waveform cycle.
+
+    One side below the floor: the boundary is an ENTRY from silence (or an EXIT into it), and
+    the sound is judged by its first (last) :data:`AUDIO_ONSET_SECONDS` at the splice. A clip
+    that starts at its level steps straight up from silence; one that fades in is still near
+    silence there and steps nowhere. The three-frame mean cannot tell them apart: a 0.5 s fade
+    is at a fifth of its level by the end of it.
+
+    Both sides below the floor: nothing audible either side, no jump.
+    """
     boundary = request.boundary_frame
     if boundary is None:
         return None
     span = request.end_frame - request.start_frame
     split = round(samples.shape[0] * (boundary - request.start_frame) / span)
     split = min(max(split, 1), samples.shape[0] - 1)
-    before_rms = float(np.sqrt(np.mean(np.square(samples[:split]))))
-    after_rms = float(np.sqrt(np.mean(np.square(samples[split:]))))
-    return abs(_dbfs(before_rms) - _dbfs(after_rms))
+    before = _rms_dbfs(samples[:split])
+    after = _rms_dbfs(samples[split:])
+    floor = AUDIBLE_RMS_FLOOR_DBFS
+    onset = max(1, round(AUDIO_ONSET_SECONDS * _AUDIO_SAMPLE_RATE))
+    if before <= floor < after:
+        return floor, _rms_dbfs(samples[split : split + onset])
+    if after <= floor < before:
+        return _rms_dbfs(samples[max(0, split - onset) : split]), floor
+    return before, after
+
+
+def _boundary_jump_db(
+    samples: npt.NDArray[np.float64], request: AudioEvidenceRequest
+) -> float | None:
+    """How far the level steps across the boundary, in dB (see :func:`_boundary_levels`)."""
+    levels = _boundary_levels(samples, request)
+    return None if levels is None else abs(levels[1] - levels[0])
+
+
+def _track_isolated_project(project: Project, track_ids: Sequence[str]) -> Project:
+    """``project`` with every track but ``track_ids`` muted and hidden, for its sound alone.
+
+    Hidden as well as muted so the compile opens no reader for a track it would only draw:
+    this composition is read for the splice's sound, never for a frame. Ducking still follows
+    the other tracks' clips (``compiler._duck_intervals`` reads positions, not levels), so the
+    spliced track sounds exactly as it does in the mix.
+    """
+    wanted = set(track_ids)
+    unknown = wanted - {track.id for track in project.timeline.tracks}
+    if unknown:
+        raise TemporalEvidenceError(
+            f"Splice names track(s) {sorted(unknown)!r} that this project does not have."
+        )
+    isolated = project.model_copy(deep=True)
+    for track in isolated.timeline.tracks:
+        if track.id not in wanted:
+            track.muted = True
+            track.hidden = True
+    return isolated
+
+
+def _splice_is_heard(
+    project: Project, track_ids: Sequence[str], asset_kinds: Mapping[str, str | None]
+) -> bool:
+    """Whether any splice track can put sound in the mix: unmuted, with an audio or video clip.
+
+    Asked before compiling the isolated composition because one with no sound and no picture
+    is a compile error, not silence. A muted track, or one of only titles and stills, is heard
+    as nothing, so its boundary steps from silence to silence.
+    """
+    wanted = set(track_ids)
+    return any(
+        clip_kind(clip, asset_kinds) in ("audio", "video")
+        for track in project.timeline.tracks
+        if track.id in wanted and not track.muted
+        for clip in track.clips
+    )
+
+
+class _UnheardSplice:
+    """The composition of a splice no one hears: no sound, nothing compiled, nothing to close."""
+
+    audio: _AudioLike | None = None
+    duration: float | None = None
+
+    def get_frame(self, time: float) -> object:
+        raise TemporalEvidenceError(f"An unheard splice has no picture to read at {time:.3f}s.")
+
+    def close(self) -> None:
+        return None
+
+
+def _compile_splice(
+    project: Project,
+    track_ids: frozenset[str],
+    assets: AssetIndex,
+    preset: ExportPreset,
+    cancelled: CancelCheck | None,
+) -> _CompositionLike:
+    """The splice tracks' own sound, compiled uncached under a slot of the heavy-build gate.
+
+    Uncached like the role compositions: it is read for a few boundaries and its key is this
+    edit's. The other tracks are hidden, so it opens readers for the splice's clips only.
+    """
+    isolated = _track_isolated_project(project, sorted(track_ids))
+    kinds = {entry.asset_id: entry.kind for entry in assets.entries}
+    if not _splice_is_heard(isolated, sorted(track_ids), kinds):
+        return _UnheardSplice()
+    try:
+        with HEAVY_BUILD_GATE.slot(cancelled):
+            return cast(
+                _CompositionLike,
+                compile_timeline(
+                    isolated,
+                    assets,
+                    preset,
+                    burn_captions=False,
+                    max_decode_dimension=REVIEW_MAX_DIMENSION,
+                    decoder_threads=PREVIEW_DECODER_THREADS,
+                ),
+            )
+    except CompositionBuildCancelled as exc:
+        raise TemporalEvidenceCancelled("Temporal evidence acquisition was cancelled.") from exc
 
 
 @dataclass(frozen=True)
@@ -1143,6 +1322,8 @@ def acquire_temporal_evidence(
     programme: _CompositionLike | None = None
     scope_composition: _CompositionLike | None = None
     role_compositions: dict[str, _CompositionLike] = {}
+    #: One sound-only composition per distinct splice track set, shared by every boundary on it.
+    splice_compositions: dict[frozenset[str], _CompositionLike] = {}
     frame_cache: dict[int, npt.NDArray[np.uint8]] = {}
     frame_samples: dict[int, FrameSample] = {}
     scope_cache: dict[tuple[int, tuple[str, ...]], list[ScopeSample]] = {}
@@ -1377,16 +1558,32 @@ def acquire_temporal_evidence(
                         )
                     )
                 else:
+                    spliced: _CompositionLike | None = None
+                    if request.splice is not None:
+                        if assets is None:
+                            raise TemporalEvidenceError("Splice evidence requires indexed assets.")
+                        tracks = frozenset(request.splice.track_ids)
+                        if tracks not in splice_compositions:
+                            _check_cancelled(cancelled)
+                            splice_compositions[tracks] = _compile_splice(
+                                project, tracks, assets, ordinary_preset, cancelled
+                            )
+                        spliced = splice_compositions[tracks]
                     results.append(
                         AudioEvidenceResult(
                             **common,
                             render_settings=audio_settings,
-                            samples=[_audio_sample(source, request, project.fps, cancelled)],
+                            samples=[
+                                _audio_sample(source, request, project.fps, cancelled, spliced)
+                            ],
                         )
                     )
     finally:
         for isolated in role_compositions.values():
             close_clip_tree(isolated)
+        for spliced_composition in splice_compositions.values():
+            if not isinstance(spliced_composition, _UnheardSplice):
+                close_clip_tree(spliced_composition)
         scope_borrowed.close()
         borrowed.close()
 

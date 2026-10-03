@@ -33,3 +33,13 @@ EXPORT_MAX_BLACK_RATIO = 0.95
 
 #: Black ratio of a SINGLE sampled frame that the temporal review reports as a flash.
 REVIEW_BLACK_FRAME_RATIO = 0.98
+
+#: The quietest level an edit-boundary check counts as sound, in dBFS RMS. Each side of a
+#: splice is raised to it before the jump is taken, so a fade-in's first frames are not a
+#: step up from digital silence. Just under the quietest real background measured (room tone
+#: and runway ambience at -58/-57 dBFS RMS); the TS table says why in full.
+AUDIBLE_RMS_FLOOR_DBFS = -60.0
+
+#: Seconds of a sound's first (last) moment that an entry from (exit into) silence is judged
+#: by: a hard entry is at its level there, any real fade is still near silence.
+AUDIO_ONSET_SECONDS = 0.01
