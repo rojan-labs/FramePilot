@@ -1085,8 +1085,16 @@ class TwelveLabsClient:
         :raises TwelveLabsError: On any API/transport failure.
         """
         # ``transcription_options`` (lexical/semantic) only mean anything when the
-        # transcription modality is being searched; sending them otherwise is noise.
-        transcription = list(transcription_options) if "transcription" in options else None
+        # transcription modality is being searched, and then they are left OUT of the
+        # request — never passed as ``None``: the SDK still sends a ``None`` keyword as a
+        # form part, and TwelveLabs answers 400 ("The transcription_options[0] parameter is
+        # invalid"). A picture-only search (``VISUAL_SEARCH_OPTIONS``) failed every call
+        # that way until the e2e run on 2026-10-03 caught it.
+        extra: dict[str, Any] = (
+            {"transcription_options": list(transcription_options)}
+            if "transcription" in options
+            else {}
+        )
         with self._translate_errors():
             resp = self._sdk.search.create(
                 index_id=index_id,
@@ -1094,7 +1102,7 @@ class TwelveLabsClient:
                 search_options=list(options),
                 group_by="clip",
                 page_limit=page_limit,
-                transcription_options=transcription,
+                **extra,
             )
         clips = _clips_from_items(resp.data)
         _log.info(

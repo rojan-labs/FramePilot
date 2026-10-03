@@ -26,6 +26,7 @@ from framepilot_engine.brain.twelvelabs import (
     PEGASUS_SECONDS_PER_MEDIA_SECOND,
     PREFLIGHT_AUDIO_TOO_LARGE_CODE,
     PREFLIGHT_FILE_TOO_LARGE_CODE,
+    VISUAL_SEARCH_OPTIONS,
     TLClip,
     TLWord,
     TwelveLabsAssetInaccessibleError,
@@ -284,6 +285,16 @@ def test_search_sends_multipart_repeated_modalities_and_query() -> None:
     # transcription_options (lexical + semantic) ride along when transcription is on.
     assert body.count(b'name="transcription_options"') == 2
     assert b"lexical" in body and b"semantic" in body
+
+
+@respx.mock
+def test_picture_only_search_sends_no_transcription_options() -> None:
+    """A ``None`` keyword still reaches the wire as a form part, which TwelveLabs 400s."""
+    route = respx.post(url("/search")).respond(200, json=_search_body([]))
+    make_client().search(INDEX_ID, "an engineer at a console", options=VISUAL_SEARCH_OPTIONS)
+    body = route.calls[0].request.content
+    assert body.count(b'name="search_options"') == 1 and b"visual" in body
+    assert b"transcription_options" not in body
 
 
 @respx.mock
