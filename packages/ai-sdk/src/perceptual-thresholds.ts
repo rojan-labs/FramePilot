@@ -100,6 +100,23 @@ export const AUDIBLE_RMS_FLOOR_DBFS = -60;
 export const AUDIO_ONSET_SECONDS = 0.01;
 
 /**
+ * The PEAK level below which a stretch carries nothing worth hearing, for the dead-air
+ * check (waveform peaks: the max |sample| per bucket, as `media/waveform.py` stores them).
+ *
+ * It is the level the engine's own silence detection treats as silence
+ * (`analysis/silence.py#DEFAULT_NOISE_FLOOR_DB`, the default `remove_silences` cuts at). That
+ * detector also compares sample amplitude, so the two agree on what "nothing there" means.
+ * Measured: the pauses in `speech-9min.mp4` peak at -30 to -38 dBFS per second, so a talking
+ * head's room tone is still dead air. The X-59 music bed after its -8 dB gain (-29 to -10)
+ * and the crowd at the end of that film (-22 to -12) are not.
+ *
+ * Not {@link AUDIBLE_RMS_FLOOR_DBFS}: that is an RMS over milliseconds, this is a peak over a
+ * waveform bucket (about a second on a long asset), and room tone peaks about 20 dB above its
+ * RMS.
+ */
+export const DEAD_AIR_PEAK_FLOOR_DBFS = -30;
+
+/**
  * Black-frame ceilings.
  *
  * `review` is per FRAME: one near-black frame inside an edit boundary is a visible flash, and

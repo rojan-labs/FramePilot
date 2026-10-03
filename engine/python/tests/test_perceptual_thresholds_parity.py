@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from framepilot_engine.analysis.silence import DEFAULT_NOISE_FLOOR_DB
 from framepilot_engine.validation.perceptual_thresholds import (
     AUDIBLE_RMS_FLOOR_DBFS,
     AUDIO_ONSET_SECONDS,
@@ -115,3 +116,12 @@ def test_python_mirrors_the_ts_boundary_floor_and_onset() -> None:
     assert _ts_constant("AUDIO_ONSET_SECONDS") == AUDIO_ONSET_SECONDS
     # A jump past the limit must still be possible above the floor and under full scale.
     assert AUDIBLE_RMS_FLOOR_DBFS + _ts_boundary_jump_db() < REVIEW_MAX_AUDIO_DBFS
+
+
+def test_the_dead_air_floor_is_the_level_silence_detection_cuts_at() -> None:
+    """The critic's dead air and `remove_silences` must agree on what "nothing there" is.
+
+    Both compare sample amplitude (waveform peaks; silencedetect's noise tolerance), so a
+    stretch the critic calls dead air is one `remove_silences` would cut at its default.
+    """
+    assert _ts_constant("DEAD_AIR_PEAK_FLOOR_DBFS") == DEFAULT_NOISE_FLOOR_DB

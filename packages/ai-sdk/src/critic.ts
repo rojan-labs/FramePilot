@@ -43,6 +43,8 @@ import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js'
 import type { TemporalReviewReport } from './temporal-review.js';
 import { backedByFullFramePicture, hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
+import { audibleFrames, type FrameWindow } from './audible-sound.js';
+import { DEAD_AIR_PEAK_FLOOR_DBFS } from './perceptual-thresholds.js';
 import { drawnTextRects, overflowingWords, type PixelRect } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
 import { createLogger } from '@framepilot/shared-types';
@@ -2341,13 +2343,77 @@ function checkWordSevered(
   );
 }
 
+/** A run of dead air, in frames: `[startFrame, endFrame)`. */
+interface DeadAirRun {
+  readonly startFrame: number;
+  readonly endFrame: number;
+}
+
+/** What a head or tail stretch with no words holds. */
+interface StretchReading {
+  /** Runs at least {@link DEAD_AIR_FRAMES} long with no word and nothing audible. */
+  readonly runs: readonly DeadAirRun[];
+  /** Whether any clip there had waveform peaks; `false` means the dialogue alone decided. */
+  readonly measured: boolean;
+}
+
+/**
+ * The dead air inside one wordless stretch: the runs of at least {@link DEAD_AIR_FRAMES}
+ * where nothing reaches {@link DEAD_AIR_PEAK_FLOOR_DBFS}.
+ *
+ * With no clip there carrying peaks (media never probed), the whole stretch counts, as it did
+ * when this check counted words alone. The detail says so.
+ */
+function readStretch(project: Project, window: FrameWindow, fps: number): StretchReading {
+  if (window.endFrame - window.startFrame < DEAD_AIR_FRAMES) return { runs: [], measured: true };
+  const sound = audibleFrames(project, window, fps, DEAD_AIR_PEAK_FLOOR_DBFS);
+  if (!sound.measured) return { runs: [window], measured: false };
+  const runs: DeadAirRun[] = [];
+  let runStart: number | undefined;
+  for (let offset = 0; offset <= sound.audible.length; offset += 1) {
+    const silent = offset < sound.audible.length && !sound.audible[offset];
+    if (silent && runStart === undefined) runStart = offset;
+    if (!silent && runStart !== undefined) {
+      if (offset - runStart >= DEAD_AIR_FRAMES) {
+        runs.push({
+          startFrame: window.startFrame + runStart,
+          endFrame: window.startFrame + offset,
+        });
+      }
+      runStart = undefined;
+    }
+  }
+  return { runs, measured: true };
+}
+
+/** "72 frames (0–2.4s)", one per run. */
+function describeRuns(runs: readonly DeadAirRun[], fps: number): string {
+  return runs
+    .map(
+      (run) =>
+        `${String(run.endFrame - run.startFrame)} frames (${round(frameToSeconds(run.startFrame, fps))}–` +
+        `${round(frameToSeconds(run.endFrame, fps))}s)`,
+    )
+    .join(', ');
+}
+
 /**
  * Is there dead air at the head or the tail?
  *
- * Measured against the DIALOGUE, not against silence detection: the mapped transcript is
- * already on the timeline and needs no analysis pass, so this check costs nothing and can
- * never be `skipped` for want of a render. A run that also gathered `analyze_silence`
- * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
+ * Dead air is a stretch with no WORD and no SOUND. The words come from the mapped transcript.
+ * The sound comes from each heard clip's waveform peaks through its fader (`audible-sound.ts`).
+ * Both are already in the project, so this check still needs no render and is never `skipped`
+ * for want of one.
+ *
+ * It used to count words alone. That is right for a talking head, where the tail after the
+ * last word is room tone. It is wrong for a film with music or natural sound: on run x59-1 it
+ * told the model to ripple_delete 7.54 s of music bed and crowd (-22 to -12 dBFS) after the
+ * last radio call, which is the ending. Room tone peaks under
+ * {@link DEAD_AIR_PEAK_FLOOR_DBFS} (speech-9min's pauses: -30 to -38 dBFS), so a talking
+ * head's quiet tail is still dead air.
+ *
+ * A run that gathered `analyze_silence` evidence has it cited (`CritiqueOptions.silences`).
+ * Its ranges are in one asset's source time, so they are named, not used to measure the cut.
  */
 function checkDeadAir(
   project: Project,
@@ -2383,21 +2449,50 @@ function checkDeadAir(
   const first = Math.min(...mapped.words.map((w) => w.start));
   const last = Math.max(...mapped.words.map((w) => w.end));
   const headFrames = secondsToFrame(first, fps);
+  const lastWordFrame = Math.min(secondsToFrame(last, fps), secondsToFrame(duration, fps));
   const tailFrames = secondsToFrame(Math.max(0, duration - last), fps);
+  const head = readStretch(project, { startFrame: 0, endFrame: headFrames }, fps);
+  const tail = readStretch(
+    project,
+    { startFrame: lastWordFrame, endFrame: lastWordFrame + tailFrames },
+    fps,
+  );
   const problems: string[] = [];
-  if (headFrames >= DEAD_AIR_FRAMES) {
-    problems.push(`${headFrames} frames (${round(first)}s) before the first word`);
+  if (head.runs.length > 0) {
+    problems.push(
+      head.measured
+        ? `${describeRuns(head.runs, fps)} before the first word`
+        : `${headFrames} frames (${round(first)}s) before the first word`,
+    );
   }
-  if (tailFrames >= DEAD_AIR_FRAMES) {
-    problems.push(`${tailFrames} frames (${round(duration - last)}s) after the last word`);
+  if (tail.runs.length > 0) {
+    problems.push(
+      tail.measured
+        ? `${describeRuns(tail.runs, fps)} after the last word`
+        : `${tailFrames} frames (${round(duration - last)}s) after the last word`,
+    );
   }
   const cited = options.silences?.handle ? ` (from ${options.silences.handle})` : '';
+  const unmeasured =
+    (head.runs.length > 0 && !head.measured) || (tail.runs.length > 0 && !tail.measured)
+      ? ' No clip there has waveform peaks, so that stretch is measured against the dialogue ' +
+        'alone; anything it plays was not heard by this check.'
+      : '';
   if (problems.length === 0) {
+    const sounding = [
+      headFrames >= DEAD_AIR_FRAMES ? `the ${round(first)}s before the first word` : '',
+      tailFrames >= DEAD_AIR_FRAMES ? `the ${round(duration - last)}s after the last word` : '',
+    ].filter((part) => part.length > 0);
+    const heard =
+      sounding.length === 0
+        ? ''
+        : ` No words in ${sounding.join(' or ')}, but sound above ` +
+          `${String(DEAD_AIR_PEAK_FLOOR_DBFS)} dBFS plays there, which is not dead air.`;
     return check(
       'dead_air',
       'No dead air at head or tail',
       'pass',
-      `Speech starts at frame ${headFrames} and runs to ${round(last)}s of ${round(duration)}s${cited}.`,
+      `Speech starts at frame ${headFrames} and runs to ${round(last)}s of ${round(duration)}s${cited}.${heard}`,
     );
   }
   return check(
@@ -2406,9 +2501,10 @@ function checkDeadAir(
     // `warn`, not `fail`: a hold at the tail can be a deliberate button, and this check has
     // not been watched on real runs yet. Promotion is a one-line change once it has.
     'warn',
-    `Dead air: ${problems.join(' and ')}${cited}. The threshold is ${DEAD_AIR_FRAMES} frames — ` +
-      'a second at 30fps, past which an opening reads as a mistake rather than a breath. ' +
-      'ripple_delete the head/tail range.',
+    `Dead air: ${problems.join(' and ')}${cited}. Dead air is no word and no sound above ` +
+      `${String(DEAD_AIR_PEAK_FLOOR_DBFS)} dBFS (the level silence detection cuts at) for at ` +
+      `least ${DEAD_AIR_FRAMES} frames — a second at 30fps, past which an opening reads as a ` +
+      `mistake rather than a breath. ripple_delete those ranges.${unmeasured}`,
   );
 }
 
