@@ -610,6 +610,18 @@ class AsrSetupTracker:
 
 #: whisper.cpp's special/control tokens look like `[_BEG_]`, `[_TT_123]`, or the
 #: GPT-style `<|...|>` markers — never real words, always dropped.
+def _complete_utf8(text: str) -> str:
+    """Rejoin a word's raw token bytes into characters, dropping any left incomplete.
+
+    Whisper JSON is read with ``surrogateescape`` (see :func:`transcribe_local`), so the
+    bytes of a character split across two tokens arrive as escaped surrogates and are
+    whole again once the word's tokens are concatenated. A fragment whose remaining
+    bytes whisper never emitted (it restarts decoding mid-character) cannot be any
+    character, so it is dropped rather than shown as a replacement glyph.
+    """
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "ignore")
+
+
 def _is_special_token(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
@@ -651,7 +663,7 @@ def _merge_tokens_to_words(tokens: list[dict[str, Any]]) -> list[tuple[str, floa
 
     def flush() -> None:
         nonlocal current_text, current_start, current_end
-        stripped = current_text.strip()
+        stripped = _complete_utf8(current_text).strip()
         if stripped and current_start is not None and current_end is not None:
             words.append((stripped, current_start, current_end))
         current_text = ""
@@ -797,7 +809,7 @@ def parse_whisper_json(data: dict[str, Any]) -> list[TranscriptWord]:
         if isinstance(tokens, list) and tokens:
             entries.extend(_merge_tokens_to_words(tokens))
             continue
-        text = str(segment.get("text", "")).strip()
+        text = _complete_utf8(str(segment.get("text", ""))).strip()
         if text and len(text.split()) == 1:
             offsets = segment.get("offsets")
             if isinstance(offsets, dict):
@@ -1039,7 +1051,11 @@ def transcribe_local(
                 f"whisper-cli did not produce the expected JSON output at {json_path}."
             )
         try:
-            data = json.loads(json_path.read_text(encoding="utf-8"))
+            # whisper.cpp writes token text as raw bytes, and a token can end inside a
+            # multi-byte character (Devanagari, CJK, emoji). A strict decode failed the
+            # whole transcript on one such token; the bytes are kept here and rejoined
+            # into characters when tokens are merged into words (`_complete_utf8`).
+            data = json.loads(json_path.read_text(encoding="utf-8", errors="surrogateescape"))
         except (OSError, json.JSONDecodeError) as exc:
             raise AsrTranscriptionError(f"Failed to read whisper-cli output: {exc}") from exc
 
