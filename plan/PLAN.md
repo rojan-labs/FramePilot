@@ -11487,8 +11487,21 @@ Runs: `apps/desktop/scripts/agent-run.ts`, claude-agent-sdk + claude-opus-5-5.
   (the 58:51 reel timed out at 121 s) and the route held the request for every asset's three calls.
   Duration-scaled Pegasus timeout + a `SliceWork` unit per asset with a 90 s route budget and
   `pendingAssets` ("still being generated… call again"); verified on the reel (6c74c65a).
-- [ ] **MD22** Re-run both edits on the fixed build and compare against NASA's cuts; record the
-  token profile per request.
+- [x] **MD22** Re-runs on the fixed build, compared against NASA's cuts (claude-opus-5-5):
+  - X-59, run 1 → run 2: 101 s / 14 shots → 100.2 s / 16 shots (NASA 103 s, ~20 cuts); the liftoff
+    (missing in run 1, misled by Pegasus chapters labelling takeoff footage "Landing") is in run 2
+    from three angles; music now under the radio calls as briefed; self-check from 1 failed +
+    1 warning (all false positives) to all passed; input cost per call 49.8k → 17.4k units (−65%),
+    whole run 1.19M → 0.49M.
+  - Moon Watch (58:51 reel): 78.2 s (brief 75–80, NASA 76), only Jeb, the MER intro, his console
+    role and NASA's exact closing line; middle beat = his "Super Bowl" moment where NASA used the
+    flight-day-one demo (brief: "the moment that mattered most to him"); 4 jump cuts, all covered by
+    his B-roll; title + name/role lower third; no slates. 45% soundbite overlap with NASA's cut.
+  - Found during the runs and fixed: picture-only TwelveLabs search 400'd on every call
+    (`transcription_options=None`, d338bfec); covered A-roll whose speech is heard was reported as
+    buried picture with "Remove them" (5fe32e0e).
+  - Parked: #176 (long-media proxies / silent preview), #177 (built-in tier 1 synchronous), #178
+    (per-call cache write; persistent session), #179 (whisper speed/VAD/old transcripts).
 
 **Last updated:** 2026-10-03
 

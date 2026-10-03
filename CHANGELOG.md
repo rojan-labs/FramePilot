@@ -126,6 +126,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   used to leave it with no shot list and nothing searchable: the measurement step gave up after a
   minute, and the upload to the visual index was cut off after five. Long files are now measured
   and indexed in steps, whatever their length or your connection speed.
+- **"Search what is on screen" works with TwelveLabs again.** Every search failed with an error
+  after it was made to look at the picture only; it returns results again.
+- **An interview under B-roll is not reported as unused footage.** Covering a jump cut with B-roll
+  hides the interview's picture on purpose while its words play; the check used to suggest removing
+  that clip, which would cut the line.
 - **The footage overview works on long recordings.** Asking for the chapter map of footage most of
   an hour long used to fail after two minutes. It now comes back as soon as it is ready; until then
   the assistant is told it is still being prepared and carries on with its other work.
