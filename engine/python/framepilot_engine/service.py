@@ -269,7 +269,12 @@ from framepilot_engine.masking.subject_layout import (
     measure_subject_layout,
     search_behind_size,
 )
-from framepilot_engine.media.derive import PROXY_ENCODE_VERSION, generate_proxy, generate_thumbnails
+from framepilot_engine.media.derive import (
+    PROXY_ENCODE_VERSION,
+    generate_proxy,
+    generate_thumbnails,
+    wrap_audio_in_video,
+)
 from framepilot_engine.media.ffmpeg import FFmpegError, NoAudioStreamError
 from framepilot_engine.media.probe import MediaInfo, inspect_media
 from framepilot_engine.media.waveform import extract_waveform
@@ -1552,6 +1557,15 @@ MAX_VISUAL_SLICE = 10
 #: not counted at all: it says nothing about the index, account, or network, and a
 #: project of five oversized clips is not "a broken index".
 TL_CONSECUTIVE_FAILURE_LIMIT = 3
+#: Lowest "frame rate" treated as an attached picture rather than footage. ffprobe reports
+#: an audio file's embedded cover art at its 90 kHz timebase (90000 fps); real footage,
+#: high-speed capture included, is stored at its playback rate, far below this.
+_ATTACHED_PICTURE_MIN_FPS = 1000.0
+#: Encode-time bound for the black-picture carrier of an audio-only TwelveLabs upload, per
+#: second of audio. Measured at ~0.03 s/s (a 415 s voiceover encodes in ~14 s at 25 fps,
+#: and the carrier is 1 fps); the margin covers a loaded machine. Floored by the media
+#: timeout, so a short clip keeps the usual bound.
+_TL_CARRIER_SECONDS_PER_MEDIA_SECOND = 0.25
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
 NOT_REQUESTED_REASON = "tier not requested"
@@ -3234,6 +3248,31 @@ def create_app(
         except PydanticValidationError:  # pragma: no cover - probe is engine-written
             return False
 
+    def _audio_only_media(asset: AssetRow, media_path: Path, timeout: float) -> MediaInfo | None:
+        """The asset's probe when it is sound without moving picture, else ``None``.
+
+        TwelveLabs refuses to attach such an upload to an index (``404
+        resource_not_exists``, for every audio container), so it is uploaded under a
+        black picture instead (:func:`wrap_audio_in_video`). An audio file's embedded
+        cover art is a video stream to ffprobe, but not footage: ffprobe reports the
+        attached picture's 90 kHz timebase as its frame rate, which no real footage
+        approaches, so a stream at or above :data:`_ATTACHED_PICTURE_MIN_FPS` (or with
+        no rate at all) does not count as picture.
+        """
+        try:
+            info = (
+                MediaInfo.model_validate(asset.probe)
+                if asset.probe is not None
+                else inspect_media(media_path, timeout=timeout)
+            )
+        except (PydanticValidationError, FFmpegError, FileNotFoundError):
+            return None
+        moving_picture = any(
+            stream.fps is not None and stream.fps < _ATTACHED_PICTURE_MIN_FPS
+            for stream in info.video_streams
+        )
+        return info if info.has_audio and not moving_picture else None
+
     def _scene_cuts_for(
         store: BrainStore, asset_id: str, media_path: Path, content_hash: str, timeout: float
     ) -> list[float]:
@@ -4862,7 +4901,30 @@ def create_app(
             content_hash = asset.content_sha256 or _sha256_file(media_path)
 
             def _upload(idx: str = index_id, path: Path = media_path) -> str:
-                return client.create_index_task(idx, path)
+                # Classified here, not up front: only a fresh upload needs it, and a
+                # probe-less asset would otherwise pay an ffprobe on every slice.
+                audio_only = _audio_only_media(asset, path, timeout)
+                if audio_only is None:
+                    return client.create_index_task(idx, path)
+                carrier_timeout = max(
+                    timeout,
+                    (audio_only.duration_seconds or 0.0) * _TL_CARRIER_SECONDS_PER_MEDIA_SECOND,
+                )
+                _log.info(
+                    "ACT twelvelabs audio-only asset → black-picture carrier: asset=%s file=%s",
+                    asset_id,
+                    path.name,
+                )
+                # A temp dir, never beside the media: the footage folder is the user's.
+                with tempfile.TemporaryDirectory(prefix="framepilot-tl-carrier-") as tmp:
+                    carrier = Path(tmp) / f"{path.stem}.mp4"
+                    try:
+                        wrap_audio_in_video(path, carrier, timeout=carrier_timeout)
+                    except FFmpegError as exc:
+                        raise TwelveLabsError(
+                            f"Could not prepare {path.name} for TwelveLabs: {exc}"
+                        ) from exc
+                    return client.create_index_task(idx, carrier)
 
             try:
                 outcome = poll_index_asset(

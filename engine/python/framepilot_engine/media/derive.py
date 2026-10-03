@@ -219,3 +219,75 @@ def generate_thumbnails(
         extract_frame(source, out, time_seconds=ts, runner=runner, timeout=timeout)
         paths.append(out)
     return paths
+
+
+#: Picture used under audio-only media sent to a video-only indexer: plain black at a
+#: 16:9 size inside TwelveLabs' accepted resolution range (360p is its floor).
+AUDIO_CARRIER_SIZE = "640x360"
+
+#: One frame per second: the picture is constant, so more frames only cost encode time.
+AUDIO_CARRIER_FPS = 1
+
+
+def wrap_audio_in_video(
+    source: Path,
+    output: Path,
+    *,
+    runner: Runner | None = None,
+    timeout: float | None = 300.0,
+) -> Path:
+    """Mux ``source``'s first audio stream under a black still picture at ``output``.
+
+    WHY: TwelveLabs accepts an audio-only upload (``POST /assets``) but refuses to
+    attach it to an index — every audio container answers ``404 resource_not_exists``
+    on ``/indexed-assets``, even on an audio-only Marengo index — while the same sound
+    under a black picture indexes and transcribes normally. The black picture carries
+    nothing; the audio is re-encoded to AAC so any source codec (MP3, PCM WAV, FLAC)
+    fits the MP4 container. Cover art and any other picture in ``source`` are dropped.
+
+    :param source: Input audio (or audio-with-cover-art) media path (must exist).
+    :param output: Destination ``.mp4`` path (parent dirs are created).
+    :param runner: ffmpeg invoker; defaults to the real subprocess runner.
+    :param timeout: Hard timeout for the encode.
+    :returns: ``output``.
+    :raises FileNotFoundError: If ``source`` does not exist.
+    :raises FFmpegError: If the encode fails (including a source with no audio).
+    """
+    if not source.exists():
+        raise FileNotFoundError(f"Source media does not exist: {source}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    invoke = runner or _default_runner(timeout)
+    invoke(
+        [
+            find_ffmpeg(),
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=c=black:s={AUDIO_CARRIER_SIZE}:r={AUDIO_CARRIER_FPS}",
+            "-i",
+            str(source),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            # The colour source is endless; the audio decides where the file ends.
+            "-shortest",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "stillimage",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ]
+    )
+    return output
