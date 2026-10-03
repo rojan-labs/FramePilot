@@ -25,6 +25,10 @@ craft tools. No new subsystem; every fix reuses an existing seam.
 Stickers · Shapes, CapCut-style, with large sticker and shape libraries. Sub-plan
 [`plan/elements/`](./elements/README.md); in progress on `feat/elements` (PR #131); phases EL0–EL12 in the "Elements library"
 section near the end of this file.
+**Agent run audit 2 (2026-10-03, run `001be135`, the same complaint again):** the forced
+continuations, tool gates and verdict rules added by the 09-28 audits are removed — the model
+decides, the harness informs (ADR 0199). Section "Agent run audit — the model decides" near the
+end of this file; PR #169.
 **Agent run audit (2026-09-28, maintainer: "it keeps on saying goal not met and redoing things
 … not able to load proper tools").** Evidence: desktop run `6cb12e30` (`run.md` + the conversation
 JSON + the project file + real-media renders). Scope gate: no new subsystem; two small tools
@@ -11400,6 +11404,54 @@ Branch `fix/transcribe-audio-tl-local-timeout`. No schema change, no new depende
   dropped. _Evidence: `test_asr.py` split + orphan test; the real whisper JSON parses to 866
   words over 0–414.8 s, none broken. Live, patched sidecar on :8811 with the 60 s media timeout
   still set: uncached `/transcribe` of the 415 s voiceover → HTTP 200 in 190 s, 866 words._
+
+## Agent run audit — the model decides, the harness informs — `[x]` done (2026-10-03)
+
+Maintainer report on desktop run `001be135` (voiceover-synced recap, then captions; `run.md`):
+"it keep on saying goal not met and redoing things … run could not finish and self check fails …
+lazy load the conversation … exceeded the 67108864-character durable log limit … handle the
+orchestrator in general way … plan on the ui still shows loading … not able to load proper tools".
+Evidence: `run.md`, the conversation JSON, the run WAL, the project file and its media. Branch
+`fix/agent-run-orchestration-2026-10-03`, PR #169. ADR 0199. The maintainer chose the structural
+change explicitly ("do the necessary changes even if its structural").
+
+- [x] **MD1** No turn is narrowed: the stage gate, action-recovery and commit-only scopes and
+  their exemption lists are removed; every step thinks at one effort. _Run: `describe_footage`
+  held back on step 2; the beat-matching step ran at `low`._
+- [x] **MD2** A reply with no tool call ends the run except for the model's own open plan items
+  and an unseen late review; the shortfall continuation, AL39, the research budget, the
+  semantic-loop/no-progress recovery and the exact-repeat stop are removed.
+- [x] **MD3** The self-check reports: no repair pass, no fix/advisory turn, no "could not finish"
+  card; a run's status rests on what landed; a cut-off or empty turn is `unanswered`.
+- [x] **MD4** Every finding the run is answerable for is in the briefing after every edit
+  (`critic.ts#standingFindings`), worded as measurements to weigh.
+- [x] **MD5** A per-turn cap overage is a rejection the run continues past;
+  `ToolSpec.derivedOpTypes` stops `add_clip`'s fill crop counting twice.
+- [x] **MD6** JSON-text array arguments decode even when zod's length rules fired on the string
+  (`load_tools`, `update_plan` refusals).
+- [x] **MD7** The per-run caption restyle cap is removed.
+- [x] **MD8** Speech follows what is heard: `clipIsAudible`; `mapTranscript` and `word_severed`
+  skip muted clips. _Run: 81 "severed" cuts on a muted soundtrack; captions followed it._
+- [x] **MD9** `search_visual` ranks by the picture only (TwelveLabs `visual`; no transcript lane);
+  Pegasus chapters describe what is seen.
+- [x] **MD10** The asset view says whether a probed video carries sound.
+- [x] **MD11** The run ledger keeps one row per action kind per patch (was 5,730 rows ×
+  every `run_state`); huge patches get grouped action cards.
+- [x] **MD12** Captions: Devanagari marks kept by every word normaliser (TS + Python parity, shared
+  vector file), no sub-floor cues from the builder, unmatched `keepTogether` reported,
+  unheard-speech message (and `caption_the_edit` refuses rather than wipe a track), font script
+  coverage + warnings. _Verified: Pillow draws Bebas Neue's missing Devanagari as boxes; only
+  Poppins and Teko have Devanagari._
+- [x] **MD13** Persistence/UI: plan settles (`stopped`) when the run ends by any path; a
+  durable-log overflow never ends a run (tiered WAL budget, `run_state` kept out of the WAL) and a
+  publish failure aborts it; superseded `run_state` events compacted in conversations; lazy
+  conversation rendering; grouped action rows (6,102 → 45 on the evidence conversation).
+- [x] **MD14** Parked as issues: #170 full before/after timelines in persisted `diff` events;
+  #171 import reports success after a refused `add_asset`, orphans copies, no original name;
+  #172 the export does not shape Devanagari; #173 brain FTS drops Devanagari marks; #174 one-word
+  preset vs the verifier's slack; #175 durable-log memory follow-ups.
+- [x] **MD15** ai-sdk dist rebuilt; tool-description mirror, golden corpus, frozen stream snapshot
+  and langchain parity sessions regenerated with reviewed diffs.
 
 **Last updated:** 2026-10-03
 
