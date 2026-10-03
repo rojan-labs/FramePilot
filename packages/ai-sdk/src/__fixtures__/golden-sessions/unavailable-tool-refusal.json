@@ -640,6 +640,14 @@
       "status": "verifying"
     },
     {
+      "id": "turn_golden:notice:8",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "warning",
+      "text": "This run ended without applying anything — it could not verify that it had done what you asked, so your timeline is unchanged. Retry, or ask for a smaller, more specific edit."
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -653,7 +661,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 6,
+        "version": 7,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -696,7 +704,7 @@
           ]
         },
         "execution": {
-          "authorized": true
+          "authorized": false
         },
         "evidence": [],
         "objectives": [
@@ -718,10 +726,22 @@
           }
         ],
         "nextAction": null,
-        "blockedOn": null,
+        "blockedOn": {
+          "reason": "Verification found: No traceable project mutation for the committed plan.",
+          "missing": "VERIFICATION_INCONCLUSIVE",
+          "atStage": "plan"
+        },
         "integrity": {
-          "status": "valid",
-          "diagnostics": []
+          "status": "needs_review",
+          "diagnostics": [
+            {
+              "code": "VERIFICATION_INCONCLUSIVE",
+              "message": "Verification found: No traceable project mutation for the committed plan.",
+              "stage": "verify",
+              "blocking": true,
+              "atVersion": 6
+            }
+          ]
         },
         "baseProjectRevision": 0,
         "currentProjectRevision": 0,
@@ -735,7 +755,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:8",
+      "id": "turn_golden:usage:9",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -748,14 +768,14 @@
       "cacheWriteTokens": 0
     },
     {
-      "id": "turn_golden:status:9",
+      "id": "turn_golden:status:10",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "status",
-      "status": "completed"
+      "status": "failed"
     }
   ],
   "operations": [],
-  "terminalStatus": "completed"
+  "terminalStatus": "failed"
 }
