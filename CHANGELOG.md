@@ -111,7 +111,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   your footage. Your file is not changed.
 - **Local transcription no longer stops after 60 seconds.** Any clip longer than about a minute
   and a half failed with "Timed out after 60.0s". The time allowed now grows with the length of
-  the audio. A 7-minute voiceover takes about 4½ minutes on an M-series Mac.
+  the audio. A 7-minute voiceover takes 3 to 4½ minutes on an M-series Mac.
+- **Local transcription of Hindi and other non-Latin speech no longer fails at the end.** After
+  recognising the whole file it could stop with "UnicodeDecodeError", because the speech
+  recogniser sometimes splits one letter across two pieces. FramePilot now joins the pieces back
+  into the letter. A broken piece with nothing to join is left out, and the rest of the
+  transcript is kept.
 - **Camera files over 200 MB now index with TwelveLabs.** They used to upload in full, be
   refused as too large, and then upload again on the next try. Video up to 10 GB now uploads in
   parts. A file TwelveLabs can't take (over 10 GB, say, or too long) is reported once in plain

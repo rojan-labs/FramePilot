@@ -11393,6 +11393,13 @@ Branch `fix/transcribe-audio-tl-local-timeout`. No schema change, no new depende
 - [x] **TRX3** The agent executor's fixed 900 s `transcribe` ceiling would undercut the engine's
   bound past ~7 minutes of audio; it is now max(900 s, 2 s/audio-second + 120 s) for the named
   asset. _Evidence: `sidecar-executor.test.ts` budget test (20-minute asset → 2,520 s)._
+- [x] **TRX4** With the timeout gone, the same Hindi voiceover reached the end of recognition
+  and failed `500 UnicodeDecodeError`: whisper.cpp writes token text as raw bytes, a token can end
+  mid-character, and twice it restarted decoding leaving two bytes of a three-byte character
+  orphaned. Read with `surrogateescape`; bytes rejoined per word (`_complete_utf8`), an orphan
+  dropped. _Evidence: `test_asr.py` split + orphan test; the real whisper JSON parses to 866
+  words over 0–414.8 s, none broken. Live, patched sidecar on :8811 with the 60 s media timeout
+  still set: uncached `/transcribe` of the 415 s voiceover → HTTP 200 in 190 s, 866 words._
 
 **Last updated:** 2026-10-03
 
