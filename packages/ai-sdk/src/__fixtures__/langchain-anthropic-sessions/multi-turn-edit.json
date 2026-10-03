@@ -1680,7 +1680,15 @@
       }
     },
     {
-      "id": "turn_parity:notice:14",
+      "id": "turn_parity:status:14",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "verifying"
+    },
+    {
+      "id": "turn_parity:notice:15",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1689,7 +1697,7 @@
       "reason": "self_check"
     },
     {
-      "id": "turn_parity:notice:15",
+      "id": "turn_parity:notice:16",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1836,7 +1844,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:16",
+      "id": "turn_parity:usage:17",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1857,7 +1865,7 @@
       "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_parity:status:17",
+      "id": "turn_parity:status:18",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

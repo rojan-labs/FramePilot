@@ -1286,7 +1286,15 @@
       }
     },
     {
-      "id": "turn_golden:notice:14",
+      "id": "turn_golden:status:14",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "verifying"
+    },
+    {
+      "id": "turn_golden:notice:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1295,7 +1303,7 @@
       "reason": "self_check"
     },
     {
-      "id": "turn_golden:notice:15",
+      "id": "turn_golden:notice:16",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1442,7 +1450,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:16",
+      "id": "turn_golden:usage:17",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1463,7 +1471,7 @@
       "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
-      "id": "turn_golden:status:17",
+      "id": "turn_golden:status:18",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

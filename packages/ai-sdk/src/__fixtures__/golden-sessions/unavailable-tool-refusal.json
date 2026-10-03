@@ -632,6 +632,14 @@
       }
     },
     {
+      "id": "turn_golden:status:7",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "verifying"
+    },
+    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -727,7 +735,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:7",
+      "id": "turn_golden:usage:8",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -740,7 +748,7 @@
       "cacheWriteTokens": 0
     },
     {
-      "id": "turn_golden:status:8",
+      "id": "turn_golden:status:9",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

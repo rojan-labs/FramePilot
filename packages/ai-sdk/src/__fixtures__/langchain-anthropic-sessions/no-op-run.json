@@ -478,6 +478,14 @@
       }
     },
     {
+      "id": "turn_parity:status:4",
+      "conversationId": "conv_parity",
+      "ts": 1000,
+      "turnId": "turn_parity",
+      "type": "status",
+      "status": "verifying"
+    },
+    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -569,7 +577,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:4",
+      "id": "turn_parity:usage:5",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -582,7 +590,7 @@
       "cacheWriteTokens": 10
     },
     {
-      "id": "turn_parity:status:5",
+      "id": "turn_parity:status:6",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

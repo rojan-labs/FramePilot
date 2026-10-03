@@ -10334,6 +10334,9 @@ export class Orchestrator {
       ): AsyncGenerator<AiEvent, ConductorResult> {
         const emit = createTurnEmitter(state.turnRef, state.seq);
         activeEmit = emit;
+        // The critique re-reads the whole cut (on a long timeline, seconds); the sidebar
+        // says "Checking the edit" for this status instead of a silent spinner.
+        yield emit.status('verifying');
         // The backstop for the LAST turn's patch, which no later turn boundary will reach.
         // Critiquing a timeline the authoritative project never received would grade the
         // run's private copy and report the verdict as if it were the user's.

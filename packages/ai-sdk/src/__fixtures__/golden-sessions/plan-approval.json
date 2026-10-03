@@ -1342,7 +1342,15 @@
       }
     },
     {
-      "id": "turn_golden:notice:14",
+      "id": "turn_golden:status:14",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "status",
+      "status": "verifying"
+    },
+    {
+      "id": "turn_golden:notice:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1351,7 +1359,7 @@
       "reason": "self_check"
     },
     {
-      "id": "turn_golden:notice:15",
+      "id": "turn_golden:notice:16",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1360,7 +1368,7 @@
       "reason": "self_check"
     },
     {
-      "id": "turn_golden:notice:16",
+      "id": "turn_golden:notice:17",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1389,7 +1397,7 @@
       ]
     },
     {
-      "id": "turn_golden:notice:17",
+      "id": "turn_golden:notice:18",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1550,7 +1558,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:18",
+      "id": "turn_golden:usage:19",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1571,7 +1579,7 @@
       "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not done:**\n- Tighten the intro — pending"
     },
     {
-      "id": "turn_golden:status:19",
+      "id": "turn_golden:status:20",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
