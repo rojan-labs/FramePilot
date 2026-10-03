@@ -25,10 +25,12 @@ from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
 from framepilot_engine.analysis.visual_sampler import VisualSpan
+from framepilot_engine.brain.governor import IndexGovernor
 from framepilot_engine.brain.keyring import KeyRingExhaustedError
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.brain.visual_embed import MODEL_ID, EmbedResult, VisualEmbedderResolution
 from framepilot_engine.config import Settings
+from framepilot_engine.media.ffmpeg import FFmpegError
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
 from framepilot_engine.service import create_app
 
@@ -215,6 +217,34 @@ def test_the_provider_wait_overlaps_instead_of_queueing(
     on observed in-flight overlap rather than wall clock, which is the property that
     matters and does not flake on a loaded CI box.
     """
+    _seed(tmp_path)
+    embedder = _CountingEmbedder()
+    _run(_client(tmp_path, monkeypatch, embedder, concurrency=4))
+    assert embedder.peak_in_flight > 1
+
+
+def test_the_provider_wait_overlaps_even_when_tier_zero_gets_one_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tier 0's CPU bound must not become the provider calls' concurrency.
+
+    A four-core machine gives tier 0 one worker (``TIER0_CORES_PER_WORKER``). The deep
+    pass re-runs tier 0 in front of each asset's embed, and here it never succeeds (the
+    fixture bytes are not a JPEG), so every deep-pass worker decodes before it embeds.
+    The decode is made slower than the provider wait, as a few-core CI runner's ffmpeg
+    spawn is. When tier 0's bound was a gate over EVERY decode, those decodes queued
+    one at a time, each embed started one decode after the last, and the embeds never
+    overlapped (peak 1 at concurrency 4). The bound belongs to the measured pass only.
+    """
+    monkeypatch.setattr(
+        service_module, "IndexGovernor", lambda **kw: IndexGovernor(cpu_count=4, **kw)
+    )
+
+    def _slow_failing_decode(path: Path, **_kw: Any) -> Any:
+        time.sleep(CALL_LATENCY_SECONDS * 2)
+        raise FFmpegError("No JPEG data found in image")
+
+    monkeypatch.setattr(service_module, "measure_asset", _slow_failing_decode)
     _seed(tmp_path)
     embedder = _CountingEmbedder()
     _run(_client(tmp_path, monkeypatch, embedder, concurrency=4))

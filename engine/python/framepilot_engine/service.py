@@ -2646,12 +2646,22 @@ def create_app(
     # exactly the four foreground surfaces named there — export, preview, frame grab and
     # the temporal-evidence batch — and its rules live in `brain/governor.py`, not here.
     index_governor = IndexGovernor(external_busy=_render_queue_busy)
-    # Tier 0's decodes run on `SliceWork` threads that outlive the pool worker which
-    # started them (a long source spans several slices), so the pool's
-    # `tier_workers("measured")` size no longer bounds the decodes themselves. This does:
-    # a slice that moves on from a still-decoding asset must not stack another ffmpeg
-    # beside it, or a project of long sources runs one decode per asset in the window.
-    _tier0_decode_gate = threading.BoundedSemaphore(index_governor.tier_workers("measured"))
+    # The governor's tier-0 CPU bound is the MEASURED pass's pool size
+    # (`tier_workers("measured")`, see the built-in route). Tier 0's decodes now run on
+    # `SliceWork` threads that outlive the pool worker that started them (a long source
+    # spans several slices), so a worker that moves on from a still-decoding asset could
+    # start another ffmpeg beside it and the pool would no longer bound the decodes. This
+    # gate restores exactly that bound, for that pass only, and is sized to the pass's
+    # own pool ceiling so it never binds tighter than the pool did.
+    #
+    # Deliberately NOT applied to the deep pass or the TwelveLabs path. There, tier 0
+    # sits in front of a provider call in the same worker (tier 1/2, the upload), and
+    # those pools are sized for overlapping network waits. A global gate made every
+    # tier-0 decode there queue on the CPU bound, and each provider call queued behind
+    # its asset's decode: on a few-core runner the embeds went strictly serial.
+    _measured_pass_decode_gate = threading.BoundedSemaphore(
+        min(index_governor.tier_workers("measured"), settings.visual_index_concurrency)
+    )
     # P5.4: identical requests that arrive while one is already running share its answer
     # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
     _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
@@ -3516,7 +3526,12 @@ def create_app(
         return out
 
     def _measure_tier0(
-        store: BrainStore, asset_id: str, resolved_root: Path, timeout: float
+        store: BrainStore,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+        *,
+        decode_gate: threading.Semaphore | None = None,
     ) -> _TierOutcome:
         """Run tier 0 for one asset unless the current bytes already carry it (VU1.4).
 
@@ -3540,6 +3555,10 @@ def create_app(
         than starting another. Every brain read and write stays here, on the slice
         thread, under the route's per-project lock.
 
+        :param decode_gate: Held by the decode for its whole run, when the caller's pass
+            bounds tier 0's CPU (the built-in measured pass); ``None`` leaves the decode
+            bounded by the caller's pool alone, as it always was. A resumed asset returns
+            before any decode, so it never touches the gate.
         :returns: The tier's disposition; ``shots`` counts rows written THIS call, so a
             resumed asset reports ``ok`` with zero.
         """
@@ -3582,7 +3601,7 @@ def create_app(
             # old file's shots.
             measured = slice_work.run(
                 ("tier0", str(media_path), content_hash, TIER0_VERSION, duration, is_image),
-                lambda: _tier0_measurements(media_path, info, asset_id, timeout),
+                lambda: _tier0_measurements(media_path, info, asset_id, timeout, decode_gate),
                 budget=TIER0_SLICE_WAIT_SECONDS,
             )
         except (FFmpegError, OSError) as exc:
@@ -3618,15 +3637,19 @@ def create_app(
         return _TierOutcome("ok", shots=len(rows))
 
     def _tier0_measurements(
-        media_path: Path, info: MediaInfo, asset_id: str, timeout: float
+        media_path: Path,
+        info: MediaInfo,
+        asset_id: str,
+        timeout: float,
+        decode_gate: threading.Semaphore | None,
     ) -> tuple[list[ShotStats], dict[int, str], dict[int, float]]:
         """Tier 0's ffmpeg passes over one asset — and nothing else.
 
         Runs on a :class:`SliceWork` thread, so it touches the FILE only: no brain, no
         store. The store's connection belongs to the slice thread that opened it, and
         the writes must happen under the route's per-project lock, which a background
-        thread outliving its request does not hold. Holds a tier-0 decode slot
-        (``_tier0_decode_gate``) for the whole of it.
+        thread outliving its request does not hold. Holds ``decode_gate``, when given,
+        for the whole of it.
 
         :param timeout: The media timeout. The whole-file passes are bounded by
             :func:`_tier0_decode_timeout` instead; per-frame seeks keep this one.
@@ -3638,7 +3661,7 @@ def create_app(
         duration = info.duration_seconds or 0.0
         decode_timeout = _tier0_decode_timeout(duration, timeout)
         loudness: dict[int, float] = {}
-        with _tier0_decode_gate:
+        with decode_gate if decode_gate is not None else contextlib.nullcontext():
             stats = measure_asset(
                 media_path, duration=duration, is_image=is_image, timeout=decode_timeout
             )
@@ -5473,7 +5496,20 @@ def create_app(
                 # resolved above, and running it after them would make the keyless floor
                 # depend on the keyed tiers again.
                 tier0 = (
-                    _measure_tier0(store, asset_id, resolved_root, timeout)
+                    _measure_tier0(
+                        store,
+                        asset_id,
+                        resolved_root,
+                        timeout,
+                        # Only the measured pass carries the governor's tier-0 CPU bound
+                        # (its pool is `tier_workers("measured")`). The deep pass is sized
+                        # for overlapping provider waits, and a tier-0 decode there sits
+                        # in front of this asset's tier-1 call: gating it would serialise
+                        # the provider calls behind the CPU bound.
+                        decode_gate=(
+                            _measured_pass_decode_gate if current.phase == MEASURED_PHASE else None
+                        ),
+                    )
                     if want_measured
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
