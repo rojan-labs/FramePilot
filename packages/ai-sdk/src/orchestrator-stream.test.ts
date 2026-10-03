@@ -1420,8 +1420,10 @@ describe('streamAgent', () => {
         ),
       ).toBe(true);
       // The malformed `ask_user` call fails its own card and the run continues (that is
-      // the point of this test); the model then finishes on its own (ADR 0199).
-      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      // the point of this test). The model then ends without retrying: nothing changed and
+      // its last attempt failed, so the run reads failed, not answered (ADR 0199 §5).
+      expect(provider.requests).toHaveLength(2);
+      expect(events.at(-1)).toMatchObject({ status: 'failed' });
     });
 
     it('ignores an answer to a question that is no longer pending', async () => {

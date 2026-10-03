@@ -422,6 +422,14 @@ export interface ConductorState {
    * `add_clip` whose cause the run had genuinely fixed.
    */
   readonly seenFailureKeys: readonly string[];
+  /**
+   * Whether a call failed on the most recent turn that made tool calls — an engine that
+   * did not answer, arguments no tool accepts, a refused edit. A run that changed nothing
+   * is an ANSWER only when the model's last attempts worked: a reply that follows a failed
+   * call is the model reporting what it could not do (`onVerifyResult`), while a mistake
+   * the model then recovered from is behind it.
+   */
+  readonly lastToolTurnFailed: boolean;
   /** Count + reasons of proposed ops the validator rejected (empty-run notice). */
   readonly rejectedOpCount: number;
   readonly rejectionReasons: readonly string[];
@@ -546,6 +554,7 @@ export function initialConductorState(turnRef: TurnRef): ConductorState {
     recentOutputDeltas: [],
     seenCallKeys: [],
     seenFailureKeys: [],
+    lastToolTurnFailed: false,
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
@@ -1652,6 +1661,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     recentOutputDeltas: [],
     seenCallKeys: [],
     seenFailureKeys: [],
+    lastToolTurnFailed: false,
     rejectedOpCount: 0,
     rejectionReasons: [],
     lastRejectionReason: '',
@@ -2254,6 +2264,7 @@ export function onTurnResult(
       lastRejectionReason: '',
       lastRejectionScale: undefined,
       seenCallKeys: mergeSeenKeys(state.seenCallKeys, r.callFacts),
+      lastToolTurnFailed: lastToolTurnFailedAfter(state, r.callFacts),
       // Same reason as `lastRejectionReason`: a deterministic refusal describes the
       // arrangement the validator was shown, and this patch has just replaced it. Holding
       // the keys across an applied edit would refuse a retry whose cause the edit fixed.
@@ -2448,6 +2459,7 @@ export function onTurnResult(
     lastRejectionScale,
     seenCallKeys,
     seenFailureKeys,
+    lastToolTurnFailed: lastToolTurnFailedAfter(state, r.callFacts),
   };
   // The run stops on its own only when it has provably stopped moving: STALL_CONFIRM_TURNS
   // turns in a row that learned nothing new and attempted no new change. Nothing narrows the
@@ -2497,6 +2509,15 @@ export function onTurnResult(
  */
 function mergeSeenKeys(seen: readonly string[], facts: readonly TurnCallFact[]): readonly string[] {
   return [...new Set([...seen, ...facts.filter(callAnswered).map((f) => f.key)])];
+}
+
+/** {@link ConductorState.lastToolTurnFailed} after a turn: unchanged by a turn with no calls. */
+function lastToolTurnFailedAfter(
+  state: ConductorState,
+  callFacts: readonly TurnCallFact[],
+): boolean {
+  if (callFacts.length === 0) return state.lastToolTurnFailed;
+  return callFacts.some((fact) => fact.status === 'failed');
 }
 
 /**
@@ -2583,10 +2604,15 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // findings, which are reported above and were in front of the model all along.
   const deliveredWork = working.operations.some((operation) => operation.status === 'succeeded');
   // A run that changed nothing can still have finished properly: the model ended it itself,
-  // nothing it tried was refused, and its reply is the answer ("the silences were already
-  // trimmed"). That is a completed run with an empty diff, not a failure.
+  // nothing it tried was refused, its last attempts worked, and its reply is the answer
+  // ("the silences were already trimmed"). That is a completed run with an empty diff. A
+  // reply after a failed call — the engine was down, the arguments fit no tool — is the
+  // model saying what it could not do, and the run failed.
   const answeredWithoutEditing =
-    !deliveredWork && state.modelDeclaredDone === true && state.rejectedOpCount === 0;
+    !deliveredWork &&
+    state.modelDeclaredDone === true &&
+    state.rejectedOpCount === 0 &&
+    !state.lastToolTurnFailed;
   for (const [index, objective] of working.objectives.entries()) {
     // One objective per drafted step, and a step completes only by an applied patch on its
     // own turn; a step that never got a turn of its own is said in the detail and in the

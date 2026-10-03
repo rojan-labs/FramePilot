@@ -2193,6 +2193,38 @@ describe('onEffectResult — verify → finalize', () => {
     expect(refused.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
   });
 
+  it('reads a reply after a failed call as what the run could not do, not as an answer', () => {
+    // The engine did not answer (or the arguments fit no tool), and the model then said so
+    // and stopped: nothing changed and its last attempt failed — failed.
+    const engineDown = turn({
+      anyToolFailed: true,
+      callFacts: [{ key: 'detect_scenes:asset_1', status: 'failed', fromCache: false }],
+    });
+    const afterFailure = onEffectResult(started(), engineDown);
+    expect(afterFailure.state.lastToolTurnFailed).toBe(true);
+    const reported = onEffectResult(afterFailure.state, turn({ done: true, stepIndex: 2 }));
+    // A turn with no calls leaves the last attempt's outcome standing.
+    expect(reported.state.lastToolTurnFailed).toBe(true);
+    const settled = onEffectResult(reported.state, verify());
+    expect(settled.effects[0]).toMatchObject({ kind: 'finalize', failed: true });
+
+    // A mistake the model then recovered from is behind it: the retry worked, and the reply
+    // that follows is the answer.
+    const retried = onEffectResult(
+      afterFailure.state,
+      turn({
+        stepIndex: 2,
+        callFacts: [{ key: 'detect_scenes:asset_1:retry', status: 'completed', fromCache: false }],
+      }),
+    );
+    expect(retried.state.lastToolTurnFailed).toBe(false);
+    const answered = onEffectResult(retried.state, turn({ done: true, stepIndex: 3 }));
+    expect(onEffectResult(answered.state, verify()).effects[0]).toMatchObject({
+      kind: 'finalize',
+      failed: false,
+    });
+  });
+
   // P4.3 — the bounded verify loop. A failed self-check on a run that did land work gets
   // ONE model turn scoped to the findings, then verifies again; two such turns at most,
   // after which the run settles honestly with the list.

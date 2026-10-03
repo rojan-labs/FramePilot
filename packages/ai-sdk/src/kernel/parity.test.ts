@@ -156,9 +156,9 @@ describe('Conductor ↔ streamAgent event parity (K1.2)', () => {
     const events = await assertParity({
       build: () => ({ provider: new ScriptedProvider([{ text: 'all done', toolCalls: [] }]) }),
     });
-    // No edit landed — ADR 0081 ends the run `failed`, not `completed`; the parity
-    // assertion above is what actually matters here (both paths agree).
-    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
+    // No edit landed, and the model answered with nothing failed or refused: completed with
+    // an empty diff (ADR 0199 §5). The parity assertion above is what matters here.
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
   });
 
   it('empty terminal text (no prose, no tool call) fails the run instead of closing it', async () => {
@@ -444,7 +444,7 @@ describe('Conductor ↔ streamAgent event parity (K1.2)', () => {
       runAgentGraph({ kind: 'submit_turn', mode: 'agent', input, stream: opts }, handlers),
     );
     dispose();
-    // `done` makes no tool calls — no edit landed, so ADR 0081 ends the run `failed`.
-    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
+    // `done` makes no tool calls: an answer with nothing failed, so it completes (ADR 0199).
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
   });
 });
