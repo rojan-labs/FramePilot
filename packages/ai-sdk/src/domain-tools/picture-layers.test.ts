@@ -1207,6 +1207,30 @@ describe('hiddenPictureClips', () => {
     expect(hiddenPictureClips(baseProject())).toEqual([]);
   });
 
+  it('spares covered A-roll whose speech is heard, and still names covered silent picture', () => {
+    // The interview under B-roll that hides a jump cut: covered on purpose, speech heard.
+    const stack = buriedStack();
+    const spoken: Project = {
+      ...stack,
+      transcript: [
+        { word: 'positive', start: 2, end: 2.4, assetId: 'asset_v' },
+        { word: 'feedback', start: 2.4, end: 2.9, assetId: 'asset_v' },
+      ],
+    };
+    expect(hiddenPictureClips(spoken).map((clip) => clip.clipId)).toEqual(['clip_mid']);
+    // Muted, its words are no longer heard, so the covered picture is buried again.
+    const muted: Project = {
+      ...spoken,
+      timeline: {
+        ...spoken.timeline,
+        tracks: spoken.timeline.tracks.map((track) =>
+          track.id === 'v_main' ? { ...track, muted: true } : track,
+        ),
+      },
+    };
+    expect(hiddenPictureClips(muted).map((clip) => clip.clipId)).toEqual(['clip_mid', 'clip_a']);
+  });
+
   it('measures the visible seconds a lift leaves behind', () => {
     const project = buriedStack();
     const front = project.timeline.tracks[0]?.clips[0];

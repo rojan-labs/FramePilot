@@ -45,8 +45,11 @@
 import type { Asset, Clip, CropRect, Project, Track } from '@framepilot/timeline-schema';
 import type { Operation } from '@framepilot/editor-core';
 import {
+  buildTimelineMap,
   coverageVerdict,
   LANE_OVERLAP_EPSILON,
+  mapTranscript,
+  speechAssetIdsFor,
   snapSecondsToFrame,
   trackHasRoomFor,
   type CoverageVerdict,
@@ -800,6 +803,7 @@ export interface HiddenPictureClip {
  */
 export function hiddenPictureClips(project: Project): readonly HiddenPictureClip[] {
   const assetById = assetsById(project);
+  const speaking = clipsCarryingHeardSpeech(project);
   const hidden: HiddenPictureClip[] = [];
   project.timeline.tracks.forEach((track, depth) => {
     if (!carriesPicture(track)) return;
@@ -815,6 +819,12 @@ export function hiddenPictureClips(project: Project): readonly HiddenPictureClip
       // of the clip in front, matte and all), and the clip underneath carries the sound —
       // the check's "Remove them" pointed the agent at the one clip with the speech on it.
       if (hasSynchronizedCopyInFront(project, depth, clip)) continue;
+      // Covered while its words are heard is the A-roll under a cutaway: the interview the
+      // editor covers with B-roll to hide a jump cut. Its picture is meant to be covered and
+      // its speech is the point, so "Remove them" would cut the soundbite (Moon Watch e2e
+      // run, 2026-10-03). Only HEARD speech counts — `mapTranscript` maps words through
+      // audible clips — so stacked B-roll with incidental sound is still reported.
+      if (speaking.has(clip.id)) continue;
       hidden.push({
         clipId: clip.id,
         trackId: track.id,
@@ -825,6 +835,17 @@ export function hiddenPictureClips(project: Project): readonly HiddenPictureClip
     }
   });
   return hidden;
+}
+
+/** The clips whose transcript words are heard in the cut (each mapped word names its clip). */
+function clipsCarryingHeardSpeech(project: Project): ReadonlySet<string> {
+  if (project.transcript.length === 0) return new Set();
+  const mapped = mapTranscript(
+    buildTimelineMap(project.timeline),
+    project.transcript,
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
+  return new Set(mapped.words.map((word) => word.clipId));
 }
 
 /** Seconds within which two clips count as the same placement of the same material. */
