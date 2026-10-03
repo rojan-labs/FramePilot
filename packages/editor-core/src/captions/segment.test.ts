@@ -21,6 +21,7 @@ import {
   enforceTiming,
   isClauseEnd,
   isSentenceEnd,
+  keepTogetherReach,
   layoutLines,
   packSegment,
   presetForWordsPerLine,
@@ -1241,5 +1242,128 @@ describe('no cue ends on a stranded function word when a clean break is in reach
     // A cue is at most two lines, and its words are the phrase's words in order.
     expect(text.split('\n').length).toBeLessThanOrEqual(2);
     expect(flat(text)).toBe('and worked with billion dollar companies.');
+  });
+});
+
+describe('segmentCaptions bounded by the end of its footage (`until`)', () => {
+  // Desktop run 001be135: "लोकी" was the last word of a run that ended 0.067 s after it began,
+  // so the cue was clamped to the cut and shown for two frames. Unbounded, the last cue was
+  // never examined; bounded, it is held like every other cue.
+  const onGrid = (t: number, fps: number): number => snapSecondsToFrame(t, fps);
+
+  it('merges a last cue that cannot clear the floor before the cut into the cue before it', () => {
+    const words = real([
+      ['अब', 0.0, 0.3],
+      ['लूफी', 0.3, 0.8],
+      ['का', 0.8, 1.0],
+      ['लोकी', 1.07, 1.12],
+    ]);
+    const config = captionSegmentConfig('one-word');
+    const cues = segmentCaptions(words, config, 30, 1.1333);
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
+    for (const cue of cues) {
+      expect(onGrid(cue.end, 30) - onGrid(cue.start, 30)).toBeGreaterThanOrEqual(
+        MIN_CAPTION_CUE_SECONDS - 1e-6,
+      );
+      expect(cue.end).toBeLessThanOrEqual(1.1333 + 1e-9);
+    }
+    expect(cues[cues.length - 1]!.words.map((w) => w.word)).toContain('लोकी');
+    // Unbounded, the same words keep "लोकी" alone: the bound is what changed.
+    const open = segmentCaptions(words, config, 30);
+    expect(open[open.length - 1]!.text).toBe('लोकी');
+  });
+
+  it('caps the last cue at the bound and leaves an already-readable last cue alone', () => {
+    const words = speak('this one is fine', { wordSeconds: 0.3 });
+    const config = captionSegmentConfig('one-word');
+    const bounded = segmentCaptions(words, config, 30, 1.25);
+    expect(bounded.map((cue) => cue.text)).toEqual(['this', 'one', 'is', 'fine']);
+    expect(bounded[bounded.length - 1]!.end).toBeLessThanOrEqual(1.25);
+  });
+
+  it('holds the last cue by moving its start before merging it', () => {
+    // 0.2 s of footage left for "here" — the cue before has time to spare, so the boundary
+    // moves a couple of frames (inside the sync tolerance) instead of the words merging.
+    const words = real([
+      ['everything', 0.0, 0.7],
+      ['here', 0.7, 0.88],
+    ]);
+    const cues = segmentCaptions(words, captionSegmentConfig('one-word'), 30, 0.9);
+    expect(cues.map((cue) => cue.text)).toEqual(['everything', 'here']);
+    const last = cues[1]!;
+    expect(onGrid(0.9, 30) - onGrid(last.start, 30)).toBeGreaterThanOrEqual(
+      MIN_CAPTION_CUE_SECONDS - 1e-6,
+    );
+    expect(Math.abs(onGrid(last.start, 30) - 0.7)).toBeLessThanOrEqual(
+      MAX_CUE_SHIFT_SECONDS + 1e-9,
+    );
+  });
+
+  it('never reports a sole cue as short — there is no neighbour to merge it into', () => {
+    const only = real([['go', 0.0, 0.05]]);
+    expect(borrowHoldTime([only], 30, 0.1).stillShort).toEqual([]);
+    expect(segmentCaptions(only, captionSegmentConfig('one-word'), 30, 0.1)).toHaveLength(1);
+  });
+});
+
+describe('Devanagari text', () => {
+  it('ends a sentence at the danda', () => {
+    expect(isSentenceEnd('है।')).toBe(true);
+    expect(isSentenceEnd('है॥')).toBe(true);
+    expect(isSentenceEnd('है')).toBe(false);
+    // One sentence per cue: a danda is a hard split like a full stop.
+    const words = speak('वो यहाँ है। लूफी बहुत खुश है।', { wordSeconds: 0.3 });
+    expect(splitIntoUtterances(words, 0.55).map((run) => run.map((w) => w.word))).toEqual([
+      ['वो', 'यहाँ', 'है।'],
+      ['लूफी', 'बहुत', 'खुश', 'है।'],
+    ]);
+  });
+
+  it('keeps a phrase together only where its own words are spoken, vowel signs included', () => {
+    // The old fold reduced "की", "का" and "के" to one skeleton, so keepTogether ["लूफी की"]
+    // also protected the break inside "लूफी का" and "लूफी के".
+    const config = captionSegmentConfig('short-form', {
+      maxWordsPerCue: 2,
+      keepTogether: ['लूफी की'],
+    });
+    expect(config.keepTogether).toEqual(['लूफी की']);
+    const texts = (text: string, phrases: readonly string[]): string[] =>
+      packSegment(speak(text), { ...config, keepTogether: phrases }).map((cue) =>
+        cue.map((w) => w.word).join(' '),
+      );
+    expect(texts('अब लूफी की ताकत', config.keepTogether)).toContain('लूफी की');
+    // "लूफी का" is a different phrase: asking for "लूफी की" must change nothing about it.
+    for (const text of ['अब लूफी का घर', 'वो लूफी के साथ']) {
+      expect(texts(text, config.keepTogether)).toEqual(texts(text, []));
+    }
+  });
+});
+
+describe('keepTogetherReach', () => {
+  // Desktop run 001be135 re-sent keepTogether phrases that matched nothing and heard only that
+  // the call "changed nothing": the segmenter drops such phrases without a word.
+  const runs = [speak('stop scrolling right now'), speak('गियर फोर मोड चालू')];
+
+  it('names the phrases spoken nowhere as consecutive words in one run', () => {
+    const reach = keepTogetherReach(
+      ['stop scrolling', 'Gear Fourth', 'गियर फोर', 'now गियर', 'scrolling now'],
+      runs,
+    );
+    // "now गियर" spans the boundary between two runs, which no cue can cross.
+    expect(reach.unmatched).toEqual(['Gear Fourth', 'now गियर', 'scrolling now']);
+    expect(reach.singleWords).toEqual([]);
+  });
+
+  it('names one-word phrases, which have no break inside them to protect', () => {
+    expect(keepTogetherReach(['scrolling!', 'stop scrolling', 'scrolling!'], runs)).toEqual({
+      unmatched: [],
+      singleWords: ['scrolling!'],
+    });
+  });
+
+  it('matches the way the segmenter does: case, punctuation and spelling-form insensitive', () => {
+    expect(keepTogetherReach(['STOP, scrolling', 'गियर   फोर!'], runs).unmatched).toEqual([]);
+    // A truncated keyword the old fold produced is not the word that was said.
+    expect(keepTogetherReach(['गयर फोर'], runs).unmatched).toEqual(['गयर फोर']);
   });
 });

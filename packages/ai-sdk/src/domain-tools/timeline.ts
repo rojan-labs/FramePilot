@@ -86,6 +86,7 @@ import { clipCandidates } from './clip-candidates.js';
 import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
+import { unheardSpeechNote } from '../unheard-speech.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
 /**
@@ -1143,12 +1144,18 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         startSeconds: frameToSeconds(secondsToFrame(w.start, fps), fps),
         endSeconds: frameToSeconds(secondsToFrame(w.end, fps), fps),
       }));
+      // No word maps although the transcript survives the cuts: every clip carrying it is
+      // silenced (desktop run `001be135`, a recap's muted soundtrack under a voiceover nobody
+      // had transcribed). An empty list alone reads as "the edit has no speech" — say whose
+      // speech is muted and what audible asset has no transcript (`unheard-speech.ts`).
+      const unheard = mapped.words.length === 0 ? unheardSpeechNote(ctx.project, map) : '';
       return {
         words: timedWords,
         runs,
         droppedCount: mapped.droppedCount,
         fps,
         revision: mapped.revision,
+        ...(unheard === '' ? {} : { note: unheard }),
       };
     },
   ),

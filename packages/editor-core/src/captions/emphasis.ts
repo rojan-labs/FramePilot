@@ -27,8 +27,16 @@ const IMPACT_WORDS = new Set([
   'proof', 'real', 'secret', 'solution', 'stop', 'truth', 'viral', 'warning', 'worst',
 ]);
 
-const bare = (token: string): string => token.replace(/[^\p{L}\p{N}']/gu, '').toLowerCase();
-const sentenceEnd = (token: string): boolean => /[.!?…]["'”’)]*$/.test(token);
+// Combining marks stay: they are Devanagari's vowel signs, and dropping them returned
+// "लूफी" as the keyword "लफ" — a word nobody said, which no cue then matched. NFKC so a
+// precomposed and a decomposed spelling yield the same keyword (the renderers fold alike).
+const bare = (token: string): string =>
+  token
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}']/gu, '');
+// The danda is the Devanagari full stop (see `segment.ts#SENTENCE_END`).
+const sentenceEnd = (token: string): boolean => /[.!?…।॥]["'”’)]*$/.test(token);
 
 export interface AutoEmphasisOptions {
   /** Maximum fraction of transcript words represented by emphasis keywords. */

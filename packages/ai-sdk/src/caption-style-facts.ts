@@ -18,8 +18,8 @@
  * the parity contract is `captionStyle.ts ↔ captions.py`, and a change to one is a change
  * to all three.
  */
-import type { CaptionStyle, Clip, Project, Track } from '@framepilot/timeline-schema';
-import { getCaptionTemplate } from '@framepilot/timeline-schema/caption-templates';
+import type { CaptionStyle, Project } from '@framepilot/timeline-schema';
+import { captionTrackFontNote } from './font-coverage.js';
 
 /** The engine's caption font height as a fraction of the frame height (`captions.py`). */
 export const CAPTION_FONT_HEIGHT_FRACTION = 1 / 22;
@@ -201,38 +201,22 @@ export function captionUnitsRefusal(
   );
 }
 
-/**
- * The style a cue renders with: its own override over the track default over the
- * template, with `background`/`shadow` taken whole from the first layer that sets them —
- * the same precedence the renderers use.
- */
-export function resolveCaptionStyle(clip: Clip, track: Track | undefined): CaptionStyle | undefined {
-  const authored: CaptionStyle | undefined =
-    clip.captionStyle !== undefined
-      ? { ...(track?.captionStyle ?? {}), ...clip.captionStyle }
-      : track?.captionStyle;
-  if (authored === undefined) return undefined;
-  const template =
-    authored.templateId !== undefined ? getCaptionTemplate(authored.templateId)?.style : undefined;
-  if (template === undefined) return authored;
-  return {
-    ...template,
-    ...authored,
-    ...(authored.background === undefined && template.background !== undefined
-      ? { background: template.background }
-      : {}),
-    ...(authored.shadow === undefined && template.shadow !== undefined
-      ? { shadow: template.shadow }
-      : {}),
-  };
-}
+// `resolveCaptionStyle` lives in its own module so `font-coverage.ts` can read it while the
+// notes below read font coverage, with no import cycle between the two.
+export { resolveCaptionStyle } from './caption-style-resolve.js';
 
-/** Compare caption words the way a reader would: case- and punctuation-insensitive. */
+/**
+ * Compare caption words the way a reader would: case- and punctuation-insensitive.
+ *
+ * Combining marks belong to the word. Devanagari spells its vowel signs as marks, and a
+ * trim that kept only letters and digits cut a word's FINAL sign: "लूफी" was grounded and
+ * stored as the keyword "लूफ" (run `001be135`), a word nobody said.
+ */
 export const normalizeCaptionWord = (value: string): string =>
   value
     .normalize('NFKC')
     .toLocaleLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    .replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '');
 
 /** Does `tokens` contain `phrase` as a consecutive run? */
 export function containsRun(tokens: readonly string[], phrase: readonly string[]): boolean {
@@ -252,9 +236,19 @@ export function containsRun(tokens: readonly string[], phrase: readonly string[]
  * redundant, and it is read from the applied project, so it cannot disagree with what the
  * renderer will accent.
  *
- * @returns The note, or `''` when the track carries no keyword accent.
+ * It also warns when the accent font (or the track's font) cannot draw the words it is
+ * given: an emphasis pass is what decides which words the accent font draws, and a Latin-only
+ * accent on Devanagari keywords draws boxes in the export (`font-coverage.ts`).
+ *
+ * @returns The note, or `''` when the track carries no keyword accent and every font can
+ *   draw its words.
  */
 export function emphasisCoverageNote(project: Project, trackId: unknown): string {
+  return emphasisCoverage(project, trackId) + captionTrackFontNote(project, trackId);
+}
+
+/** {@link emphasisCoverageNote}'s accent count, without the font warning. */
+function emphasisCoverage(project: Project, trackId: unknown): string {
   if (typeof trackId !== 'string') return '';
   const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
   const keywords = track?.captionStyle?.accent?.keywords ?? [];
@@ -324,8 +318,17 @@ export function keepGroundedKeywords<S extends CaptionStyle | null>(
  * Run `0e12b96e` gave 28 cues their own placement and a dark box, was then asked for "no
  * bg on captions", cleared the box on 8 of them and told the editor to "check the others
  * in the preview".
+ *
+ * And it warns when a font the restyle chose cannot draw the words it is given — desktop run
+ * `001be135` restyled five times trying to make a Latin-only accent font show on Devanagari
+ * words, with nothing saying why it never did (`font-coverage.ts`).
  */
 export function trackStyleNote(project: Project, trackId: unknown): string {
+  return trackStyleReach(project, trackId) + captionTrackFontNote(project, trackId);
+}
+
+/** {@link trackStyleNote}'s emphasis and override report, without the font warning. */
+function trackStyleReach(project: Project, trackId: unknown): string {
   if (typeof trackId !== 'string') return '';
   const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
   if (track === undefined) return '';
@@ -333,7 +336,7 @@ export function trackStyleNote(project: Project, trackId: unknown): string {
   const emphasis =
     accent?.mode === 'keywords' && (accent.keywords ?? []).length === 0
       ? ' — the accent is in keywords mode but names no keywords, so no word is emphasised; auto_emphasize_captions picks and grounds them.'
-      : emphasisCoverageNote(project, trackId);
+      : emphasisCoverage(project, trackId);
   const overridden = track.clips.filter((clip) => clip.captionStyle !== undefined);
   if (overridden.length === 0) return emphasis;
   const fields = [...new Set(overridden.flatMap((clip) => Object.keys(clip.captionStyle ?? {})))]

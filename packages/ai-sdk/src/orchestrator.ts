@@ -51,6 +51,8 @@ import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
 import { magnificationNote } from './domain-tools/magnification-note.js';
 import { emphasisCoverageNote, trackStyleNote } from './caption-style-facts.js';
+import { fontCoverageNote } from './font-coverage.js';
+import { keepTogetherNote } from './domain-tools/captions.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -3283,7 +3285,13 @@ export function summarizeReadResult(
       // The words carry the SEQUENCE timings every cue is built from. previewJson gave
       // back about four of them, so a run asked to caption 81 words received five.
       const words = (Array.isArray(obj.words) ? obj.words : []) as Record<string, unknown>[];
-      if (words.length === 0) return 'no mapped words — the edited timeline carries no speech';
+      if (words.length === 0) {
+        // "Carries no speech" is false when the words survive the cuts but every clip that
+        // plays them is muted; the tool says which asset and what to transcribe instead.
+        return typeof obj.note === 'string'
+          ? obj.note
+          : 'no mapped words — the edited timeline carries no speech';
+      }
       const dropped =
         typeof obj.droppedCount === 'number' && obj.droppedCount > 0
           ? `, ${obj.droppedCount} dropped by cuts`
@@ -3369,7 +3377,21 @@ export function summarizeReadResult(
       const catalog = [...byCategory.entries()].map(
         ([category, ids]) => `${category}: ${ids.join(', ')}`,
       );
-      const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
+      // Which writing systems a font can draw, for every font that is not Latin-only: a
+      // Devanagari word set in a Latin-only face renders as boxes in the export.
+      const fontList = `fonts (Latin unless marked): ${fonts
+        .map((f) => {
+          const scripts = Array.isArray(f.scripts)
+            ? (f.scripts as unknown[]).filter(
+                (script): script is string =>
+                  typeof script === 'string' && script !== 'latin' && script !== 'latin-ext',
+              )
+            : [];
+          return scripts.length > 0
+            ? `${String(f.family)} [${scripts.join(', ')}]`
+            : String(f.family);
+        })
+        .join(', ')}`;
       return [...note, head, ...catalog, ...units, fontList].join('\n');
     }
     case 'load_tools': {
@@ -6134,6 +6156,11 @@ export class Orchestrator {
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
+        // What `keepTogether` could not protect, and the fonts that cannot draw the words they
+        // were given — both facts the operations do not show (desktop run `001be135`: a phrase
+        // that matched nothing, and a Latin-only accent font over Devanagari, five restyles).
+        keepTogetherNote(call.name, applied, call.arguments) +
+        fontCoverageNote(call.name, applied, call.arguments) +
         // How many cues the accent actually reached — read from the applied project, so a
         // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
         (call.name === 'auto_emphasize_captions'

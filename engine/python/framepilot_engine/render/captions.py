@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import cache, lru_cache
@@ -941,13 +942,24 @@ def _draw_token_text(
             )
 
 
+#: Unicode general-category initials a bare token keeps: letters, combining marks, numbers.
+_BARE_TOKEN_CATEGORIES = frozenset("LMN")
+
+
 def _bare_token(token: str) -> str:
-    """Fold a token to bare letters/digits, lowercased.
+    """Fold a token to bare letters, marks and digits, lowercased.
 
     Mirrors the web preview's ``bareToken`` so a keyword typed in the editor
-    accents the same words here as it highlights there.
+    accents the same words here as it highlights there; both are checked against
+    ``tests/fixtures/captions/bare-token-vectors.json``.
+
+    Combining marks are kept, which ``str.isalnum`` does not do: Devanagari spells its
+    vowel signs and virama as marks, so "की", "का" and "के" all folded to "क" and a
+    keyword accented every one of them. NFKC first, so a precomposed and a decomposed
+    spelling of one word compare equal.
     """
-    return "".join(ch for ch in token.lower() if ch.isalnum())
+    folded = unicodedata.normalize("NFKC", token).lower()
+    return "".join(ch for ch in folded if unicodedata.category(ch)[0] in _BARE_TOKEN_CATEGORIES)
 
 
 def _keyword_tokens(keyword: str) -> tuple[str, ...]:

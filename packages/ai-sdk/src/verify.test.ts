@@ -641,3 +641,154 @@ describe('verify_captions judges the two look facts it can compute', () => {
     expect(short[0]?.detail).toMatch(/below the 0\.25s floor/);
   });
 });
+
+describe('the caption builder and the verifier agree on short stretches of speech', () => {
+  // Desktop run 001be135: caption_the_edit wrote a 0.067 s cue, verify_captions reported
+  // caption_too_short and told the agent to regenerate through caption_the_edit — which made
+  // the same cue again.
+  const FPS = 30;
+  /** Clips laid end to end, each from its own source range, so every clip is a speech run. */
+  function sliveredDoc(
+    specs: readonly (readonly [number, number, number, number])[],
+    words: readonly (readonly [string, number, number])[],
+  ): Project {
+    const doc = projectDoc();
+    return {
+      ...doc,
+      fps: FPS,
+      transcript: words.map(([word, start, end]) => ({ word, start, end, assetId: ASSET })),
+      timeline: {
+        revision: 1,
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: specs.map(([start, end, s0, s1], i) =>
+              mediaClip(`clip_${i}`, start, end, s0, s1),
+            ),
+          },
+          { id: 'caption_1', type: 'caption', clips: [] },
+        ],
+      },
+    };
+  }
+  const captioned = (doc: Project): Project => {
+    const cues = deriveCaptionCues(
+      buildTimelineMap(doc.timeline),
+      doc.transcript,
+      captionSegmentConfig('one-word'),
+      doc.fps,
+    );
+    return {
+      ...doc,
+      timeline: {
+        ...doc.timeline,
+        tracks: doc.timeline.tracks.map((track) =>
+          track.type === 'caption' ? { ...track, clips: cuesToClips(cues) } : track,
+        ),
+      },
+    };
+  };
+
+  it('verifies clean what the builder writes for a run too short to hold a cue', () => {
+    for (const next of [
+      // free time after the short run: the cue is held into it
+      [['ठीक', 21.0, 21.4]],
+      // a cue right after the cut: the short run merges into it
+      [
+        ['ठीक', 20.0, 20.6],
+        ['है', 20.6, 21.0],
+      ],
+    ] as const) {
+      const doc = captioned(
+        sliveredDoc(
+          [
+            [0, 2, 0, 2],
+            [2, 2.1, 10, 10.1],
+            [2.1, 4, 20, 21.9],
+          ],
+          [['पहले', 0.5, 1.0], ['हाँ', 10.0, 10.1], ...next],
+        ),
+      );
+      const report = verifyCaptions(doc);
+      expect(report.issues, JSON.stringify(report.issues)).toEqual([]);
+    }
+  });
+
+  it('still catches a cue that bridges a real speech break', () => {
+    // 0.3 s each side of the 10 s break: neither side is a fragment the floor excuses.
+    const [first] = correctCaptions();
+    const straddling: Clip = { ...first!, id: 'cap_straddle', start: 9.7, end: 10.3 };
+    const codes = verifyCaptions(projectDoc([straddling])).issues.map((i) => i.code);
+    expect(codes).toContain('caption_spans_speech_break');
+  });
+
+  it('accepts a cue carrying a fragment shorter than the floor across a break', () => {
+    const [first] = correctCaptions();
+    const carrying: Clip = { ...first!, id: 'cap_carry', start: 9.8, end: 11 };
+    const codes = verifyCaptions(projectDoc([carrying])).issues.map((i) => i.code);
+    expect(codes).not.toContain('caption_spans_speech_break');
+  });
+
+  it('names a remedy for a short cue that re-running the builder fulfils', () => {
+    const [first, ...rest] = correctCaptions();
+    const flicker: Clip = { ...first!, end: first!.start + 0.1 };
+    const short = verifyCaptions(projectDoc([flicker, ...rest])).issues.find(
+      (i) => i.code === 'caption_too_short',
+    );
+    expect(short?.detail).toContain('caption_the_edit holds every cue it writes to this floor');
+  });
+
+  it('offers no remedy when the whole sequence is shorter than the floor', () => {
+    const doc = sliveredDoc([[0, 0.2, 0, 0.2]], [['हाँ', 0.0, 0.1]]);
+    const short = verifyCaptions(captioned(doc)).issues.find((i) => i.code === 'caption_too_short');
+    expect(short?.detail).toContain('nothing to fix here');
+    expect(short?.detail).not.toContain('caption_the_edit');
+  });
+});
+
+describe('speech nobody hears', () => {
+  // Desktop run 001be135: the transcript belonged to the recap video, every clip of which was
+  // on a muted track; the narration heard was a separate voiceover with no transcript.
+  const VOICEOVER = 'asset_vo';
+  const silenced = (doc: Project): Project => ({
+    ...doc,
+    assets: [
+      ...doc.assets,
+      { id: VOICEOVER, path: '/media/voiceover.m4a', kind: 'audio', durationSeconds: 120 },
+    ],
+    timeline: {
+      ...doc.timeline,
+      tracks: [
+        ...doc.timeline.tracks.map((track) =>
+          track.type === 'video' ? { ...track, muted: true } : track,
+        ),
+        {
+          id: 'audio_1',
+          type: 'audio',
+          clips: [{ ...mediaClip('vo_0', 0, 20, 0, 20), assetId: VOICEOVER, trackId: 'audio_1' }],
+        },
+      ],
+    },
+  });
+
+  it('says the transcript is unheard, names the muted asset and the audible one to transcribe', () => {
+    const report = verifyCaptions(silenced(projectDoc()));
+    const unheard = report.issues.find((i) => i.code === 'speech_unheard');
+    expect(unheard?.detail).toContain('"a.mp4" (asset_talk)');
+    expect(unheard?.detail).toContain('muted track');
+    expect(unheard?.detail).toContain('"voiceover.m4a" (asset_vo)');
+    expect(unheard?.detail).toContain('transcribe { assetId: "asset_vo" }');
+    expect(report.ok).toBe(false);
+  });
+
+  it('says nothing when the transcript is heard, or when the edit cut all of it', () => {
+    expect(verifyCaptions(projectDoc()).issues.map((i) => i.code)).not.toContain('speech_unheard');
+    const cut = projectDoc();
+    const noSpeech: Project = {
+      ...cut,
+      transcript: [{ word: 'gone', start: 100, end: 100.4, assetId: ASSET }],
+    };
+    expect(verifyCaptions(noSpeech).issues.map((i) => i.code)).not.toContain('speech_unheard');
+  });
+});

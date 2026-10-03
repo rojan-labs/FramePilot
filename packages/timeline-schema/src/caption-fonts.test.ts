@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   CAPTION_FONT_CATALOG,
+  CAPTION_FONT_SCRIPTS,
   DEFAULT_CAPTION_FONT_FAMILY,
+  captionFontsWithScript,
+  captionScriptsIn,
   getCaptionFont,
   type CaptionFontCategory,
 } from './caption-fonts.js';
@@ -79,7 +82,45 @@ describe('committed schema/caption-fonts.json (cross-language contract)', () => 
     ) as unknown;
     expect({
       defaultFontFamily: DEFAULT_CAPTION_FONT_FAMILY,
+      scripts: CAPTION_FONT_SCRIPTS,
       fonts: CAPTION_FONT_CATALOG,
     }).toEqual(committed);
+  });
+});
+
+describe('script coverage', () => {
+  // The lists are MEASURED from the font files; engine/python/tests/test_caption_font_scripts.py
+  // re-measures every family against the committed JSON. These pin what the TS side reads.
+  it('lists every family as drawing Latin, in the vocabulary order, without repeats', () => {
+    for (const font of CAPTION_FONT_CATALOG) {
+      expect(font.scripts[0], font.family).toBe('latin');
+      expect([...font.scripts], font.family).toEqual(
+        CAPTION_FONT_SCRIPTS.filter((script) => font.scripts.includes(script)),
+      );
+    }
+  });
+
+  it('names the bundled families that can set Hindi — and Bebas Neue is not one', () => {
+    // Desktop run 001be135 accented Devanagari words in Bebas Neue: missing-glyph boxes.
+    expect(captionFontsWithScript('devanagari')).toEqual(['Poppins', 'Teko']);
+    expect(getCaptionFont('Bebas Neue')?.scripts).not.toContain('devanagari');
+  });
+
+  it('reads the scripts a text is written in from its letters and marks only', () => {
+    expect(captionScriptsIn('अब क्योंकि लूफी यहाँ पे।')).toEqual(['devanagari']);
+    expect(captionScriptsIn('Gear 4 — गियर फोर!')).toEqual(['latin', 'devanagari']);
+    expect(captionScriptsIn('Łódź, café')).toEqual(['latin', 'latin-ext']);
+    expect(captionScriptsIn('Привет, Αθήνα')).toEqual(['cyrillic', 'greek']);
+    expect(captionScriptsIn('مرحبا שלום สวัสดี 日本 カタカナ বাংলা')).toEqual([
+      'bengali',
+      'arabic',
+      'hebrew',
+      'thai',
+      'cjk',
+    ]);
+    // Digits, punctuation, emoji and a bare danda belong to no script.
+    expect(captionScriptsIn('2026 — 1,50,000! 🔥 ।')).toEqual([]);
+    // A decomposed accent is still the letter it sits on.
+    expect(captionScriptsIn('Cafe\u0301')).toEqual(['latin']);
   });
 });

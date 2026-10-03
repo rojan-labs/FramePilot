@@ -40,6 +40,7 @@ import {
   captionEmViolations,
   resolveCaptionStyle,
 } from './caption-style-facts.js';
+import { describeUnheardSpeech, findUnheardSpeech } from './unheard-speech.js';
 
 /**
  * How far a caption may sit from the word it captions before it counts as out of
@@ -97,7 +98,9 @@ const captionTracks = (project: Project): readonly Track[] =>
  */
 const isCaptionClip = (clip: Clip): boolean =>
   syntheticClipKind(clip.assetId) === 'caption' ||
-  clip.effects.some((effect) => effect.type === 'caption');
+  // `effects` is required by the schema, but the critic now runs this on every prompt build
+  // (`critic.ts#standingFindings`), and a clip that arrived without one must not crash a run.
+  (clip.effects ?? []).some((effect) => effect.type === 'caption');
 
 /**
  * A readable cue should never be a paragraph. The bar is the segmenter's own widest preset
@@ -340,14 +343,26 @@ function checkCueSync(
  * The definition that survives is the generator's, because it is the one grounded in what
  * a viewer can read: a cue may sit over as many shots as the editor likes, and may never
  * bridge audio the speaker did not say in one breath.
+ *
+ * One exception, and it is the generator's too: a break within the readable floor of
+ * either END of the cue (plus a frame of snapping). That is a stretch of speech too short
+ * to be a cue of its own — a word on a sliver of a clip — riding on its neighbour, which is
+ * how `caption_the_edit` gives it a readable window instead of a two-frame flash (desktop run
+ * `001be135`). Splitting the cue there, as this check used to ask, recreates the flash that
+ * `caption_too_short` then reports, and the two findings chase each other.
  */
 function checkCueBoundaries(
   clip: Clip,
   runs: readonly MappedRun[],
   issues: VerificationIssue[],
+  fps: number,
 ): void {
+  const fragment = MIN_CAPTION_CUE_SECONDS + frameSlack(fps);
   const bridged = runs.filter(
-    (run) => run.start > clip.start + 1e-6 && run.start < clip.end - 1e-6,
+    (run) =>
+      run.start > clip.start + 1e-6 &&
+      run.start < clip.end - 1e-6 &&
+      Math.min(run.start - clip.start, clip.end - run.start) >= fragment - 1e-6,
   );
   const first = bridged[0];
   if (first === undefined) return;
@@ -426,6 +441,23 @@ function checkCueCurrency(
 }
 
 /**
+ * What to do about a cue below the floor — only what will work.
+ *
+ * `caption_the_edit` holds every cue it writes to the floor (merging a fragment into its
+ * neighbour, across a cut when its own stretch of speech is too short), so a short cue was
+ * placed or trimmed by hand, or written before that guarantee — and re-running the builder
+ * does replace it. It used to say so even when the builder itself had made the cue, which
+ * sent desktop run `001be135` round the same loop. A sequence shorter than the floor is the
+ * one case nothing can fix, and it is named rather than handed a remedy that cannot work.
+ */
+function tooShortRemedy(sequenceSeconds: number): string {
+  if (sequenceSeconds < MIN_CAPTION_CUE_SECONDS - 1e-6) {
+    return `The whole sequence is only ${at(sequenceSeconds)}, so no cue on it can be held that long; nothing to fix here.`;
+  }
+  return 'caption_the_edit holds every cue it writes to this floor, so re-running it replaces this one; to keep hand-placed cues, merge it into the neighbouring cue instead.';
+}
+
+/**
  * Verify the caption track against the current edit.
  *
  * @param project - The live project document.
@@ -473,7 +505,7 @@ export function verifyCaptions(
         detail: `Caption at ${at(clip.start)}–${at(clip.end)} sits over a gap in the sequence, where no footage plays.`,
       });
     }
-    checkCueBoundaries(clip, mapped.runs, issues);
+    checkCueBoundaries(clip, mapped.runs, issues, project.fps);
     checkCueSync(clip, mapped.words, owned, tolerance, issues);
     checkCueCurrency(clip, owned, tolerance, issues);
 
@@ -486,7 +518,7 @@ export function verifyCaptions(
         code: 'caption_too_short',
         clipId: clip.id,
         at: clip.start,
-        detail: `Caption at ${at(clip.start)}–${at(clip.end)} lasts ${at(clip.end - clip.start)}, below the ${String(MIN_CAPTION_CUE_SECONDS)}s floor of every preset — it cannot be read. Merge it into the neighbouring cue or regenerate through caption_the_edit.`,
+        detail: `Caption at ${at(clip.start)}–${at(clip.end)} lasts ${at(clip.end - clip.start)}, below the ${String(MIN_CAPTION_CUE_SECONDS)}s floor of every preset — it cannot be read. ${tooShortRemedy(map.duration)}`,
       });
     }
     for (const violation of captionEmViolations(
@@ -532,6 +564,14 @@ export function verifyCaptions(
         detail: `Caption at ${at(clip.start)} carries no cue derived from the current timeline revision, so its text and timing cannot be confirmed current. Regenerate it through the mapped caption pipeline.`,
       });
     }
+  }
+
+  // Speech the edit keeps but nobody hears: every clip carrying the transcript is silenced.
+  // Nothing maps, so no cue can verify against it and coverage reads as complete — the one
+  // case where "no problems" would be a false answer (desktop run `001be135`).
+  const unheard = findUnheardSpeech(project, map);
+  if (unheard !== undefined) {
+    issues.push({ code: 'speech_unheard', detail: describeUnheardSpeech(unheard) });
   }
 
   // Retained speech with no caption over it. Reported as one issue rather than

@@ -35,7 +35,11 @@ import {
   CAPTION_TEMPLATE_CATALOG,
   DEFAULT_CAPTION_TEMPLATE_ID,
 } from '../dist/caption-templates.js';
-import { CAPTION_FONT_CATALOG, DEFAULT_CAPTION_FONT_FAMILY } from '../dist/caption-fonts.js';
+import {
+  CAPTION_FONT_CATALOG,
+  CAPTION_FONT_SCRIPTS,
+  DEFAULT_CAPTION_FONT_FAMILY,
+} from '../dist/caption-fonts.js';
 import { EFFECT_CATALOG, EFFECT_CATEGORIES } from '../dist/effect-catalog.js';
 import { EFFECT_PARAMS } from '../dist/effect-params.js';
 import { EDGE_STYLE_CATALOG, EDGE_STYLE_KINDS, EDGE_STYLE_PARAMS } from '../dist/edge-styles.js';
@@ -90,6 +94,9 @@ for (const outPath of catalogPaths) writeJson(outPath, catalog);
 // declarations. The binary files themselves are mirrored in both font folders.
 const fontCatalog = {
   defaultFontFamily: DEFAULT_CAPTION_FONT_FAMILY,
+  // The script vocabulary every family's measured `scripts` list is drawn from; the engine's
+  // font_coverage.py measures against the same names (test_caption_font_scripts.py).
+  scripts: CAPTION_FONT_SCRIPTS,
   fonts: CAPTION_FONT_CATALOG,
 };
 writeJson(path.join(here, '..', 'schema', 'caption-fonts.json'), fontCatalog);

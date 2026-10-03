@@ -20,11 +20,14 @@ export interface CaptionEmphasisAnalysis {
   readonly rationale?: string;
 }
 
+/**
+ * Punctuation stripped from either end of a word. Combining marks are NOT punctuation:
+ * they are Devanagari's vowel signs, and trimming them shortened "लूफी" to "लूफ".
+ */
+const EDGE_PUNCTUATION = /^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu;
+
 const normalizedWord = (word: string): string =>
-  word
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  word.normalize('NFKC').toLocaleLowerCase().replace(EDGE_PUNCTUATION, '');
 
 function keywordLimit(transcript: readonly TranscriptWord[]): number {
   return Math.max(1, Math.min(12, Math.ceil(transcript.length * 0.16)));
@@ -71,7 +74,7 @@ export function parseCaptionEmphasisResponse(
   for (const entry of transcript) {
     const key = normalizedWord(entry.word);
     if (key !== '' && !vocabulary.has(key)) {
-      vocabulary.set(key, entry.word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''));
+      vocabulary.set(key, entry.word.replace(EDGE_PUNCTUATION, ''));
     }
   }
   const keywords: string[] = [];

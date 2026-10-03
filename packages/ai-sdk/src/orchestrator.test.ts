@@ -2294,7 +2294,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     });
     for (const t of templates) expect(note).toContain(t.templateId);
     expect(note).toContain('51 of 51 matching templates, 1 bundled fonts');
-    expect(note).toContain('fonts: Inter');
+    expect(note).toContain('fonts (Latin unless marked): Inter');
   });
 
   it('discover_caption_styles: reports an empty match instead of an empty list', () => {

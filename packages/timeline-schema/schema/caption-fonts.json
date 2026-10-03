@@ -1,5 +1,17 @@
 {
   "defaultFontFamily": "Inter",
+  "scripts": [
+    "latin",
+    "latin-ext",
+    "cyrillic",
+    "greek",
+    "devanagari",
+    "bengali",
+    "arabic",
+    "hebrew",
+    "thai",
+    "cjk"
+  ],
   "fonts": [
     {
       "family": "Inter",
@@ -7,7 +19,13 @@
       "file": "Inter-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Montserrat",
@@ -15,7 +33,12 @@
       "file": "Montserrat-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Roboto",
@@ -23,7 +46,13 @@
       "file": "Roboto-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Open Sans",
@@ -31,7 +60,14 @@
       "file": "OpenSans-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek",
+        "hebrew"
+      ]
     },
     {
       "family": "Lato",
@@ -40,7 +76,13 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "Lato-Bold.ttf"
+      "boldFile": "Lato-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Raleway",
@@ -48,7 +90,12 @@
       "file": "Raleway-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Figtree",
@@ -56,7 +103,11 @@
       "file": "Figtree-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Manrope",
@@ -64,7 +115,13 @@
       "file": "Manrope-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Poppins",
@@ -73,7 +130,12 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "Poppins-Bold.ttf"
+      "boldFile": "Poppins-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "devanagari"
+      ]
     },
     {
       "family": "Nunito",
@@ -81,7 +143,12 @@
       "file": "Nunito-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Plus Jakarta Sans",
@@ -89,7 +156,11 @@
       "file": "PlusJakartaSans-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Outfit",
@@ -97,7 +168,11 @@
       "file": "Outfit-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Lexend",
@@ -105,7 +180,11 @@
       "file": "Lexend-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Sora",
@@ -113,7 +192,11 @@
       "file": "Sora-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Urbanist",
@@ -121,7 +204,10 @@
       "file": "Urbanist-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "DM Sans",
@@ -129,7 +215,11 @@
       "file": "DMSans-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Space Grotesk",
@@ -137,7 +227,11 @@
       "file": "SpaceGrotesk-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Rubik",
@@ -145,7 +239,14 @@
       "file": "Rubik-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "arabic",
+        "hebrew"
+      ]
     },
     {
       "family": "Kanit",
@@ -154,7 +255,12 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 800,
-      "boldFile": "Kanit-ExtraBold.ttf"
+      "boldFile": "Kanit-ExtraBold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "thai"
+      ]
     },
     {
       "family": "Barlow",
@@ -163,7 +269,11 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "Barlow-Bold.ttf"
+      "boldFile": "Barlow-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "League Spartan",
@@ -171,7 +281,11 @@
       "file": "LeagueSpartan-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Geist",
@@ -179,7 +293,12 @@
       "file": "Geist-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Bricolage Grotesque",
@@ -187,7 +306,11 @@
       "file": "BricolageGrotesque-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Fredoka",
@@ -195,7 +318,11 @@
       "file": "Fredoka-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "hebrew"
+      ]
     },
     {
       "family": "Quicksand",
@@ -203,7 +330,11 @@
       "file": "Quicksand-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Josefin Sans",
@@ -211,7 +342,11 @@
       "file": "JosefinSans-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Archivo Black",
@@ -219,7 +354,11 @@
       "file": "ArchivoBlack-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Oswald",
@@ -227,7 +366,12 @@
       "file": "Oswald-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Bebas Neue",
@@ -235,7 +379,11 @@
       "file": "BebasNeue-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Anton",
@@ -243,7 +391,11 @@
       "file": "Anton-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Bangers",
@@ -251,7 +403,11 @@
       "file": "Bangers-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Unbounded",
@@ -259,7 +415,12 @@
       "file": "Unbounded-Variable.ttf",
       "variable": true,
       "minWeight": 200,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Syne",
@@ -267,7 +428,12 @@
       "file": "Syne-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "greek"
+      ]
     },
     {
       "family": "Exo 2",
@@ -275,7 +441,12 @@
       "file": "Exo2-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Barlow Condensed",
@@ -284,7 +455,11 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 800,
-      "boldFile": "BarlowCondensed-ExtraBold.ttf"
+      "boldFile": "BarlowCondensed-ExtraBold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Luckiest Guy",
@@ -292,7 +467,11 @@
       "file": "LuckiestGuy-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Lilita One",
@@ -300,7 +479,10 @@
       "file": "LilitaOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Titan One",
@@ -308,7 +490,10 @@
       "file": "TitanOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Bungee",
@@ -316,7 +501,11 @@
       "file": "Bungee-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Rubik Mono One",
@@ -324,7 +513,12 @@
       "file": "RubikMonoOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "cyrillic",
+        "hebrew"
+      ]
     },
     {
       "family": "Righteous",
@@ -332,7 +526,11 @@
       "file": "Righteous-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Staatliches",
@@ -340,7 +538,11 @@
       "file": "Staatliches-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Teko",
@@ -348,7 +550,11 @@
       "file": "Teko-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "devanagari"
+      ]
     },
     {
       "family": "Big Shoulders",
@@ -356,7 +562,11 @@
       "file": "BigShoulders-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "League Gothic",
@@ -364,7 +574,11 @@
       "file": "LeagueGothic-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Alfa Slab One",
@@ -372,7 +586,11 @@
       "file": "AlfaSlabOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Russo One",
@@ -380,7 +598,12 @@
       "file": "RussoOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Orbitron",
@@ -388,7 +611,10 @@
       "file": "Orbitron-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Passion One",
@@ -397,7 +623,10 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "PassionOne-Bold.ttf"
+      "boldFile": "PassionOne-Bold.ttf",
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Paytone One",
@@ -405,7 +634,11 @@
       "file": "PaytoneOne-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Chewy",
@@ -413,7 +646,10 @@
       "file": "Chewy-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Knewave",
@@ -421,7 +657,10 @@
       "file": "Knewave-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Shrikhand",
@@ -429,7 +668,11 @@
       "file": "Shrikhand-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Abril Fatface",
@@ -437,7 +680,11 @@
       "file": "AbrilFatface-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "DM Serif Display",
@@ -446,7 +693,11 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 400,
-      "italicFile": "DMSerifDisplay-Italic.ttf"
+      "italicFile": "DMSerifDisplay-Italic.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Playfair Display",
@@ -455,7 +706,12 @@
       "variable": true,
       "minWeight": 400,
       "maxWeight": 900,
-      "italicFile": "PlayfairDisplay-Italic-Variable.ttf"
+      "italicFile": "PlayfairDisplay-Italic-Variable.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Merriweather",
@@ -463,7 +719,12 @@
       "file": "Merriweather-Variable.ttf",
       "variable": true,
       "minWeight": 300,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Fraunces",
@@ -472,7 +733,11 @@
       "variable": true,
       "minWeight": 100,
       "maxWeight": 900,
-      "italicFile": "Fraunces-Italic-Variable.ttf"
+      "italicFile": "Fraunces-Italic-Variable.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Instrument Serif",
@@ -481,7 +746,11 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 400,
-      "italicFile": "InstrumentSerif-Italic.ttf"
+      "italicFile": "InstrumentSerif-Italic.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Lora",
@@ -490,7 +759,12 @@
       "variable": true,
       "minWeight": 400,
       "maxWeight": 700,
-      "italicFile": "Lora-Italic-Variable.ttf"
+      "italicFile": "Lora-Italic-Variable.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Libre Baskerville",
@@ -499,7 +773,11 @@
       "variable": true,
       "minWeight": 400,
       "maxWeight": 700,
-      "italicFile": "LibreBaskerville-Italic-Variable.ttf"
+      "italicFile": "LibreBaskerville-Italic-Variable.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Bodoni Moda",
@@ -508,7 +786,11 @@
       "variable": true,
       "minWeight": 400,
       "maxWeight": 900,
-      "italicFile": "BodoniModa-Italic-Variable.ttf"
+      "italicFile": "BodoniModa-Italic-Variable.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Cinzel",
@@ -516,7 +798,11 @@
       "file": "Cinzel-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Prata",
@@ -524,7 +810,11 @@
       "file": "Prata-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "cyrillic"
+      ]
     },
     {
       "family": "Roboto Slab",
@@ -532,7 +822,13 @@
       "file": "RobotoSlab-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 900
+      "maxWeight": 900,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Young Serif",
@@ -540,7 +836,11 @@
       "file": "YoungSerif-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Gloock",
@@ -548,7 +848,11 @@
       "file": "Gloock-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Space Mono",
@@ -557,7 +861,11 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "SpaceMono-Bold.ttf"
+      "boldFile": "SpaceMono-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "JetBrains Mono",
@@ -565,7 +873,13 @@
       "file": "JetBrainsMono-Variable.ttf",
       "variable": true,
       "minWeight": 100,
-      "maxWeight": 800
+      "maxWeight": 800,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "IBM Plex Mono",
@@ -574,7 +888,12 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "IBMPlexMono-Bold.ttf"
+      "boldFile": "IBMPlexMono-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Courier Prime",
@@ -584,7 +903,11 @@
       "minWeight": 400,
       "maxWeight": 700,
       "boldFile": "CourierPrime-Bold.ttf",
-      "italicFile": "CourierPrime-Italic.ttf"
+      "italicFile": "CourierPrime-Italic.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "VT323",
@@ -592,7 +915,11 @@
       "file": "VT323-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Press Start 2P",
@@ -600,7 +927,13 @@
       "file": "PressStart2P-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "greek"
+      ]
     },
     {
       "family": "Silkscreen",
@@ -609,7 +942,10 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "Silkscreen-Bold.ttf"
+      "boldFile": "Silkscreen-Bold.ttf",
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Caveat",
@@ -617,7 +953,12 @@
       "file": "Caveat-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Pacifico",
@@ -625,7 +966,12 @@
       "file": "Pacifico-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Shadows Into Light",
@@ -633,7 +979,10 @@
       "file": "ShadowsIntoLight-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Permanent Marker",
@@ -641,7 +990,10 @@
       "file": "PermanentMarker-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Dancing Script",
@@ -649,7 +1001,11 @@
       "file": "DancingScript-Variable.ttf",
       "variable": true,
       "minWeight": 400,
-      "maxWeight": 700
+      "maxWeight": 700,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Satisfy",
@@ -657,7 +1013,10 @@
       "file": "Satisfy-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Great Vibes",
@@ -665,7 +1024,12 @@
       "file": "GreatVibes-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Sacramento",
@@ -673,7 +1037,10 @@
       "file": "Sacramento-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Yellowtail",
@@ -681,7 +1048,11 @@
       "file": "Yellowtail-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Lobster",
@@ -689,7 +1060,12 @@
       "file": "Lobster-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic"
+      ]
     },
     {
       "family": "Patrick Hand",
@@ -697,7 +1073,11 @@
       "file": "PatrickHand-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Rock Salt",
@@ -705,7 +1085,10 @@
       "file": "RockSalt-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Gloria Hallelujah",
@@ -713,7 +1096,11 @@
       "file": "GloriaHallelujah-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Homemade Apple",
@@ -721,7 +1108,10 @@
       "file": "HomemadeApple-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Kaushan Script",
@@ -729,7 +1119,11 @@
       "file": "KaushanScript-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Mr Dafoe",
@@ -737,7 +1131,10 @@
       "file": "MrDafoe-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin"
+      ]
     },
     {
       "family": "Caveat Brush",
@@ -745,7 +1142,11 @@
       "file": "CaveatBrush-Regular.ttf",
       "variable": false,
       "minWeight": 400,
-      "maxWeight": 400
+      "maxWeight": 400,
+      "scripts": [
+        "latin",
+        "latin-ext"
+      ]
     },
     {
       "family": "Amatic SC",
@@ -754,7 +1155,13 @@
       "variable": false,
       "minWeight": 400,
       "maxWeight": 700,
-      "boldFile": "AmaticSC-Bold.ttf"
+      "boldFile": "AmaticSC-Bold.ttf",
+      "scripts": [
+        "latin",
+        "latin-ext",
+        "cyrillic",
+        "hebrew"
+      ]
     }
   ]
 }

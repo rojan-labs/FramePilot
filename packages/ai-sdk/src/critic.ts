@@ -45,6 +45,9 @@ import { backedByFullFramePicture, hiddenPictureClips } from './domain-tools/pic
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
 import { drawnTextRects, overflowingWords, type PixelRect } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
+import { createLogger } from '@framepilot/shared-types';
+
+const criticLog = createLogger('ai-sdk:critic');
 
 // The detector lives in its own module so the context builder can share it without
 // importing the whole Critic; re-exported here for the callers that always found it here.
@@ -1769,7 +1772,7 @@ function markerToken(raw: string): string {
   const bare = raw
     .normalize('NFKC')
     .toLocaleLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    .replace(/^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu, '');
   // "1,50,000" and "150,000" are one number to a listener.
   return /^[\d,.]+$/.test(bare) ? bare.replace(/[,.]/g, '') : bare;
 }
@@ -2739,6 +2742,22 @@ export function standingFindings(
   project: Project,
   options: CritiqueOptions = {},
   before?: Project,
+): readonly string[] {
+  // Information must never be able to end a run. These checks now run on every prompt build,
+  // over whatever project state the run holds, so a check that throws on some shape of data
+  // costs the turn its findings — said in the log — not the run its edit.
+  try {
+    return standingFindingsOf(project, options, before);
+  } catch (error) {
+    criticLog.warn('standing findings unavailable this turn', { error: String(error) });
+    return [];
+  }
+}
+
+function standingFindingsOf(
+  project: Project,
+  options: CritiqueOptions,
+  before: Project | undefined,
 ): readonly string[] {
   const standing = critique(project, options).checks.filter(
     (c) => c.status === 'fail' || c.status === 'warn',
