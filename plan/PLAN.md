@@ -4803,6 +4803,15 @@ workspace typecheck/lint clean, dist rebuilt.
   `electron/projects/recovery.ts` (`RecoveryStore`); save validates via `parseProject`
   before writing (invariant 3) and snapshots the validated project for recovery.
   ```
+- [x] Home screen lists every project in the projects folder, 10 at a time with **Load more**
+  (discovered, 2026-10-03, maintainer request)
+  ```
+  — recents first, then the rest by last change; backups, dotfiles, subfolders and escaping
+  symlinks excluded. `electron/projects/project-list.ts` (pure, injected IO) +
+  `project-list-io.ts` (sandboxed, read-only) behind the `projectList` channel; names come from
+  the first 64 KiB of each file on the returned page only. `useHomeProjects` falls back to the
+  recents list when the preload lacks `listProjects`. Guide: `docs/guides/home-screen.md`.
+  ```
 - [x] Auto-update channel scaffold
   ```
   — `electron/updater/channel.ts` (channel resolution + provider seam; no updater

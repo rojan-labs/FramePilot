@@ -55,6 +55,8 @@ import type {
   ProjectPatchCommitRequest,
   ProjectPatchCommitResult,
   RecentProject,
+  ProjectListRequest,
+  ProjectListResult,
   RevealResult,
   SidecarStatus,
   CapabilityPackStorageSnapshotWire,
@@ -126,6 +128,7 @@ const Channels = {
   projectsDir: 'framepilot:project:dir',
   projectReveal: 'framepilot:project:reveal',
   projectRecent: 'framepilot:project:recent',
+  projectList: 'framepilot:project:list',
   renderExport: 'framepilot:render:export',
   renderExportStart: 'framepilot:render:export-start',
   renderExportCancel: 'framepilot:render:export-cancel',
@@ -413,6 +416,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
   revealProject: (path: string) =>
     ipcRenderer.invoke(Channels.projectReveal, path) as Promise<RevealResult>,
   recentProjects: () => ipcRenderer.invoke(Channels.projectRecent) as Promise<RecentProject[]>,
+  listProjects: (request: ProjectListRequest) =>
+    ipcRenderer.invoke(Channels.projectList, request) as Promise<ProjectListResult>,
   exportVideo: (req: ExportRequest) =>
     ipcRenderer.invoke(Channels.renderExport, req) as Promise<ExportResult>,
   exportVideoStart: (req: ExportRequest) =>

@@ -39,6 +39,36 @@ export interface RecentProject {
   openedAt: number;
 }
 
+/** One page of the home screen's project list: which slice of the full list to return. */
+export interface ProjectListRequest {
+  /** Index of the first entry to return (0 for the first page). */
+  offset: number;
+  /** How many entries to return. Main caps this, so a large value is not an error. */
+  limit: number;
+}
+
+/** A project in the projects folder, as the home screen lists it. */
+export interface ProjectListEntry {
+  /** Absolute path to the `.fp.json`; open it with `openProject` like a recent entry. */
+  path: string;
+  /** Display name: the recents entry's name, else the file's `name`, else its file name. */
+  name: string;
+  /**
+   * Epoch milliseconds to show beside the entry: when it was last opened for a recent
+   * project, when its file last changed for any other.
+   */
+  lastActiveAt: number;
+  /** True when the entry came from the recently-opened list (those come first). */
+  recent: boolean;
+}
+
+/**
+ * A page of the project list. `total` counts every listed project, so the caller knows
+ * when there is nothing more to load. A malformed request is refused, never guessed at.
+ */
+export type ProjectListResult =
+  { ok: true; entries: ProjectListEntry[]; total: number } | { ok: false; error: string };
+
 /**
  * Discriminated result of opening a project. The caller must handle the failure
  * case explicitly — a project that fails schema validation is never silently
@@ -2446,6 +2476,12 @@ export interface FramePilotBridge {
   /** Reveal `path` (or the projects folder when empty) in the OS file manager. */
   revealProject(path: string): Promise<RevealResult>;
   recentProjects(): Promise<RecentProject[]>;
+  /**
+   * One page of every project in the projects folder: recently opened first, then the rest
+   * by last change. Optional because a desktop whose preload predates it (a dev app not yet
+   * restarted) lacks it; the home screen then falls back to {@link recentProjects}.
+   */
+  listProjects?(request: ProjectListRequest): Promise<ProjectListResult>;
   /**
    * Render/export a saved project to a video file (delegates to the sidecar).
    * Used for preview renders (`req.preview`), which stay synchronous — for a

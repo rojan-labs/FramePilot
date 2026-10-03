@@ -265,6 +265,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Sits outside the scroll area so "Load more" stays reachable without scrolling the list
+ * to its end.
+ */
+.launch-recent-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 0;
+}
+
+.launch-recent-count {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
 .launch-empty {
   height: 100%;
   min-height: 86px;

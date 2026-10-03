@@ -101,6 +101,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   also set any bundled font and weight. Text that would run off the frame is fitted to it.
   The assistant's messages and tools call them text overlays: a title, a description, a label
   or anything else you put on screen.
+- **The home screen lists every project in your FramePilot Projects folder,** not only the last
+  ten you opened. Recently opened projects come first, then the rest by when they last changed,
+  10 at a time with a **Load more** button. Projects you copied into the folder show up too.
 
 ### Changed
 

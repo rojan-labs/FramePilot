@@ -89,6 +89,11 @@ describe('main-process IPC registration', () => {
     expect(unserved).toEqual([]);
   });
 
+  it('serves the home screen project list as one request/response channel', () => {
+    expect(uses.handle.get('projectList')).toBe(1);
+    expect(uses.on.has('projectList')).toBe(false);
+  });
+
   it('never wires a channel as both request/response and fire-and-forget', () => {
     const both = [...uses.handle.keys()].filter((key) => uses.on.has(key));
     expect(both).toEqual([]);
