@@ -20,6 +20,7 @@
 import {
   STICKER_SOFT_ENLARGEMENT,
   buildTimelineMap,
+  clipIsAudible,
   clipLoop,
   elementClips,
   elementRectAt,
@@ -2199,6 +2200,15 @@ function checkWordSevered(
     );
   }
   const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  // A cut severs a word only where that word is HEARD. A clip on a muted track — the
+  // footage under a separate voiceover, desktop run `001be135` — carries no speech into the
+  // mix however its edges fall, and judging its picture cuts against its own silent
+  // soundtrack re-opened that run five times and failed it with 162 changes applied.
+  const audible = new Set(
+    project.timeline.tracks.flatMap((track) =>
+      track.clips.filter((clip) => clipIsAudible(track, clip)).map((clip) => clip.id),
+    ),
+  );
   const speechAssets = unattributedSpeechAssets(project);
   // Word frame spans are computed ONCE and searched, not recomputed per boundary. The
   // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
@@ -2237,7 +2247,7 @@ function checkWordSevered(
 
   /** The word a source instant falls strictly inside, for this clip's asset. */
   const severedWordAt = (clip: Clip | undefined, sourceSeconds: number): string | undefined => {
-    if (!clip) return undefined;
+    if (!clip || !audible.has(clip.id)) return undefined;
     const frame = secondsToFrame(sourceSeconds, fps);
     // Binary search to the first word starting at or after `frame`…
     let low = 0;

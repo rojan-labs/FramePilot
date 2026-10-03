@@ -229,6 +229,50 @@ describe('word_severed — did I cut through a word?', () => {
     expect(found.detail).toContain('no transcript');
   });
 
+  /**
+   * Desktop run `001be135`: the footage sat on a MUTED track under a separate voiceover, and
+   * the transcript belonged to the footage's own (silent) soundtrack. Every picture cut was
+   * judged against words nobody hears, the run was re-opened five times over it, and it
+   * failed with 162 changes applied. A cut severs a word only where the word is heard.
+   */
+  it('does not judge a cut on a muted track — no word is heard there to sever', () => {
+    const muted = project([clip('a', 0, 1), clip('b', 1, 3, { sourceStart: 1, sourceEnd: 3 })], {
+      transcript: words,
+    });
+    const silent: Project = {
+      ...muted,
+      timeline: {
+        ...muted.timeline,
+        tracks: muted.timeline.tracks.map((track) => ({ ...track, muted: true })),
+      },
+    };
+    expect(checkOf(critique(silent), 'word_severed').status).toBe('pass');
+  });
+
+  it('does not judge a cut on a clip whose own audio is muted', () => {
+    const gainMuted = {
+      id: 'g',
+      type: 'audio_gain',
+      params: { gainDb: 0, muted: true },
+      keyframes: [],
+    };
+    const found = checkOf(
+      checkProject(
+        [
+          clip('a', 0, 1, { effects: [gainMuted] as Clip['effects'] }),
+          clip('b', 1, 3, {
+            sourceStart: 1,
+            sourceEnd: 3,
+            effects: [gainMuted] as Clip['effects'],
+          }),
+        ],
+        words,
+      ),
+      'word_severed',
+    );
+    expect(found.status).toBe('pass');
+  });
+
   function checkProject(
     clips: readonly Record<string, unknown>[],
     transcript: readonly { word: string; start: number; end: number }[],

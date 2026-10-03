@@ -122,10 +122,12 @@ export interface ClipSpan {
  */
 export function clipIsAudible(
   track: { readonly muted?: boolean | undefined },
-  clip: { readonly effects: readonly { readonly type: string; readonly params?: unknown }[] },
+  clip: { readonly effects?: readonly { readonly type: string; readonly params?: unknown }[] },
 ): boolean {
   if (track.muted === true) return false;
-  const gain = clip.effects.find((effect) => effect.type === 'audio_gain');
+  // `effects` is required by the schema, but this runs inside reviews of whatever a host
+  // hands over, and a review must not crash on a clip that arrived without one.
+  const gain = clip.effects?.find((effect) => effect.type === 'audio_gain');
   const params = gain?.params as { readonly muted?: unknown } | undefined;
   return params?.muted !== true;
 }
