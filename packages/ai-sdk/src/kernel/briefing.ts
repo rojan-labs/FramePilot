@@ -248,8 +248,8 @@ function groupFailures(failed: readonly RunWorkingState['operations'][number][])
 export function buildStateBriefing(
   state: RunWorkingState,
   /**
-   * Where the cut stands against the request's checkable conditions RIGHT NOW — one line
-   * per unmet whole-cut condition, from `critic.ts#standingAgainstAcceptance`.
+   * What the self-check finds in the cut RIGHT NOW that this run is answerable for — one
+   * line per finding, from `critic.ts#standingFindings`.
    *
    * A parameter rather than something derived here, because the briefing is pure over the
    * ledger and the ledger holds no timeline. The caller has the working project.
@@ -328,9 +328,17 @@ export function buildStateBriefing(
   // the timeline as it stands. A run that reads its target and its distance from it in
   // one place can correct on the next turn; run `fc10301a` learned both only after its
   // budget was gone, seventeen turns after the edit that decided them.
+  //
+  // Worded as measurements to weigh, not orders (ADR 0199): a check can be measuring the
+  // wrong thing for this edit — run `001be135`'s "cuts land inside a word" was judging a
+  // muted soundtrack — and the model is the one that knows the request. These same lines
+  // are what the end of the run reports to the editor; nothing here re-opens a finished
+  // reply.
   if (standing.length > 0) {
     sections.push(
-      `WHERE YOU STAND — measured now, not at the end\n${standing.map((line) => `- ${line}`).join('\n')}`,
+      `WHERE YOU STAND — what the checks measure in the cut now. Fix what is wrong for this ` +
+        `request; a finding that does not apply to it, leave and say why in your reply.\n` +
+        standing.map((line) => `- ${line}`).join('\n'),
     );
   }
 

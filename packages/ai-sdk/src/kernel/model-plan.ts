@@ -359,33 +359,6 @@ export function describeToolDomains(domains: readonly LoadableToolDomain[]): str
   return domains.map((domain) => `${domain} (${DOMAIN_SUMMARY[domain]})`).join('; ');
 }
 
-/**
- * The one instruction the blocked-item continuation carries (AL39): which items the plan
- * left blocked, which domains the run never loaded and what each covers, and the two
- * answers that end it — load and retry, or confirm the item blocked.
- *
- * Harness run 16 left "Sound design and mix — blocked: No SFX in the bin" and ended without
- * loading `sourcing`, though every `update_plan` result had named it. A sentence inside a
- * tool result did not change what the model did (run 8 had done the same before it existed),
- * so the conductor now buys one turn that exists only to answer it.
- */
-export function blockedItemsRetryAction(
-  items: readonly ModelPlanItem[],
-  unloaded: readonly LoadableToolDomain[],
-): string {
-  const blocked = items.filter((item) => item.status === 'blocked');
-  const named = blocked.slice(0, OPEN_ITEMS_NAMED).map((item) => `“${planItemLabel(item)}”`);
-  const rest = blocked.length - named.length;
-  const list = rest > 0 ? `${named.join(', ')} and ${String(rest)} more` : named.join(', ');
-  return (
-    `Your plan leaves ${list} blocked, and this run never loaded these tool domains: ` +
-    `${describeToolDomains(unloaded)}. Blocked is right only when none of them can do the ` +
-    'item. load_tools for any domain that could, set that item back to in_progress with ' +
-    'update_plan and do it; or, if none could, reply without a tool call and the item stays ' +
-    'blocked.'
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Across a boundary: a resumed run, and the run that continues this one's request (AL5, #149)
 // ---------------------------------------------------------------------------

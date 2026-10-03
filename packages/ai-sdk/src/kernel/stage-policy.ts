@@ -1,60 +1,31 @@
 /**
- * @framepilot/ai-sdk/kernel/stage-policy — what each tool means for the task stage, and
- * which tools a stage may use (plan/AGENT-TASK-MEMORY.md §3.2/§3.6, ADR 0075).
+ * @framepilot/ai-sdk/kernel/stage-policy — what each tool means for the task stage
+ * (plan/AGENT-TASK-MEMORY.md §3.2, ADR 0075).
  *
  * ## Why the stage is DERIVED, never declared
  *
  * The obvious design is a tool the model calls to announce "I am now planning". It is the
  * wrong one: a model that has lost the thread will happily announce whatever stage its
- * current sentence implies, which is exactly the failure — the run re-announcing that it
- * is about to understand the project on turn twelve. So the stage is inferred from what
- * the turn actually DID. Reading the timeline is inspection whatever the prose around it
- * says; applying a patch is execution whether or not the model calls it that.
+ * current sentence implies. So the stage is inferred from what the turn actually DID.
+ * Reading the timeline is inspection whatever the prose around it says; applying a patch is
+ * execution whether or not the model calls it that.
  *
- * The harness therefore never judges intent, only evidence — the same principle the
- * progress guard already follows.
+ * ## The stage is bookkeeping, not a gate
  *
- * ## Why the boundary is structural
- *
- * Once the run is executing, read and analysis tools are withheld rather than discouraged
- * (reusing ADR 0068's descriptor-withholding). Instruction has already been tried: the
- * contract said "inspect/analyze ONCE, then commit to the edit" throughout the run that
- * spent eight turns doing reconnaissance. A tool that is absent cannot be called.
+ * It used to be one. Once the run was "executing", analysis tools were withheld and the
+ * step thought at `low` effort, and every time that stranded a run a tool was added to an
+ * exemption list (`get_frame`, `detect_beats`, `transcribe`, `measure_color`,
+ * `measure_subject`, `render_preview`…). Desktop run `001be135` laid its voiceover down
+ * first, which put it in `apply` on step two, and was refused `describe_footage` for the
+ * rest of the run while it matched a narration to footage. ADR 0199 removed the gate: the
+ * stage labels the run's memory and nothing else.
  */
-import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
+import { RUN_STAGES, type RunStage } from './working-state.js';
 import { type ToolRole, classifyTool } from '../tool-classification.js';
 import { getTool } from '../tool-registry.js';
-import type { ReasoningEffort } from '../providers/types.js';
 
 /** Upper bound on transitions one turn can earn — the machine has no cycles. */
 const RUN_STAGE_COUNT = RUN_STAGES.length;
-
-/** Execution stages whose steps carry out an already-locked plan (not `repair`). */
-const LOCKED_PLAN_EXECUTION_STAGES: ReadonlySet<RunStage> = new Set<RunStage>(['apply', 'enhance']);
-
-/**
- * The reasoning effort one agent step asks the provider for.
- *
- * A step's wall time is its output tokens at ~85 tok/s, and that output is hidden
- * thinking: recorded apply-stage steps spent 16k–25k thinking tokens per turn
- * (≈190–330 s) at `medium` (TRACKING.md §U1). A step that only carries out a locked
- * plan has already done its deciding, so `apply`/`enhance` think at `low`. `repair` is an
- * execution stage too but stays `medium` — it exists because something failed — and so
- * does ANY action-recovery step, for the same reason: a refused or circling action is
- * exactly where the model needs to think. An unknown stage keeps today's `medium`.
- *
- * @param step.stage - The task stage the step runs in, if the handler was told one.
- * @param step.actionRecovery - Whether this is a forced action-recovery step.
- * @returns `'low'` for a plain apply/enhance step, `'medium'` otherwise.
- */
-export function agentStepReasoningEffort(step: {
-  readonly stage?: RunStage | undefined;
-  readonly actionRecovery?: boolean | undefined;
-}): ReasoningEffort {
-  if (step.actionRecovery) return 'medium';
-  if (step.stage === undefined) return 'medium';
-  return LOCKED_PLAN_EXECUTION_STAGES.has(step.stage) ? 'low' : 'medium';
-}
 
 export type { ToolRole };
 
@@ -152,245 +123,12 @@ export function settledStageFor(
 /* v8 ignore stop */
 
 /**
- * May a stage use a tool with this role?
- *
- * Execution stages (`apply`, `enhance`, `repair`) are closed to fresh reconnaissance OF
- * THE MATERIAL: the plan is locked and the evidence for it is already stored, so the way
- * to check a detail is `recall_evidence`, not another `map_footage`. `inspection` stays
- * open because applying an edit legitimately needs the CURRENT arrangement — the ids and
- * positions a patch is written against, which the last cut may have moved.
- *
- * ## Why `guidance` is no longer withheld
- *
- * The rule this function encodes is "the evidence for the plan is already stored, so
- * recall it instead of gathering again". That is true of a footage map or a beat grid,
- * which `analysis` produces and the evidence store holds. It is false of the five
- * `guidance` tools, and the falseness had teeth:
- *
- * `discover_effects` and `discover_transitions` read the SHIPPED CATALOGS — static data
- * the run may never have fetched, so there is nothing to recall — and their own
- * descriptions are the contract that makes them load-bearing: "Call this before
- * `add_transition` — the ids are not guessable, and a kind this build does not know is
- * refused outright rather than rendering as nothing." `add_transition` and `apply_effect`
- * ARE offered in `apply` (they are mutations). So the moment a run landed its first clip,
- * it kept the tools that demand a real catalog id and lost the only sanctioned way to
- * learn one. Run `fc10301a` was asked for a rich variety of transitions and placed none.
- *
- * `load_skill`, `session_context` and `discover_caption_styles` are the same shape:
- * reference data, not observation.
- *
- * A run that browses catalogs instead of editing is still stopped, by the guards that
- * exist for it — a repeated catalog read is a memo hit, which arms `allFromCache` and the
- * action-recovery lockout, and the no-progress streak climbs either way. Withholding the
- * reference data an offered tool requires was never the right instrument for that.
- *
- * The invariant this restores is checked directly: see `stage-policy.test.ts`'s
- * "a tool that says 'call X first' is offered no stage before X is".
- */
-export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
-  if (!isExecutionStage(stage)) return true;
-  return role !== 'analysis';
-}
-
-/**
- * Measurements a run legitimately needs AFTER its first cut has landed, because what they
- * measure is chosen and placed during execution.
- *
- * `detect_beats` is the case. A run picks its music while it edits — `search_music` and
- * `add_music` are execution-stage tools — so the onsets it needs to cut to belong to a bed
- * that did not exist when reconnaissance closed. Withholding the measurement then leaves the
- * run cutting to a track it never analysed: in run `ea8e46ec` the model said, correctly,
- * "let me detect beats on the placed music" and was told "detect_beats is unavailable this
- * turn", twice, until the run died. (That run was also being refused by a runtime beat-grid
- * validator, which ADR 0174 removed — where a cut lands against the music is the model's
- * editorial call now — but the measurement itself is still the model's to take.)
- *
- * This is the same defect this file already corrected for `guidance`, in the same words:
- * "the moment a run landed its first clip, it kept the tools that demand a real catalog id
- * and lost the only sanctioned way to learn one."
- *
- * The rule this exempts is "the evidence for the plan is already stored, so recall it
- * instead of gathering again". Exempting a tool does NOT leave a redundant re-analysis
- * unbounded, but be precise about what still bounds it, because the obvious answer is
- * circular: `withheldCallOutcome`'s memo hit only runs for a call the stage WITHHELD, and
- * an exemption is exactly what stops it running. What actually holds:
- *
- *  - `orchestrator.ts#callNoveltyKey` keys an asseted analysis on `name:assetId`, so a
- *    second `detect_beats` on the same track scores as nothing learned and the
- *    no-progress streak climbs toward the stall guard;
- *  - `allFromCache` still arms the action-recovery lockout when a turn is all repeats;
- *  - the per-run `ffmpegSeconds` cap (`kernel/cost/analysis-caps.ts`, charged in
- *    `sidecar-executor.ts`) refuses the call outright once the run has spent its
- *    analysis budget.
- *
- * What none of that ever justified was withholding the measurement of media the run
- * itself placed.
- *
- * Keep this set minimal. A tool belongs here only when the thing it measures is placed
- * during execution; `stage-policy.test.ts` pins the property rather than trusting the list.
- */
-export const EXECUTION_MEASUREMENT_TOOL_NAMES: ReadonlySet<string> = new Set(['detect_beats']);
-
-/**
- * May a stage use this tool? {@link stageAllowsRole}, plus the named exemptions.
- *
- * Prefer this over {@link stageAllowsRole} at any call site that decides what a run may
- * actually call — the role alone cannot express "the runtime will hold you to this".
- */
-/**
- * Tools that LOOK AT THE RESULT of an edit rather than gather evidence for a plan.
- *
- * `get_frame` is classified `analysis` because it renders a picture, but in an execution
- * stage its use is verification: the model has just cropped a landscape source into a
- * portrait frame and wants to see whether the subject survived. The mission montage ledger
- * (plan/system-mission P1.1) shows seven such calls across five requests, every one
- * answered "unavailable this turn" — ~110k prompt tokens spent on a check the run was
- * forbidden to make, while the run never reached `verify` (the stage machine only leaves
- * `apply` through the explicit verify effect).
- *
- * What bounds the frames, stated exactly (the earlier wording said "the analysis caps and
- * the redundant-call memo", and BOTH halves were wrong for this tool):
- *
- *  - the per-run `ffmpegSeconds` cap — real, and charged for `get_frame` in
- *    `sidecar-executor.ts`; a run that spends its budget on frames is refused the next one;
- *  - `callNoveltyKey`, which keys a `get_frame` on its own arguments: asking for the SAME
- *    time twice scores as nothing learned, while a look at a different time is genuinely
- *    new and should not be penalised.
- *
- * Not the memo. `get_frame` declares `cacheScope: 'none'` (`tool-contract.ts`) precisely so
- * a picture is never served from one — a cached frame would show the model the timeline it
- * had before its own edit, which is the failure the tool exists to prevent. And the
- * withheld-call memo cannot apply to a tool this set stops the stage withholding.
- */
-export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'get_frame',
-  // `measure_color` is the same tool with numbers instead of pixels, and the contract says
-  // so in one place: `tool-contract.ts` gives the two an identical entry (`pure_read`,
-  // `cacheScope: 'none'`, `stateDependency: 'project_revision'`) under a shared docstring
-  // that calls them both "PICTURE measurements". Grading is measure → adjust → re-measure,
-  // and the second measurement is a look at the edit, which is this set's whole definition.
-  //
-  // Run `137d8fd0` is what withholding it cost. The brief said "Colour: … Measure what's
-  // actually on screen". The run loaded the color domain at minute 2, entered `apply`, and
-  // called `measure_color` twice — refused both times as an analysis tool, told it would be
-  // "available again on the next turn" (false for a stage rule), and never measured
-  // anything. The colour half of the brief was then graded blind.
-  //
-  // Bounded by exactly what bounds `get_frame`, and for the same reasons: it is in
-  // `FFMPEG_BACKED_TOOLS` (`kernel/cost/analysis-caps.ts`) so the per-run `ffmpegSeconds`
-  // cap refuses a spree, and `callNoveltyKey` keys it on `clipId` (not a tuning key), so
-  // re-measuring the SAME clip scores as nothing learned while measuring a different clip is
-  // genuinely new. Not the memo — `cacheScope: 'none'` means there is none, deliberately.
-  'measure_color',
-  // `measure_subject` is a look at the picture in numbers too — where the subject's head and
-  // body sit on the frame — taken right before a title or caption is placed, which is always
-  // after the first patch. Bounded like `measure_color` (`FFMPEG_BACKED_TOOLS`).
-  'measure_subject',
-]);
-
-/**
- * Tools that a MUTATION's own runtime precondition names as the way to satisfy it.
- *
- * The same shape as {@link EXECUTION_MEASUREMENT_TOOL_NAMES}, one step earlier: there
- * the measurement is of media the run placed, here the tool refuses the call. Either way a
- * run cannot clear a bar it is forbidden to reach.
- *
- * `transcribe` is the case. `caption_the_edit` is a mutation and stays offered through
- * `apply`; it throws "This project has no transcript yet ... Run transcribe first" when
- * there is no transcript. A run that placed a clip before transcribing — the natural
- * order, and the order the pacing skills teach — is in `apply` from that first patch on,
- * so it is told to run `transcribe` and refused in the same breath. Captioning becomes
- * unreachable for the rest of the run, which is the third recurrence of the defect this
- * file already corrected for `guidance` and for `detect_beats`, in the same words.
- *
- * What bounds a redundant re-transcription, precisely — and it is NOT the memo, which the
- * earlier wording claimed twice over:
- *
- *  - `withheldCallOutcome`'s memo hit only ever runs for a call the stage WITHHELD, and
- *    membership in this set is what stops the stage withholding it. The guard cannot fire
- *    for the tools listed here, by construction.
- *  - There is no memo to hit anyway. `runAgentCall` stores the result under
- *    `callMemoKey(call)` and then, because `transcribe` lands a `set_transcript` operation,
- *    calls `evidence.invalidate(['set_transcript'])` — which drops every
- *    `transcript_dependent` entry INCLUDING the one it just wrote. Correct (the words were
- *    genuinely rewritten), and it means the transcript is never recallable from the store.
- *
- * What does hold: `callNoveltyKey` keys an asseted analysis on `name:assetId`, so a second
- * `transcribe` of the same asset is scored as nothing learned and the no-progress streak
- * climbs; and `maxTranscriptionMinutes` (`kernel/cost/analysis-caps.ts`, charged from the
- * real word timings in `sidecar-executor.ts`) caps what a run may transcribe in total, so
- * a loop hits an honest refusal rather than transcribing the bin.
- *
- * Keep this set minimal. A tool belongs here only when some mutation's description or
- * thrown message names it as the remedy; `stage-policy.test.ts` asserts that property
- * rather than trusting the list.
- */
-export const PRECONDITION_TOOL_NAMES: ReadonlySet<string> = new Set(['transcribe']);
-
-/**
- * Tools that look at the run's OWN EDIT — never at the material — and so survive the
- * action-recovery turn (`orchestrator.ts#agentTools('action-recovery')`).
- *
- * That turn withholds everything read-shaped because its premise is "you have gathered
- * enough about the footage; act". A look at the edit is not gathering. Run `cc907070` was
- * asked "show me a preview before you render", called `render_preview` once — on a
- * recovery turn — was told "this turn is for acting on what has been gathered", and never
- * previewed. On the same run's verification fix turn the Critic's own remedy said "read
- * the word's startFrame from get_mapped_transcript" and the recovery scope refused it:
- * a refusal naming a tool the same turn forbids, the shape `EXECUTION_MEASUREMENT_TOOL_NAMES`
- * exists to prevent.
- *
- * Every entry reads the timeline or renders it; none of them mints a candidate, opens the
- * footage, or answers something `recall_evidence` already holds for free. The
- * `actionRecoveryPending` latch still ends a recovery turn that only looks.
- */
-export const EDIT_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
-  ...VERIFICATION_LOOK_TOOL_NAMES,
-  'render_preview',
-  'verify_transitions',
-  'get_mapped_transcript',
-]);
-
-export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
-  if (EXECUTION_MEASUREMENT_TOOL_NAMES.has(name)) return true;
-  if (VERIFICATION_LOOK_TOOL_NAMES.has(name)) return true;
-  if (PRECONDITION_TOOL_NAMES.has(name)) return true;
-  return stageAllowsRole(stage, toolRole(name, mutates));
-}
-
-/*
- * `sourcing` is deliberately absent from the closed set above, and that is the whole
- * point of the role existing. The rule this function encodes is "the evidence for the
- * plan is already stored, so recall it instead of gathering again" — true of a transcript
- * or a beat grid, false of a stock library, which holds material the project does not own
- * and `recall_evidence` cannot conjure. Withholding it here is what left run `e30c1fe9`
- * unable to put a single frame of picture into a 30-second reel after its first patch
- * landed. See `tool-classification.ts` for the rest of that account.
- */
-
-/*
- * `planningExhausted(researchStreak, budget)` used to live here. It was a byte-for-byte
- * duplicate of the Conductor's `researchBudgetSpent`, it had no caller, and its docstring
- * claimed it "expresses it as a STAGE change so the closure is durable instead of lasting
- * a single turn" — which nothing in the run ever did. Two copies of one predicate, one of
- * them dead and describing behaviour the product did not have, is worse than one: a reader
- * checking whether the research budget closes the stage durably would have found this and
- * believed it. The live rail is `conductor.ts#researchBudgetSpent` + `RESEARCH_BUDGET_TURNS`,
- * which withholds reconnaissance descriptors for the following turn.
- */
-
-/**
  * Operation types that record something ABOUT the project without editing the cut:
  * a transcript, a lane, a marker, a lane's flags.
  *
- * `plan → apply` fires on an applied patch (`stageAdvanceFor`), and `apply` withholds
- * every analysis descriptor. Run `df81d58e` (2026-09-08) called `add_track` and
- * `transcribe` as its second turn — eight seconds in, before a single clip was placed —
- * and that patch (`add_layer` + `set_transcript`) opened `apply`: `map_footage`,
- * `describe_footage`, `search_visual`, `detect_scenes`, `analyze_silence` and
- * `index_media` were withheld for the rest of the run, and the brief's whole
- * understand-before-touching phase never happened. A transcript is what analysis reads,
- * not what execution writes; landing one is not proof the run is executing.
+ * `plan → apply` fires on an applied patch (`stageAdvanceFor`). A transcript is what
+ * analysis reads, not what execution writes, so a patch made only of these does not move the
+ * run's memory into `apply` (run `df81d58e`'s second turn was `add_track` + `transcribe`).
  */
 export const BOOKKEEPING_OPERATION_TYPES: ReadonlySet<string> = new Set([
   'set_transcript',
@@ -407,7 +145,7 @@ export const BOOKKEEPING_OPERATION_TYPES: ReadonlySet<string> = new Set([
  *
  * An empty list answers yes — a caller that applied something but did not hand the
  * operations over is trusted exactly as before this predicate existed — so only a patch
- * made wholly of {@link BOOKKEEPING_OPERATION_TYPES} is held back from `apply`.
+ * made wholly of {@link BOOKKEEPING_OPERATION_TYPES} leaves the stage where it was.
  */
 export function executedAnEdit(ops: readonly { readonly type: string }[]): boolean {
   if (ops.length === 0) return true;

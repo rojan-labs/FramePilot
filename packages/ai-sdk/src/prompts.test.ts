@@ -6,9 +6,7 @@ import {
   QUESTION_MODE_INSTRUCTION,
   questionModeInstruction,
   SYSTEM_PROMPT,
-  agentActionRecoveryBlock,
   agentModeInstruction,
-  agentVerifyFixBlock,
   agentSkillsBlock,
   classifierSystemPrompt,
 } from './prompts.js';
@@ -218,31 +216,6 @@ describe('wire-prompt responsibilities', () => {
   });
 });
 
-describe('agentActionRecoveryBlock', () => {
-  it('is absent in normal turns and makes a recovery turn action-bound', () => {
-    expect(agentActionRecoveryBlock(false)).toBe('');
-    const block = agentActionRecoveryBlock(true);
-    expect(block).toContain('ACTION RECOVERY');
-    expect(block).toContain('Fresh reads and analysis are withheld');
-    expect(block).toContain('mutation');
-    expect(block).toContain('ask_user');
-    expect(block).toContain('Do not claim the editing request is complete');
-    // The turn's premise is that the run already HAS its evidence. Telling it to act
-    // while withholding the only tool that returns what it gathered is why a real run
-    // built forty-six clips on asset durations it inferred from clip-id suffixes.
-    expect(block).toContain('recall_evidence');
-  });
-
-  it('states no cause that is false for either trigger', () => {
-    // Fires for memo-only repeats AND for research-budget exhaustion, whose reads were
-    // genuinely novel. Asserting the last turn re-read known data would be a false
-    // premise in the second case, and a model given one can reasonably reject it.
-    const block = agentActionRecoveryBlock(true);
-    expect(block).not.toContain('already present');
-    expect(block).not.toContain('only requested information');
-  });
-});
-
 describe('agentModeInstruction — the visual self-check paragraph', () => {
   it('is present only for a run whose model can actually read an image', () => {
     // Telling a text-only model to look at a frame instructs it to call a tool it is not
@@ -266,31 +239,5 @@ describe('agentModeInstruction — the visual self-check paragraph', () => {
     ]) {
       expect(contract).toContain('visually unreviewed');
     }
-  });
-});
-
-describe('agentVerifyFixBlock', () => {
-  it('is empty outside the repair stage', () => {
-    expect(agentVerifyFixBlock(false)).toBe('');
-    expect(agentVerifyFixBlock(false, [{ label: 'No jump cuts', detail: 'x' }])).toBe('');
-  });
-
-  it('points a failed-check fix turn at the FAIL lines', () => {
-    expect(agentVerifyFixBlock(true)).toContain('failed on the lines marked FAIL');
-  });
-
-  // AL37: advice is not failure. The block states the advisories itself (the briefing's
-  // VERIFIED section lists failures), allows leaving an intended one, and says how the run ends.
-  it('states the advisories, allows leaving an intended one, and says a plain reply ends the run', () => {
-    const block = agentVerifyFixBlock(true, [
-      { label: 'No jump cuts', detail: '1 cut(s) join the same shot to itself — at frame 1360' },
-    ]);
-    expect(block).toContain(
-      '- No jump cuts: 1 cut(s) join the same shot to itself — at frame 1360',
-    );
-    expect(block).toContain('passed its deterministic self-check');
-    expect(block).toMatch(/Where it is intended, leave it/);
-    expect(block).toMatch(/reply without a tool call: that ends the run/);
-    expect(block).not.toContain('FAIL');
   });
 });

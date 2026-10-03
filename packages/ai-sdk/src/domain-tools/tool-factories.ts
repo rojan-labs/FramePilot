@@ -66,6 +66,8 @@ export interface ToolBase {
   readonly hostUiOnly?: boolean;
   /** See {@link ToolSpec.derivedFanOut} — forwarded verbatim by the factories below. */
   readonly derivedFanOut?: boolean;
+  /** See {@link ToolSpec.derivedOpTypes} — forwarded verbatim by the factories below. */
+  readonly derivedOpTypes?: readonly string[];
 }
 
 /** Deep copy of plain JSON-shaped arguments, so a repair never touches what the model sent. */

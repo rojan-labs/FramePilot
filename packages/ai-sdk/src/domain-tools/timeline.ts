@@ -1634,6 +1634,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'export with black bars — call set_clip_crop on that clip to re-centre it on the ' +
         'subject. An UNMEASURED source gets nothing: check list_assets for ' +
         '`shape: "unmeasured"` and crop it yourself.',
+      // The crop rides along with the placement it belongs to — see `ToolSpec.derivedOpTypes`.
+      derivedOpTypes: ['set_clip_crop'],
     },
     z
       .object({
@@ -1677,6 +1679,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'project exactly as add_clip does it. At ' +
         `most ${String(MAX_CLIPS_PER_BATCH)} entries per call — split a longer sequence ` +
         'across consecutive calls.',
+      // One placement per entry: the fill crop each landscape entry gets is part of it, not
+      // a second edit the model chose. Desktop run `001be135` placed 111 clips and was
+      // refused as "222 operations" over the per-turn cap. See `ToolSpec.derivedOpTypes`.
+      derivedOpTypes: ['set_clip_crop'],
     },
     z
       .object({

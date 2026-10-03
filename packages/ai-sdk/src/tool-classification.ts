@@ -52,8 +52,7 @@ export type ToolRole =
   /**
    * Brings NEW material in from outside the project — a stock library, a music
    * catalogue. Neither reconnaissance nor an ordinary edit: it is how a run that owns
-   * no footage gets any, so an executing run must keep it (see
-   * `kernel/stage-policy.ts#stageAllowsRole`).
+   * no footage gets any.
    */
   | 'sourcing'
   /** Anything else — asking the user, rendering, exporting. Stage-neutral. */
@@ -149,8 +148,8 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // allows 20 searches a minute, and a re-query the run did not need is one the
   // user cannot spend on a query they did.
   // The four sourcing tools. `role: 'sourcing'`, not `'analysis'`, and the difference
-  // is not cosmetic: `stageAllowsRole` withholds every analysis descriptor once a run is
-  // executing, so classifying these as analysis meant a run that applied ONE patch could
+  // was not cosmetic while a stage gate withheld every analysis descriptor once a run was
+  // executing (removed by ADR 0199): classifying these as analysis meant a run that applied ONE patch could
   // never obtain media again. A captured run (`e30c1fe9`) opened an empty project, found
   // 80 usable clips, laid a spine of empty tracks, and from that moment had no tool that
   // could download any of them — it shipped 30 seconds of white text on black. Shopping
@@ -199,7 +198,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // they now sit. Pure in-process derivation over the timeline — the same helpers, and the
   // same answer, as `map_time` and `get_timeline_map` directly above.
   //
-  // It was `analysis`, which `stageAllowsRole` withholds in every execution stage on the
+  // It was `analysis`, which the old stage gate (removed by ADR 0199) withheld in every execution stage on the
   // premise that the evidence is already stored and can be recalled. For a
   // `timeline_dependent` payload that premise is false by construction: `EvidenceStore`
   // invalidates it on every applied patch, so the very cut that makes a re-read necessary
@@ -351,24 +350,4 @@ export function factScopeOf(
   scope: ToolEvidenceScope,
 ): 'revision_independent' | 'timeline_dependent' {
   return scope === 'timeline_dependent' ? 'timeline_dependent' : 'revision_independent';
-}
-
-/**
- * Sourcing tools that FETCH new candidates, as opposed to those that commit one.
- *
- * The distinction the `sourcing` role alone cannot make, and the one the commit-only scope
- * turns on: `search_stock` mints `remoteId`s, `add_stock` spends them. A run holding
- * unspent ids does not need more searching; it needs to place what it has.
- */
-const CATALOGUE_SEARCH_TOOLS: ReadonlySet<string> = new Set([
-  'search_stock',
-  'search_music',
-  'search_media',
-  'search_visual',
-  'find_similar',
-]);
-
-/** Does this tool fetch NEW sourcing candidates (rather than commit one already found)? */
-export function isCatalogueSearch(name: string): boolean {
-  return CATALOGUE_SEARCH_TOOLS.has(name);
 }

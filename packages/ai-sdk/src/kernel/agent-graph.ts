@@ -74,7 +74,6 @@ import {
   type ConductorState,
   type ConductorStep,
   type Emitter,
-  MAX_VERIFY_FIX_TURNS,
   PLAN_STEP_HEADROOM,
   initialConductorState,
   onApprovalResult,
@@ -224,15 +223,18 @@ export interface ConductorHandlers {
  * A drafted plan may widen a deliberately tiny requested step cap to fit its plan +
  * headroom, and so may the model's own plan (`update_plan`, up to
  * {@link MODEL_PLAN_MAX_ITEMS} items) — mid-run, after this limit was fixed. The floor is
- * therefore the widest cap a plan can reach plus the verification fix turns, so a widened
- * run is always stopped by the conductor's `maxSteps` and never by this backstop; normal
+ * therefore the widest cap a plan can reach plus the one late-review turn a finished reply
+ * can still earn, so a widened run is always stopped by the conductor's `maxSteps` and never
+ * by this backstop; normal
  * runs use the conductor's actual configured maxSteps. Each effect costs at most select +
  * execute; the fixed overhead covers dispatch, plan/resume/approval, verify, finalize, and
  * END. The graph is therefore a runaway backstop that always sits outside conductor policy.
  */
+/** The one turn a late review of the run's last edit can buy after a finished reply. */
+const LATE_REVIEW_TURNS = 1;
 const MIN_GRAPH_STEP_BUDGET = Math.max(
   32,
-  MODEL_PLAN_MAX_ITEMS + PLAN_STEP_HEADROOM + MAX_VERIFY_FIX_TURNS,
+  MODEL_PLAN_MAX_ITEMS + PLAN_STEP_HEADROOM + LATE_REVIEW_TURNS,
 );
 const GRAPH_NODE_OVERHEAD = 16;
 

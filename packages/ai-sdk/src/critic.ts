@@ -825,7 +825,12 @@ function checkTrackerMotion(project: Project): CriticCheck {
     }
   }
   if (trackers === 0) {
-    return check('tracker_motion', 'Trackers carry motion', 'skipped', 'No trackers on the timeline.');
+    return check(
+      'tracker_motion',
+      'Trackers carry motion',
+      'skipped',
+      'No trackers on the timeline.',
+    );
   }
   if (empty.length === 0) {
     return check(
@@ -1264,14 +1269,17 @@ function checkSafeArea(
   // a house style. Reported together when both are true, worst first.
   if (clipped.length > 0 || outside.length > 0 || unwrappable.length > 0) {
     const parts: string[] = [];
-    if (clipped.length > 0) parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
+    if (clipped.length > 0)
+      parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
     if (unwrappable.length > 0)
       parts.push(
         `Too wide for its box — this runs out the sides in the preview and the export ` +
           `alike: ${unwrappable.join('; ')}. Widen boxWidthPercent or reduce sizePercent.`,
       );
     if (outside.length > 0)
-      parts.push(`Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`);
+      parts.push(
+        `Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`,
+      );
     return check('safe_area', 'Overlays in safe area', 'warn', parts.join(' '));
   }
   return check(
@@ -1717,10 +1725,42 @@ const MARKER_LABEL_WINDOW_SECONDS = 2;
  * Words a marker label uses to describe a beat rather than quote it — never evidence.
  */
 const MARKER_LABEL_STOPWORDS: ReadonlySet<string> = new Set([
-  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'over', 'then',
-  'hook', 'beat', 'intro', 'outro', 'open', 'opening', 'close', 'closing', 'payoff',
-  'proof', 'contrast', 'pivot', 'turn', 'setup', 'stats', 'part', 'section', 'chapter',
-  'why', 'who', 'what', 'when', 'how', 'now', 'here', 'there',
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'that',
+  'this',
+  'into',
+  'over',
+  'then',
+  'hook',
+  'beat',
+  'intro',
+  'outro',
+  'open',
+  'opening',
+  'close',
+  'closing',
+  'payoff',
+  'proof',
+  'contrast',
+  'pivot',
+  'turn',
+  'setup',
+  'stats',
+  'part',
+  'section',
+  'chapter',
+  'why',
+  'who',
+  'what',
+  'when',
+  'how',
+  'now',
+  'here',
+  'there',
 ]);
 
 /** A label or transcript token in the form the two are compared in. */
@@ -1930,7 +1970,12 @@ function checkMarkerLabels(project: Project, loop: TranscriptLoop | undefined): 
       typeof marker.label === 'string' && marker.label.trim() !== '',
   );
   if (labelled.length === 0) {
-    return check('marker_labels', 'Markers sit where their words are spoken', 'skipped', 'No labelled markers.');
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'skipped',
+      'No labelled markers.',
+    );
   }
   if (loop !== undefined) {
     return check(
@@ -2220,8 +2265,7 @@ function checkWordSevered(
     return undefined;
   };
 
-  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] =
-    [];
+  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] = [];
   for (const boundary of boundaries) {
     const from = byId.get(boundary.fromClipId);
     const to = byId.get(boundary.toClipId);
@@ -2276,7 +2320,7 @@ function checkWordSevered(
     'No words cut through',
     'fail',
     `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
-      'Move each boundary to the nearest word edge: read the word\'s startFrame/endFrame ' +
+      "Move each boundary to the nearest word edge: read the word's startFrame/endFrame " +
       'from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate ' +
       `(${String(fps)}) to trim_clip or split_clip — those take SECONDS, and a second ` +
       'between two frames is rounded to the nearest one, which is how a cut aimed at a ' +
@@ -2628,6 +2672,93 @@ export function standingAgainstAcceptance(
   return standing
     .filter((c) => REQUEST_CHECKS.has(c.id) || inherited.get(c.id) !== inheritedKey(c.detail))
     .map((c) => c.detail);
+}
+
+/** How many findings the in-flight block names before counting the rest. */
+export const STANDING_FINDINGS_SHOWN = 8;
+/** Characters of one finding's detail in the in-flight block — a line, not a report. */
+const STANDING_FINDING_CHARS = 320;
+
+/**
+ * The starting project's own findings, measured once per run rather than on every prompt
+ * build. Keyed by the project object (a run's starting project is one object for the whole
+ * run) and the options' JSON, so a different reading is never served a stale verdict.
+ */
+const beforeFindingsCache = new WeakMap<Project, Map<string, CritiqueReport>>();
+
+function critiqueBefore(before: Project, options: CritiqueOptions): CritiqueReport {
+  const key = JSON.stringify(options);
+  let byOptions = beforeFindingsCache.get(before);
+  if (byOptions === undefined) {
+    byOptions = new Map();
+    beforeFindingsCache.set(before, byOptions);
+  }
+  const cached = byOptions.get(key);
+  if (cached !== undefined) return cached;
+  const report = critique(before, options);
+  byOptions.set(key, report);
+  return report;
+}
+
+/**
+ * Everything the self-check would say about the cut RIGHT NOW that this run is answerable
+ * for — the whole battery, not only the whole-cut checks — as one short line each.
+ *
+ * ## Why the model is shown all of it, every turn
+ *
+ * The final self-check used to be the only place most findings were said, and it said them
+ * as orders: a failed check re-opened a finished run ("The request is not met yet —
+ * continuing"), bought a fix turn, and failed the run if it survived. Desktop run
+ * `001be135` was re-opened five times by "N cut(s) land inside a word" and ended `failed`
+ * with 162 changes applied — and the model had worked out, correctly, that the check was
+ * measuring a muted soundtrack. ADR 0199 inverts that: the findings are measurements the
+ * model weighs while it works, in front of it after every edit, and the end of the run only
+ * reports them. A model that has seen "this cut severs a word" can fix it or say why not;
+ * one that first hears it after it said it was done can only be argued with.
+ *
+ * Same reconciliation as the end-of-run report: a finding the starting project already had
+ * (same check, same detail with ids blanked) is left out, because it is not this run's; a
+ * request-derived check ({@link REQUEST_CHECKS}) never is.
+ *
+ * @param project - The working copy after the last applied patch.
+ * @param options - The same critique options the final self-check uses.
+ * @param before - The project the run started from.
+ * @returns Failures first, then advisories; empty when the checks have nothing to say.
+ */
+export function standingFindings(
+  project: Project,
+  options: CritiqueOptions = {},
+  before?: Project,
+): readonly string[] {
+  const standing = critique(project, options).checks.filter(
+    (c) => c.status === 'fail' || c.status === 'warn',
+  );
+  if (standing.length === 0) return [];
+  const inherited =
+    before === undefined
+      ? new Map<CheckId, string>()
+      : new Map(
+          critiqueBefore(before, options)
+            .checks.filter((c) => c.status === 'fail' || c.status === 'warn')
+            .map((c) => [c.id, inheritedKey(c.detail)] as const),
+        );
+  const own = standing.filter(
+    (c) => REQUEST_CHECKS.has(c.id) || inherited.get(c.id) !== inheritedKey(c.detail),
+  );
+  const ordered = [
+    ...own.filter((c) => c.status === 'fail'),
+    ...own.filter((c) => c.status === 'warn'),
+  ];
+  const lines = ordered.slice(0, STANDING_FINDINGS_SHOWN).map((c) => {
+    const detail =
+      c.detail.length > STANDING_FINDING_CHARS
+        ? `${c.detail.slice(0, STANDING_FINDING_CHARS).trimEnd()}…`
+        : c.detail;
+    return `${c.status === 'fail' ? '[fails]' : '[note]'} ${c.label}: ${detail}`;
+  });
+  const rest = ordered.length - lines.length;
+  if (rest > 0) lines.push(`…and ${String(rest)} more`);
+  return lines;
 }
 
 /**

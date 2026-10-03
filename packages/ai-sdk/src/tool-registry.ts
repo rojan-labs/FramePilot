@@ -183,6 +183,14 @@ export interface ToolSpec {
    * they are simply not evidence that the model is running away.
    */
   readonly derivedFanOut?: boolean;
+  /**
+   * Operation types this tool attaches ON ITS OWN to each placement it makes — a companion
+   * the model did not compose — so they do not count against the blast-radius bounds the
+   * way {@link derivedFanOut} ops do not. `add_clip`/`add_clips` fill-crop a landscape
+   * source for a portrait frame, which made every clip count twice: a 111-clip rebuild was
+   * refused as 222 operations.
+   */
+  readonly derivedOpTypes?: readonly string[];
   /** Validate untrusted tool arguments. Throws `ZodError` on mismatch. */
   parse(rawArgs: unknown): unknown;
   /**

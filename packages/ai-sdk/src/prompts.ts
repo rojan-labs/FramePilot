@@ -227,7 +227,7 @@ const AGENT_CONTRACT_HEAD = [
   'are about to make. Two or three sentences on what you are changing about their video and',
   'why it makes it better.',
   'Treat the RUN STATE briefing as authoritative continuity. Follow DO THIS NOW, preserve',
-  'established facts and decisions, and inspect only evidence missing for the current stage.',
+  'established facts and decisions, and inspect what you still need to decide well.',
   'Do not re-orient after every tool result. Commit the smallest edit that advances an',
   'unsatisfied objective, then verify its observable outcome.',
   "The timeline you were given is the user's work so far — earlier runs and manual",
@@ -410,68 +410,6 @@ export function agentSteeringBlock(message: string | undefined): string {
  * were novel, just unproductive — and stating a false premise invites the model to argue
  * with it instead of acting on it.
  */
-/**
- * The one instruction a verification fix turn carries (plan/system-mission P4.3).
- *
- * WHY a block and not a new prompt: the findings themselves are already in the briefing's
- * VERIFIED section (one FAIL line per deterministic check). What the model lacks at this
- * point is the frame — that this turn exists only to clear those lines, that re-planning
- * the cut is not on the table, and that the loop is bounded so "try something else" is
- * not a strategy. Rendered only while the run is in the `repair` stage.
- */
-export function agentVerifyFixBlock(
-  enabled: boolean,
-  /**
-   * The self-check's advisories, when this is the advisory fix turn (AL37). Their block is a
-   * different instruction: nothing FAILED, the run is otherwise done, and leaving an advisory
-   * that is intended is a legitimate answer — so it must not say "fix exactly those".
-   */
-  advisories?: readonly { readonly label: string; readonly detail: string }[],
-): string {
-  if (!enabled) return '';
-  if (advisories !== undefined && advisories.length > 0) {
-    return [
-      '',
-      '',
-      'SELF-CHECK ADVICE: the edit passed its deterministic self-check, with these advisories:',
-      ...advisories.map((check) => `- ${check.label}: ${check.detail}`),
-      'Each one is a possible problem the checks cannot judge for you. Where one is a real',
-      'mistake, fix it with the smallest edit that clears it. Where it is intended, leave it',
-      'and say why in one line. Do not re-plan the cut or make unrelated edits. When you are',
-      'done, reply without a tool call: that ends the run, and the self-check then only',
-      'reports.',
-    ].join('\n');
-  }
-  return [
-    '',
-    '',
-    'VERIFICATION FIX TURN: the deterministic self-check failed on the lines marked FAIL',
-    'under VERIFIED above. Fix exactly those — trim, move or remove the offending clips,',
-    're-snap to the frame grid, fill or close the gap — with the smallest edit that clears',
-    'each finding. Do not re-plan the cut, do not undo work the checks did not flag, and',
-    'do not read more of the footage. When the findings are addressed, stop; the self-check',
-    'runs again on its own. If a finding cannot be fixed with the tools you have, say which',
-    'one and why instead of making an unrelated edit.',
-  ].join('\n');
-}
-
-export function agentActionRecoveryBlock(enabled: boolean): string {
-  if (!enabled) return '';
-  return [
-    '',
-    '',
-    'ACTION RECOVERY: this run has gathered enough to act on, and more research cannot',
-    'move it forward. Fresh reads and analysis are withheld for this turn; recall_evidence',
-    'is not — if you need an id, a duration or a time you already read, recall it by its',
-    '[ev_N] handle rather than working from memory or inferring it from a name. Commit to',
-    'the best edit your current evidence supports and execute it now with the available',
-    'mutation tool(s) — a good edit you can refine beats a better one you never make. If',
-    'an essential creative choice truly cannot be inferred from the grounded context,',
-    'call ask_user. Do not claim the editing request is complete unless a validated edit',
-    'has already landed.',
-  ].join('\n');
-}
-
 /**
  * The playbooks the agent loaded this run (ADR 0057), pinned verbatim.
  *
