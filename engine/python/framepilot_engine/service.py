@@ -210,23 +210,28 @@ from framepilot_engine.brain.twelvelabs import (
     TwelveLabsAuthError,
     TwelveLabsClient,
     TwelveLabsError,
+    TwelveLabsIndexInaccessibleError,
     TwelveLabsIndexNotGenerativeError,
     TwelveLabsPegasusUnavailableError,
     resolve_twelvelabs,
 )
 from framepilot_engine.brain.twelvelabs_index import (
+    TL_REJECTED_STATUS,
+    bind_index,
     chapters_to_packets,
     clips_to_packets,
     describe_shots_from_chapters,
+    forget_index_key_fingerprint,
     is_twelvelabs_description,
     map_pegasus_chapters,
     map_pegasus_highlights,
     poll_index_asset,
     read_cached_pegasus,
     read_index_id,
+    read_index_key_fingerprint,
+    read_usable_index_id,
     read_video_mapping,
     store_cached_pegasus,
-    store_index_id,
     store_video_mapping,
     video_to_asset_map,
 )
@@ -1542,6 +1547,10 @@ MAX_VISUAL_SLICE = 10
 #: ``FRAMEPILOT_VISUAL_INDEX_CONCURRENCY - 1`` uploads, once, before the job is marked
 #: failed and no further slice runs. Bounded and small, against a 61-asset project that
 #: would otherwise be uploaded in full.
+#:
+#: A file TwelveLabs REJECTS for what it is (too big, too long — ``rejected`` mapping) is
+#: not counted at all: it says nothing about the index, account, or network, and a
+#: project of five oversized clips is not "a broken index".
 TL_CONSECUTIVE_FAILURE_LIMIT = 3
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
@@ -4720,10 +4729,14 @@ def create_app(
                 store.update_job(
                     job.id, state=JobState.RUNNING, progress=cursor / total if total else 1.0
                 )
-                index_id = read_index_id(store)
-                if index_id is None:
-                    index_id = client.create_index(f"framepilot-{req.project_id}")
-                    store_index_id(store, index_id)
+                # Whether THIS slice establishes that the key can use the index (a new
+                # index, a legacy one checked now, or a rebind after a key change). Only
+                # an index that was NOT checked this slice may be re-checked on the next
+                # one when a call says it is unreadable — at most one rebind per slice.
+                index_checked_this_slice = (
+                    read_index_key_fingerprint(store) != client.key_fingerprint
+                )
+                index_id = bind_index(client, store, project_id=req.project_id)
         except TwelveLabsAuthError:
             return VisualIndexResponse(available=True, reason="invalid_api_key")
         except TwelveLabsError as exc:
@@ -4788,6 +4801,11 @@ def create_app(
         # reach the bound and a broken index would upload every asset in the
         # project one call at a time.
         consecutive_failures = int(job.payload.get("consecutiveFailures", 0))
+        # Assets TwelveLabs refused for what the FILE is (a remembered `rejected`
+        # mapping). Kept beside the items rather than on them so the response schema is
+        # unchanged; filled from the slice's worker threads, hence the lock.
+        rejected_ids: set[str] = set()
+        rejected_lock = threading.Lock()
 
         def prepare_hosted(
             store: BrainStore, vstore: VisualVectorStore, asset_id: str
@@ -4856,6 +4874,9 @@ def create_app(
                     upload=_upload,
                     content_hash=content_hash,
                 )
+                if outcome.status == TL_REJECTED_STATUS:
+                    with rejected_lock:
+                        rejected_ids.add(asset_id)
             except TwelveLabsAuthError:
                 # Auth is a property of the key, not of this file: every remaining
                 # asset would fail identically. Stop the run.
@@ -4866,12 +4887,31 @@ def create_app(
                     advanced=False,
                     stop_reason="invalid_api_key",
                 )
+            except TwelveLabsIndexInaccessibleError as exc:
+                # The key works; the index it was believed to own does not answer it (deleted,
+                # or another account's). Never `invalid_api_key`. If this slice did not just
+                # check the index, forget its owner and keep the cursor: the re-post checks
+                # it and rebinds. If it did, a second rebind would only loop — stop and say so.
+                reason = str(exc)
+                _log.warning(
+                    "twelvelabs index not readable mid-slice: asset=%s index=%s checked=%s",
+                    asset_id,
+                    index_id,
+                    index_checked_this_slice,
+                )
+                item = VisualIndexItem(asset_id=asset_id, ok=False, reason=reason, tiers=tiers)
+                if index_checked_this_slice:
+                    return _AssetOutcome(item=item, advanced=False, stop_reason=reason)
+                forget_index_key_fingerprint(store)
+                return _AssetOutcome(item=item, advanced=False)
             except TwelveLabsError as exc:
-                # One asset the provider will not take (an unsupported or corrupt file)
-                # must NOT freeze the project. Before this, any TwelveLabsError broke the
-                # slice without advancing the cursor, so every re-post hit the same asset
-                # again and coverage stayed at 0/N forever — the reported defect. Record
-                # it as failed and advance; a RUN of them is caught below.
+                # One asset the provider could not take this time must NOT freeze the
+                # project. Before this, any TwelveLabsError broke the slice without
+                # advancing the cursor, so every re-post hit the same asset again and
+                # coverage stayed at 0/N forever — the reported defect. Record it as
+                # failed (the next job retries it — it may be transient) and advance; a
+                # RUN of them is caught below. A refusal of the FILE itself never lands
+                # here: `poll_index_asset` remembers it as `rejected` and returns it.
                 reason = str(exc)
                 store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
                 _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
@@ -4908,6 +4948,10 @@ def create_app(
         # identically. Counted over the committed prefix and carried on the job, because
         # a slice is one asset by default: a per-slice counter could never reach the bound.
         for position, item in enumerate(items[:advanced]):
+            if item.asset_id in rejected_ids:
+                # Neither evidence of a broken index nor of a working one: leave the run
+                # count exactly where it was.
+                continue
             consecutive_failures = 0 if item.ok else consecutive_failures + 1
             if not item.ok and consecutive_failures >= TL_CONSECUTIVE_FAILURE_LIMIT:
                 stop_reason = item.reason
@@ -4924,9 +4968,23 @@ def create_app(
         # retry from exactly that state (`main.ts`), so those assets were remembered as
         # enrolled permanently and never measured again. Every processed asset failing
         # is a terminal condition of its own, whatever the consecutive count says.
+        #
+        # Except mid-job when every failure was a REJECTED file: that is a property of
+        # those files, so the run moves on to the assets behind them (a re-run answers
+        # them from the brain, instantly and without uploading). Once the worklist is
+        # exhausted the rule applies again, so a job — a one-asset transcribe above all —
+        # never ends `done` having indexed nothing, and its `reason` is the sentence that
+        # says why (the desktop shows `last.reason` verbatim).
         processed = items[:advanced]
         failed_count = sum(1 for item in processed if not item.ok)
-        if stop_reason is None and processed and failed_count == len(processed):
+        only_rejections = all(item.ok or item.asset_id in rejected_ids for item in processed)
+        more_to_do = cursor + advanced < total
+        if (
+            stop_reason is None
+            and processed
+            and failed_count == len(processed)
+            and not (only_rejections and more_to_do)
+        ):
             stop_reason = processed[-1].reason or "every asset in this slice failed to index"
 
         # Phase 3 — persist the advanced cursor + terminal state.
@@ -5555,7 +5613,9 @@ def create_app(
                     # (TwelveLabs cannot index a photo), so counting only the
                     # hosted mappings reported 0/61 on an all-photo project even
                     # once every photo was understood.
-                    hosted = set(video_to_asset_map(store).values())
+                    # Only footage in the project's CURRENT index: after a rebind (key
+                    # changed), the old index's videos are not this key's to search.
+                    hosted = set(video_to_asset_map(store, index_id=read_index_id(store)).values())
                     builtin = store.visual_indexed_asset_ids()
                     indexed = len(hosted | builtin)
                     return VisualStatusResponse(
@@ -5685,7 +5745,9 @@ def create_app(
             project_doc = load_project_document(req.project_path, req.project)
         try:
             with open_brain(resolved_root, req.project_id) as store:
-                index_id = read_index_id(store)
+                # An index made under a different key is another account's: the project
+                # is not indexed for THIS key yet (the index run rebinds it).
+                index_id = read_usable_index_id(store, client.key_fingerprint)
                 video_to_asset = video_to_asset_map(store)
         except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
             return VisualSearchResponse(available=False, reason=str(exc))
@@ -5693,6 +5755,8 @@ def create_app(
             return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         try:
             clips = client.search(index_id, req.query, page_limit=max(req.k, 10))
+        except TwelveLabsIndexInaccessibleError:
+            return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         except TwelveLabsAuthError:
             return VisualSearchResponse(
                 available=True, backend="twelvelabs", reason="invalid_api_key"
@@ -5736,13 +5800,22 @@ def create_app(
         """
         try:
             with open_brain(resolved_root, project_id) as store:
-                index_id = read_index_id(store)
+                index_id = read_usable_index_id(store, client.key_fingerprint)
                 mapping = read_video_mapping(store, asset_id)
         except (BrainError, BrainSchemaError, PathTraversalError, OSError):
             return None
-        if index_id is None or mapping is None or not mapping.ready or mapping.video_id is None:
+        if (
+            index_id is None
+            or mapping is None
+            or not mapping.ready_in(index_id)
+            or mapping.video_id is None
+        ):
             return None
-        words = client.get_transcription(index_id, mapping.video_id)
+        try:
+            words = client.get_transcription(index_id, mapping.video_id)
+        except TwelveLabsIndexInaccessibleError:
+            # Another account's index: not indexed for this key yet (not a bad key).
+            return None
         _log.info(
             "ACT twelvelabs transcribe: project=%s asset=%s → %d words",
             project_id,
@@ -5803,6 +5876,7 @@ def create_app(
                     status="ready",
                     video_id=video_id,
                     source_asset_id=asset_ref,
+                    index_id=index_id,
                 )
         if asset_ref is None:
             _log.info(
@@ -5862,7 +5936,7 @@ def create_app(
         try:
             with open_brain(resolved_root, req.project_id) as store:
                 coverage = _map_coverage(store)
-                index_id = read_index_id(store)
+                index_id = read_usable_index_id(store, client.key_fingerprint)
                 # Every asset the brain has ever mapped to a TwelveLabs video — the
                 # `tl:video` rows persist even if the live index is gone, so they still
                 # give us (asset_id, content_hash) to serve the cache from on reopen.
@@ -5884,7 +5958,7 @@ def create_app(
                     can_fetch = (
                         index_id is not None
                         and mapping is not None
-                        and mapping.ready
+                        and mapping.ready_in(index_id)
                         and mapping.video_id is not None
                     )
                     pegasus = _pegasus_asset_map(
@@ -5990,6 +6064,15 @@ def create_app(
         except TwelveLabsPegasusUnavailableError:
             return FootageMapResponse(
                 available=True, backend="twelvelabs", reason=PEGASUS_UNAVAILABLE_REASON
+            )
+        except TwelveLabsIndexInaccessibleError:
+            # Another account's index or upload: not indexed for THIS key yet.
+            return FootageMapResponse(
+                available=True,
+                backend="twelvelabs",
+                reason="not_indexed",
+                time_base=_map_time_base(req, project_doc),
+                coverage=coverage,
             )
         except TwelveLabsAuthError:
             return FootageMapResponse(
@@ -6430,12 +6513,12 @@ def create_app(
         words = list(project_doc.transcript) if project_doc is not None else []
         try:
             with open_brain(resolved_root, req.project_id) as store:
-                index_id = read_index_id(store)
+                index_id = read_usable_index_id(store, client.key_fingerprint)
                 mapping = read_video_mapping(store, req.asset_id)
                 if (
                     index_id is None
                     or mapping is None
-                    or not mapping.ready
+                    or not mapping.ready_in(index_id)
                     or mapping.video_id is None
                     or mapping.content_hash is None
                 ):
@@ -6469,6 +6552,8 @@ def create_app(
             return VisualSearchResponse(
                 available=True, backend="twelvelabs", reason=PEGASUS_UNAVAILABLE_REASON
             )
+        except TwelveLabsIndexInaccessibleError:
+            return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         except TwelveLabsAuthError:
             return VisualSearchResponse(
                 available=True, backend="twelvelabs", reason="invalid_api_key"

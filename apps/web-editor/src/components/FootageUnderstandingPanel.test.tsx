@@ -8,7 +8,12 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { FootageMap } from '@framepilot/ai-sdk';
+import {
+  ensureMediaUnderstanding,
+  type FootageMap,
+  type VisualIndexClient,
+  type VisualStatusResponse,
+} from '@framepilot/ai-sdk';
 import type { Project, Timeline } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../editor/useEditor.js';
 import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
@@ -16,8 +21,10 @@ import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
 // The panel's two external seams: the sidecar fetch and the AI config slot.
 const fetchFootageMap = vi.fn();
 const ensureProjectMediaUnderstanding = vi.fn();
+const fetchVisualStatus = vi.fn();
 vi.mock('../editor/visualIndex.js', () => ({
   fetchFootageMap: (input: unknown) => fetchFootageMap(input),
+  fetchVisualStatus: (input: unknown) => fetchVisualStatus(input),
   ensureProjectMediaUnderstanding: (input: unknown) => ensureProjectMediaUnderstanding(input),
 }));
 // A STABLE config ref (the real hook memoizes) — a fresh object each render would
@@ -98,8 +105,60 @@ const mapWithChapters: FootageMap = {
 
 beforeEach(() => {
   fetchFootageMap.mockReset();
+  // An engine that predates `failures` (or an unreachable status read) is the baseline:
+  // every older test below must render exactly as it did before status was read.
+  fetchVisualStatus.mockReset();
+  fetchVisualStatus.mockResolvedValue(undefined);
+  ensureProjectMediaUnderstanding.mockReset();
   window.localStorage.clear();
 });
+
+/** The footage map for a clip the AI has not (successfully) read. */
+const unreadMap: FootageMap = {
+  available: true,
+  timeBase: 'asset',
+  unplacedAssets: [],
+  backend: 'twelvelabs',
+  reason: 'not_indexed',
+  durationSec: 0,
+  summary: '',
+  chapters: [],
+  highlights: [],
+};
+
+/** The engine's status with the given per-asset failures, as the sidecar reports it. */
+const statusWith = (failures: VisualStatusResponse['failures']): VisualStatusResponse => ({
+  available: true,
+  backend: 'twelvelabs',
+  counts: {},
+  indexedAssets: 0,
+  totalAssets: 1,
+  failures,
+  keyConfigured: false,
+});
+
+// The real engine sentences for a clip TwelveLabs refused, before and after the engine
+// learned to word them. Both used to reach the editor as something else entirely.
+const OLD_ENGINE_REFUSAL = 'TwelveLabs API error (HTTP 400) (video_filesize_too_large).';
+const NEW_ENGINE_REFUSAL =
+  "TwelveLabs can't index ro.mp4: the file is larger than TwelveLabs accepts.";
+const NEXT_STEP =
+  'Export a copy it can take (smaller, shorter, or a standard H.264 MP4), import that, and read it instead.';
+
+/**
+ * Run the REAL media-understanding runtime against a sidecar whose index job stops with
+ * `reason`, so the panel renders exactly what the runtime makes of the engine's words.
+ */
+let runtimeProject = 0;
+function realRuntimeFailingWith(reason: string): () => Promise<unknown> {
+  const client = {
+    status: async () => statusWith([]),
+    index: async () => ({ available: true, jobId: 'j', cursor: 1, total: 1, done: false, reason }),
+  } as unknown as VisualIndexClient;
+  runtimeProject += 1;
+  const projectId = `p_rt_${runtimeProject}`;
+  return () => ensureMediaUnderstanding({ client, projectId, twelveLabsKey: 'k' });
+}
 
 describe('FootageUnderstandingPanel', () => {
   it('reads the cache on open (refresh:false) and renders chapters + highlights', async () => {
@@ -281,6 +340,122 @@ describe('FootageUnderstandingPanel', () => {
       <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
     );
     expect(await screen.findByText(/hasn’t watched this footage yet/i)).toBeTruthy();
+    expect(screen.queryByText(/last try/i)).toBeNull();
+  });
+
+  it('names the clip whose last read failed, says why, and offers to try again', async () => {
+    /* Regression: a clip TwelveLabs refused answered the footage map with `not_indexed`,
+       so the panel said "hasn't watched this footage yet" and the failure was invisible. */
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    fetchVisualStatus.mockResolvedValue(
+      statusWith([{ assetId: 'vid', reason: OLD_ENGINE_REFUSAL }]),
+    );
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    // The asset's own name, from its path…
+    expect(await screen.findByText('clip.mp4')).toBeTruthy();
+    // …the engine's reason as a sentence about the FILE, with what to do about it…
+    expect(
+      screen.getByText(`TwelveLabs can't index this file (video_filesize_too_large). ${NEXT_STEP}`),
+    ).toBeTruthy();
+    // …and never the "not read yet" line that hid it.
+    expect(screen.queryByText(/hasn’t watched this footage yet/i)).toBeNull();
+    expect(screen.queryByText(/can’t be found on disk/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    // Status is read alongside the map on open — once, not per render.
+    expect(fetchVisualStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-reads the failures after a successful retry, and shows the map', async () => {
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    fetchVisualStatus.mockResolvedValue(
+      statusWith([{ assetId: 'vid', reason: NEW_ENGINE_REFUSAL }]),
+    );
+    ensureProjectMediaUnderstanding.mockResolvedValue({
+      status: 'ready',
+      backend: 'twelvelabs',
+      cache: 'miss',
+    });
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText(`${NEW_ENGINE_REFUSAL} ${NEXT_STEP}`)).toBeTruthy();
+
+    // The clip was replaced with one TwelveLabs takes: the map exists and nothing failed.
+    fetchVisualStatus.mockResolvedValue(statusWith([]));
+    fetchFootageMap.mockResolvedValue(mapWithChapters);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Intro')).toBeTruthy();
+    expect(ensureProjectMediaUnderstanding).toHaveBeenCalledTimes(1);
+    expect(fetchVisualStatus).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/last try/i)).toBeNull();
+  });
+
+  it('does not repeat the next step when the engine sentence already gives it', async () => {
+    const preflight =
+      'ro.mp4 is 12.3 GB; TwelveLabs accepts files up to 4.0 GB. Export a smaller proxy to index it with TwelveLabs.';
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    fetchVisualStatus.mockResolvedValue(statusWith([{ assetId: 'vid', reason: preflight }]));
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText(preflight)).toBeTruthy();
+  });
+
+  it('counts the clips when several failed, and names one the editor no longer has', async () => {
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    fetchVisualStatus.mockResolvedValue(
+      statusWith([
+        { assetId: 'vid', reason: NEW_ENGINE_REFUSAL },
+        { assetId: 'gone', reason: null },
+      ]),
+    );
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText('The last try couldn’t read 2 clips.')).toBeTruthy();
+    expect(screen.getByText('gone')).toBeTruthy();
+    expect(screen.getByText('Reading the footage stopped without saying why.')).toBeTruthy();
+  });
+
+  it('renders as before when the status read fails outright', async () => {
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    fetchVisualStatus.mockRejectedValue(new Error('boom'));
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText(/hasn’t watched this footage yet/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Read this footage/i })).toBeTruthy();
+  });
+
+  it('does not show old failures over a map that has chapters', async () => {
+    fetchFootageMap.mockResolvedValue(mapWithChapters);
+    fetchVisualStatus.mockResolvedValue(
+      statusWith([{ assetId: 'other', reason: NEW_ENGINE_REFUSAL }]),
+    );
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    expect(await screen.findByText('Intro')).toBeTruthy();
+    expect(screen.queryByText(/last try/i)).toBeNull();
+  });
+
+  it.each([
+    [NEW_ENGINE_REFUSAL, NEW_ENGINE_REFUSAL],
+    [OLD_ENGINE_REFUSAL, "TwelveLabs can't index this file (video_filesize_too_large)."],
+  ])('a failed read shows the engine’s reason, not "still reading": %j', async (raw, shown) => {
+    fetchFootageMap.mockResolvedValue(unreadMap);
+    ensureProjectMediaUnderstanding.mockImplementation(realRuntimeFailingWith(raw));
+    render(
+      <FootageUnderstandingPanel editor={fakeEditor()} project={project} open onClose={vi.fn()} />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Read this footage/i }));
+    // One sentence from the engine, then the next step: no "didn't finish:" prefix.
+    expect(await screen.findByText(`${shown} ${NEXT_STEP}`)).toBeTruthy();
+    expect(screen.queryByText(/Still reading this footage/i)).toBeNull();
+    expect(screen.queryByText(/can’t be found on disk/i)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
   it('surfaces an unreachable engine honestly', async () => {

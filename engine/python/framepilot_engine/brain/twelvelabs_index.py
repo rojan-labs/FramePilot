@@ -14,10 +14,19 @@ Storage (migration-free, decision: reuse what exists):
 - **Index id** — one per project — is a provenance-guarded field row
   (``fields`` table) under entity ``twelvelabs``/``index``. The ``fields`` table
   has no asset foreign key, so a project-level value fits without a sentinel row.
+  A second field beside it holds the **key fingerprint** the index was made with
+  (:func:`~framepilot_engine.brain.twelvelabs.key_fingerprint` — never the key): a
+  project whose key changed to another account can no longer read its index, and
+  :func:`bind_index` notices and binds the project to an index of the current
+  account instead of reporting a working key as invalid.
 - **Asset → video mapping** is an ``analysis_results`` row (``kind='tl:video'``)
-  keyed by the asset. A fixed ``params_hash`` means a re-index of changed bytes
+  keyed by the asset, recording which index it lives in (``indexId``; derived from
+  the task token on older rows). A fixed ``params_hash`` means a re-index of changed bytes
   overwrites the single row (the source ``content_hash`` lives in the result), so
-  the mapping never accumulates stale duplicates.
+  the mapping never accumulates stale duplicates. The same row remembers a
+  **permanent rejection** (status ``rejected`` + the code, the human reason, and the
+  upload policy that was refused), so the same bytes are never uploaded again just
+  to be refused again — see :func:`poll_index_asset`.
 - **Chapter prose → shot ledger**: :func:`describe_shots_from_chapters` maps a
   Pegasus chapter map onto the asset's measured shots as tier-2 ``described``
   facts (summary only — :func:`described_from_summary`), so a paid describe is
@@ -39,10 +48,16 @@ from framepilot_engine.brain.models import Provenance
 from framepilot_engine.brain.store import BrainStore
 from framepilot_engine.brain.twelvelabs import (
     DEFAULT_PEGASUS_MODEL_NAME,
+    TL_UPLOAD_POLICY_VERSION,
     TaskStatus,
     TLChapter,
     TLClip,
     TLHighlight,
+    TwelveLabsAssetInaccessibleError,
+    TwelveLabsMediaRejectedError,
+    asset_task_token,
+    task_token_index,
+    task_token_uploaded_asset,
 )
 from framepilot_engine.brain.visual_search import (
     EvidencePacket,
@@ -62,26 +77,44 @@ class SupportsGetTask(Protocol):
     def get_task(self, task_id: str) -> TaskStatus: ...
 
 
+class SupportsIndexBinding(Protocol):
+    """The slice of :class:`TwelveLabsClient` that :func:`bind_index` needs."""
+
+    @property
+    def key_fingerprint(self) -> str: ...
+
+    def create_index(self, name: str) -> str: ...
+
+    def find_index(self, name: str) -> str | None: ...
+
+    def index_accessible(self, index_id: str) -> bool: ...
+
+
 __all__ = [
     "MIN_CHAPTER_SHOT_COVERAGE",
     "TL_DESCRIBED_MODEL",
     "TL_MAP_KIND",
+    "TL_REJECTED_STATUS",
     "TL_TOOL",
     "TL_VIDEO_KIND",
     "MappedChapter",
     "MappedHighlight",
     "TLIndexOutcome",
     "VideoMapping",
+    "bind_index",
     "chapter_caption",
     "chapters_to_packets",
     "clips_to_packets",
     "describe_shots_from_chapters",
+    "forget_index_key_fingerprint",
     "is_twelvelabs_description",
     "map_pegasus_chapters",
     "map_pegasus_highlights",
     "poll_index_asset",
     "read_cached_pegasus",
     "read_index_id",
+    "read_index_key_fingerprint",
+    "read_usable_index_id",
     "read_video_mapping",
     "store_cached_pegasus",
     "store_index_id",
@@ -111,6 +144,8 @@ MIN_CHAPTER_SHOT_COVERAGE = 0.5
 _TL_INDEX_ENTITY = "twelvelabs"
 _TL_INDEX_ID = "index"
 _TL_INDEX_FIELD = "id"
+#: Field beside the index id: the fingerprint of the key that index belongs to.
+_TL_INDEX_KEY_FIELD = "keyFingerprint"
 
 #: Paced polling of one indexing task within a single slice: check every
 #: ``INTERVAL`` seconds up to ``BUDGET`` before yielding the slice back to the
@@ -121,6 +156,14 @@ TL_SLICE_POLL_BUDGET_SECONDS = 30.0
 
 #: Human-readable "still working" reason surfaced while a task indexes.
 INDEXING_REASON = "indexing"
+
+#: Mapping status for bytes TwelveLabs refused for what they ARE (too big, too long,
+#: unsupported). Distinct from ``failed`` — a transient failure that a later job retries
+#: (plan: "retry after failed") — because retrying a permanent refusal re-uploads the
+#: same file, possibly a gigabyte of it, only to be refused again.
+TL_REJECTED_STATUS = "rejected"
+#: ``failed`` stays the status for everything that can clear on a retry.
+_TL_FAILED_STATUS = "failed"
 
 
 @dataclass(frozen=True)
@@ -136,11 +179,43 @@ class VideoMapping:
     #: asset, so the footage map needs this id; ``None`` for mappings written before
     #: it was persisted (the route recovers it from the index on demand).
     source_asset_id: str | None = None
+    #: For a ``rejected`` mapping: TwelveLabs' machine code (or FramePilot's pre-flight
+    #: code), the sentence shown to the user, and the :data:`TL_UPLOAD_POLICY_VERSION`
+    #: that was refused. ``None`` on every other mapping and on rows written before
+    #: rejections were remembered.
+    rejection_code: str | None = None
+    rejection_reason: str | None = None
+    upload_policy: int | None = None
+    #: The TwelveLabs index this mapping's task/video lives in. ``None`` only for rows
+    #: whose index cannot be known (legacy ``/tasks`` ids): those are given the benefit
+    #: of the doubt by :meth:`belongs_to`.
+    index_id: str | None = None
 
     @property
     def ready(self) -> bool:
-        """True when this asset is fully indexed and searchable."""
+        """True when this asset is fully indexed and searchable (in ITS index)."""
         return self.status == "ready" and self.video_id is not None
+
+    def belongs_to(self, index_id: str) -> bool:
+        """Whether this mapping lives in ``index_id`` (unknown counts as yes)."""
+        return self.index_id is None or self.index_id == index_id
+
+    def ready_in(self, index_id: str) -> bool:
+        """Ready AND in ``index_id`` — after a rebind, an old index's video is not."""
+        return self.ready and self.belongs_to(index_id)
+
+    def rejects(self, content_hash: str) -> bool:
+        """Whether these exact bytes were refused under the CURRENT upload policy.
+
+        Both halves matter: changed bytes (a re-export) deserve a fresh try, and so do
+        bytes an OLDER upload path was refused for — the 1 GB file the direct-only
+        policy could not send is exactly what multipart now can.
+        """
+        return (
+            self.status == TL_REJECTED_STATUS
+            and self.content_hash == content_hash
+            and self.upload_policy == TL_UPLOAD_POLICY_VERSION
+        )
 
 
 @dataclass(frozen=True)
@@ -169,13 +244,108 @@ def read_index_id(store: BrainStore) -> str | None:
     return row.value if row is not None and isinstance(row.value, str) else None
 
 
-def store_index_id(store: BrainStore, index_id: str) -> None:
-    """Persist the project's TwelveLabs index id (one per project)."""
+def store_index_id(store: BrainStore, index_id: str, *, key_fingerprint: str | None = None) -> None:
+    """Persist the project's TwelveLabs index id (one per project).
+
+    :param key_fingerprint: The fingerprint of the key the index belongs to, written
+        beside it when known (always, from :func:`bind_index`).
+    """
     store.write_field(
         _TL_INDEX_ENTITY,
         _TL_INDEX_ID,
         _TL_INDEX_FIELD,
         index_id,
+        source=Provenance.MACHINE,
+        actor=TL_TOOL,
+    )
+    if key_fingerprint is not None:
+        _write_key_fingerprint(store, key_fingerprint)
+
+
+def read_index_key_fingerprint(store: BrainStore) -> str | None:
+    """The fingerprint of the key the stored index belongs to; ``None`` if unknown."""
+    row = store.get_field(_TL_INDEX_ENTITY, _TL_INDEX_ID, _TL_INDEX_KEY_FIELD)
+    return _str_or_none(row.value) if row is not None else None
+
+
+def forget_index_key_fingerprint(store: BrainStore) -> None:
+    """Mark the stored index's ownership unknown, so the next index run re-checks it.
+
+    Used when a call on an index this key was believed to own came back unreadable:
+    the next :func:`bind_index` verifies it and binds a new one if it is gone.
+    """
+    _write_key_fingerprint(store, "")
+
+
+def read_usable_index_id(store: BrainStore, key_fingerprint: str) -> str | None:
+    """The stored index id if THIS key can be expected to read it, else ``None``.
+
+    For the read-only routes: an index recorded under a different key is another
+    account's, so the project reads as not indexed yet (the index run rebinds it)
+    instead of every call failing as if the key were bad. An index with no recorded
+    fingerprint (made before fingerprints) is assumed usable.
+    """
+    index_id = read_index_id(store)
+    if index_id is None:
+        return None
+    stored = read_index_key_fingerprint(store)
+    return index_id if stored is None or stored == key_fingerprint else None
+
+
+def bind_index(client: SupportsIndexBinding, store: BrainStore, *, project_id: str) -> str:
+    """The project's TwelveLabs index for the CURRENT key — reusing, adopting or rebinding.
+
+    - stored and made with this key → used as is (no call);
+    - stored, made before fingerprints were kept → checked once: readable → adopted
+      (its fingerprint written); unreadable → rebound;
+    - stored, made with a DIFFERENT key → rebound (that index is another account's);
+    - none stored → created.
+
+    Rebinding reuses this account's index of the same name when there is one (a user
+    switching back to an earlier key gets its index, and its indexed footage, back);
+    otherwise it creates one. Assets indexed in the old index are re-attached, not
+    re-uploaded, by :func:`poll_index_asset`.
+
+    :raises TwelveLabsError: On any API/transport failure.
+    """
+    current = client.key_fingerprint
+    index_id = read_index_id(store)
+    stored = read_index_key_fingerprint(store)
+    name = f"framepilot-{project_id}"
+    if index_id is not None and stored == current:
+        return index_id
+    if index_id is not None and stored is None:
+        if client.index_accessible(index_id):
+            _write_key_fingerprint(store, current)
+            _log.info(
+                "twelvelabs index adopted for this key: project=%s index=%s", project_id, index_id
+            )
+            return index_id
+        why = "saved index not readable with this key"
+    else:
+        why = "key changed"
+    if index_id is None:
+        new_id = client.create_index(name)
+    else:
+        new_id = client.find_index(name) or client.create_index(name)
+    store_index_id(store, new_id, key_fingerprint=current)
+    if index_id is not None:
+        _log.info(
+            "ACT twelvelabs index rebound: project=%s old=%s new=%s (%s)",
+            project_id,
+            index_id,
+            new_id,
+            why,
+        )
+    return new_id
+
+
+def _write_key_fingerprint(store: BrainStore, key_fingerprint: str) -> None:
+    store.write_field(
+        _TL_INDEX_ENTITY,
+        _TL_INDEX_ID,
+        _TL_INDEX_KEY_FIELD,
+        key_fingerprint,
         source=Provenance.MACHINE,
         actor=TL_TOOL,
     )
@@ -187,12 +357,17 @@ def read_video_mapping(store: BrainStore, asset_id: str) -> VideoMapping | None:
     if not rows:
         return None
     result = rows[-1].result
+    task_id = _str_or_none(result.get("taskId"))
     return VideoMapping(
-        task_id=_str_or_none(result.get("taskId")),
+        task_id=task_id,
         video_id=_str_or_none(result.get("videoId")),
         status=str(result.get("status") or "unknown"),
         content_hash=_str_or_none(result.get("contentHash")),
         source_asset_id=_str_or_none(result.get("sourceAssetId")),
+        rejection_code=_str_or_none(result.get("rejectionCode")),
+        rejection_reason=_str_or_none(result.get("rejectionReason")),
+        upload_policy=_int_or_none(result.get("uploadPolicy")),
+        index_id=_str_or_none(result.get("indexId")) or task_token_index(task_id),
     )
 
 
@@ -205,31 +380,57 @@ def store_video_mapping(
     task_id: str | None = None,
     video_id: str | None = None,
     source_asset_id: str | None = None,
+    rejection: TwelveLabsMediaRejectedError | None = None,
+    index_id: str | None = None,
 ) -> None:
-    """Upsert one asset's TwelveLabs mapping (single row per asset)."""
+    """Upsert one asset's TwelveLabs mapping (single row per asset).
+
+    ``rejection`` records a permanent refusal of these bytes (pass it with
+    ``status=TL_REJECTED_STATUS``); its code, human reason, and the current upload
+    policy are stored so :meth:`VideoMapping.rejects` can answer later without a call.
+    ``index_id`` defaults to the index the task token names.
+    """
+    result: dict[str, object] = {
+        "taskId": task_id,
+        "videoId": video_id,
+        "status": status,
+        "contentHash": content_hash,
+        "sourceAssetId": source_asset_id,
+        "indexId": index_id or task_token_index(task_id),
+    }
+    if rejection is not None:
+        result["rejectionCode"] = rejection.code
+        result["rejectionReason"] = str(rejection)
+        result["uploadPolicy"] = TL_UPLOAD_POLICY_VERSION
     store.record_analysis(
         asset_id,
         kind=TL_VIDEO_KIND,
         depth="",
         params_hash=_TL_VIDEO_PARAMS,
-        result={
-            "taskId": task_id,
-            "videoId": video_id,
-            "status": status,
-            "contentHash": content_hash,
-            "sourceAssetId": source_asset_id,
-        },
+        result=result,
         tool=TL_TOOL,
     )
 
 
-def video_to_asset_map(store: BrainStore) -> dict[str, str]:
-    """Reverse map of ``video_id → asset_id`` for every indexed asset."""
+def video_to_asset_map(store: BrainStore, *, index_id: str | None = None) -> dict[str, str]:
+    """Reverse map of ``video_id → asset_id`` for every indexed asset.
+
+    :param index_id: Only mappings that live in this index (a row whose index is
+        unknown counts). ``None`` keeps every row — the footage-map cache is
+        index-independent on purpose.
+    """
     out: dict[str, str] = {}
     for row in store.list_analysis(kind=TL_VIDEO_KIND):
         video_id = _str_or_none(row.result.get("videoId"))
-        if video_id is not None:
-            out[video_id] = row.asset_id
+        if video_id is None:
+            continue
+        if index_id is not None:
+            row_index = _str_or_none(row.result.get("indexId")) or task_token_index(
+                _str_or_none(row.result.get("taskId"))
+            )
+            if row_index is not None and row_index != index_id:
+                continue
+        out[video_id] = row.asset_id
     return out
 
 
@@ -326,20 +527,138 @@ def poll_index_asset(
     yielded back to be re-posted. ``upload`` is a thunk (so the caller owns opening
     the file) that returns the new task id.
 
-    Never raises for an API failure — the caller catches :class:`TwelveLabsError`;
-    this returns typed outcomes only.
+    Failures split in two. A ``failed`` mapping (TwelveLabs gave up, or the caller
+    recorded a transient error) is re-uploaded by the next job — the deliberate
+    "retry after failure" behaviour. A **permanent** refusal of the file
+    (:class:`TwelveLabsMediaRejectedError`, from the upload, its pre-flight, or the
+    attach-to-index step) is persisted as ``rejected`` and answered from the brain on
+    every later call for the same bytes and upload policy: no upload, no network, the
+    same human reason (outcome ``status="rejected"``).
+
+    :raises TwelveLabsError: Any OTHER API/transport failure — the caller decides
+        whether it is the key's fault or the file's.
     """
     mapping = read_video_mapping(store, asset_id)
-    fresh = mapping is None or mapping.content_hash != content_hash or mapping.status == "failed"
+    if mapping is not None and mapping.rejects(content_hash):
+        _log.info(
+            "twelvelabs index asset skipped (rejected before, not re-uploading): "
+            "asset=%s file=%s code=%s",
+            asset_id,
+            media_path_name,
+            mapping.rejection_code or "-",
+        )
+        return _rejected_outcome(
+            mapping.rejection_reason or f"TwelveLabs can't index {media_path_name}."
+        )
+    try:
+        return _advance_index_asset(
+            client,
+            store,
+            index_id,
+            asset_id,
+            media_path_name,
+            upload,
+            mapping=mapping,
+            content_hash=content_hash,
+            sleep=sleep,
+            now=now,
+            poll_interval=poll_interval,
+            poll_budget=poll_budget,
+        )
+    except TwelveLabsMediaRejectedError as exc:
+        store_video_mapping(
+            store,
+            asset_id,
+            content_hash=content_hash,
+            status=TL_REJECTED_STATUS,
+            rejection=exc,
+        )
+        _log.warning(
+            "twelvelabs index asset REJECTED (remembered for these bytes): asset=%s file=%s "
+            "code=%s",
+            asset_id,
+            media_path_name,
+            exc.code,
+        )
+        return _rejected_outcome(str(exc))
 
-    if not fresh and mapping is not None and mapping.ready:
+
+def _rejected_outcome(reason: str) -> TLIndexOutcome:
+    """A terminal, not-ok outcome for a file TwelveLabs will not take as it is."""
+    return TLIndexOutcome(
+        advanced=True, ok=False, newly_indexed=0, status=TL_REJECTED_STATUS, reason=reason
+    )
+
+
+def _advance_index_asset(
+    client: SupportsGetTask,
+    store: BrainStore,
+    index_id: str,
+    asset_id: str,
+    media_path_name: str,
+    upload: Callable[[], str],
+    *,
+    mapping: VideoMapping | None,
+    content_hash: str,
+    sleep: Callable[[float], None],
+    now: Callable[[], float],
+    poll_interval: float,
+    poll_budget: float,
+) -> TLIndexOutcome:
+    """Upload (when needed) and poll one asset within the slice budget.
+
+    A mapping that lives in ANOTHER index (the project was rebound to a new index after
+    a key change) is not ready here, but its bytes usually are already on TwelveLabs:
+    the earlier upload is re-attached to ``index_id`` instead of uploading the file
+    again. Only when this key cannot read that upload (another account's) is the file
+    uploaded afresh.
+
+    :raises TwelveLabsError: On any API/transport failure, media rejections included;
+        :func:`poll_index_asset` turns a rejection into a remembered outcome.
+    """
+    # A `failed` mapping is retried on purpose (it may have been transient), and a
+    # `rejected` one reaching here was refused for OTHER bytes or under an older upload
+    # policy — both start over from a fresh upload.
+    fresh = (
+        mapping is None
+        or mapping.content_hash != content_hash
+        or mapping.status in (_TL_FAILED_STATUS, TL_REJECTED_STATUS)
+    )
+
+    moved = not fresh and mapping is not None and not mapping.belongs_to(index_id)
+
+    if not fresh and not moved and mapping is not None and mapping.ready:
         _log.debug(
             "twelvelabs slice: asset=%s already ready (video=%s)", asset_id, mapping.video_id
         )
         return TLIndexOutcome(advanced=True, ok=True, newly_indexed=0, status="ready")
 
     source_asset_id = None if fresh else (mapping.source_asset_id if mapping else None)
-    if fresh or mapping is None or mapping.task_id is None:
+    reattach_from = (
+        (source_asset_id or task_token_uploaded_asset(mapping.task_id))
+        if moved and mapping is not None
+        else None
+    )
+    if reattach_from is not None:
+        task_id = asset_task_token(index_id, reattach_from)
+        source_asset_id = reattach_from
+        _log.info(
+            "ACT twelvelabs index asset (re-attach earlier upload, no re-upload): asset=%s "
+            "upload=%s old_index=%s index=%s",
+            asset_id,
+            reattach_from,
+            mapping.index_id if mapping is not None else "-",
+            index_id,
+        )
+        store_video_mapping(
+            store,
+            asset_id,
+            content_hash=content_hash,
+            status="indexing",
+            task_id=task_id,
+            source_asset_id=source_asset_id,
+        )
+    elif fresh or moved or mapping is None or mapping.task_id is None:
         _log.info(
             "ACT twelvelabs index asset (fresh upload): asset=%s file=%s", asset_id, media_path_name
         )
@@ -355,7 +674,25 @@ def poll_index_asset(
     started = now()
     deadline = started + poll_budget
     while True:
-        status = client.get_task(task_id)
+        try:
+            status = client.get_task(task_id)
+        except TwelveLabsAssetInaccessibleError:
+            if reattach_from is None:
+                raise
+            # The earlier upload is another account's: this key has to send the bytes.
+            _log.info(
+                "ACT twelvelabs index asset (earlier upload not readable, fresh upload): "
+                "asset=%s file=%s",
+                asset_id,
+                media_path_name,
+            )
+            reattach_from = None
+            source_asset_id = None
+            task_id = upload()
+            store_video_mapping(
+                store, asset_id, content_hash=content_hash, status="indexing", task_id=task_id
+            )
+            continue
         # The current TwelveLabs workflow is upload asset → attach to index. Its
         # opaque polling token advances at that boundary, so persist and continue
         # with the returned token instead of repeatedly creating indexed assets.
@@ -386,7 +723,7 @@ def poll_index_asset(
                 store,
                 asset_id,
                 content_hash=content_hash,
-                status="failed",
+                status=_TL_FAILED_STATUS,
                 task_id=task_id,
                 source_asset_id=source_asset_id,
             )
@@ -684,3 +1021,8 @@ def describe_shots_from_chapters(
 def _str_or_none(value: object) -> str | None:
     """A non-empty string, or ``None`` (defensive against malformed rows)."""
     return value if isinstance(value, str) and value else None
+
+
+def _int_or_none(value: object) -> int | None:
+    """An int (never a bool), or ``None`` (defensive against malformed rows)."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None

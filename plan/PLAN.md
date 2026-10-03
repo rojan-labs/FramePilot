@@ -3725,6 +3725,9 @@ Completed 2026-08-02: TwelveLabs audio-only transcription now uses its
 typed asset-upload → indexed-asset workflow instead of the legacy video-only task endpoint;
 MP3 keeps `audio/mpeg`, both paced states are durable, old task ids remain resumable, and retry
 starts a fresh upload after terminal failure. Focused verification: 46 TwelveLabs tests passed.
+(Amended 2026-10-03: that retry is for TRANSIENT failures only; a file TwelveLabs refuses for
+what it is is remembered as `rejected` and never re-uploaded — see "TwelveLabs large uploads"
+near the end of this file.)
 Completed 2026-08-02: caption libraries now hold readable previews at
 rest, page 12 then 8 in a responsive four-column-first grid, share Effects/Transitions filter
 chrome, and keep timing/per-cue styling behind compact disclosures; keyword emphasis now has a
@@ -11315,7 +11318,61 @@ clip kind, effect layer, transition, keyframes, marker, speed), affected unit te
   operation; Enter still works). The new track-options button handles Space itself. Fix it at the
   shortcut layer: skip Space when the focused element is a button, link or form control.
 
-**Last updated:** 2026-10-02
+## TwelveLabs large uploads + remembered rejections — `[x]` done (2026-10-03)
+
+Maintainer's desktop log: a 1005 MB camera file streamed to `POST /assets` for 200 s, was refused
+`HTTP 400 video_filesize_too_large`, and the next job uploaded it again 6 ms later — "this type of
+thing should never happen". Branch `fix/twelvelabs-large-upload-2026-10-03`. Engine-only; no
+schema migration (new optional keys on the existing `tl:video` mapping row), no new dependency.
+
+- [x] **TLU1** Upload by size: ≤ 200 MB direct (unchanged), video ≤ 10 GB via the multipart
+  upload API (driven chunk by chunk through the injected `httpx` client; nothing written beside
+  the footage; bounded retry with a fresh presigned URL; batched chunk reports), > 10 GB or audio
+  > 200 MB refused before a byte is sent. Limits from the SDK docs, as named constants.
+- [x] **TLU2** `TwelveLabsMediaRejectedError` for a 413/415 or a 400/422 media code
+  (`video_*`/`audio_*`/`file_*`), with a sentence an editor can act on and the code kept; 401/403,
+  429, 5xx and request errors stay what they were.
+- [x] **TLU3** `poll_index_asset` persists a rejection (`rejected` + code + reason +
+  `TL_UPLOAD_POLICY_VERSION`) and answers later requests for the same bytes and policy from the
+  brain: no upload, no network. Transient `failed` mappings still retry; changed bytes or a newer
+  upload policy retry (so files that failed under the old direct-only upload get one more try).
+- [x] **TLU4** Route: a rejection does not count toward `TL_CONSECUTIVE_FAILURE_LIMIT`, and a
+  slice whose only failures are rejections does not stop the job while assets remain; a job that
+  ends having indexed nothing still fails with the human reason (what the desktop shows).
+  _Evidence: `test_twelvelabs.py` 52, `test_twelvelabs_index.py` 24, `test_service_twelvelabs.py`
+  29 + `_stills` 6 passed (multipart byte ranges, URL refill, retry/give-up, pre-flight with zero
+  requests, typed vs transient errors, memo hit/miss by hash and policy, five rejected clips each
+  tried once); `test_twelvelabs_cache` / `test_service_visual_index` / `test_service_shot_ledger`
+  76 passed; `mypy .` and ruff clean. Not verified against the live API: chunk PUT headers and the
+  final `total_completed` follow the SDK's documented shapes._
+- [x] **TLU5** The footage understanding panel shows a failed read. The runtime classified the
+  engine's reason by substring, so "TwelveLabs can't index ro.mp4: …" read as still-indexing and
+  `(HTTP 400) (video_filesize_too_large)` as a missing file; `classifyUnderstandingReason` now
+  matches only exact engine tokens, loop statuses, the `(HTTP nnn) (code)` marker and the engine's
+  sentence openings (new `media_rejected` reason), and the message is the engine's sentence once.
+  The panel reads `GET /brain/visual/status` `failures` with the map on open/refresh and, when the
+  map is empty, names each failed clip with its reason and Try again; status unreachable or absent
+  renders as before. _Evidence: `packages/ai-sdk/src/media-understanding-runtime.test.ts` 67,
+  `apps/web-editor/src/components/FootageUnderstandingPanel.test.tsx` 19 and
+  `apps/web-editor/src/editor/visualIndex.test.ts` 7 passed, with the real engine strings; ai-sdk
+  and web-editor typecheck and eslint clean. Not checked in the running desktop app._
+- [x] **TLU6** A saved index from another TwelveLabs account is not a bad key. Live: after the
+  key was switched, the working key got `403 read_not_allowed` on the project's saved index and
+  the run stopped with `invalid_api_key`. A 403/404 `read_not_allowed` is now
+  `TwelveLabsIndexInaccessibleError` (the upload itself: `TwelveLabsAssetInaccessibleError`); a
+  non-reversible key fingerprint is stored beside the index id (`fields`, no migration);
+  `bind_index` (index route only) keeps the index for the same key, adopts or rebinds a legacy
+  one after one readability check, and rebinds on a changed key to this account's same-named
+  index or a new one. Mappings record their index (older rows: from the task token); one in
+  another index is re-attached from its earlier upload, uploaded again only if this key cannot
+  read that upload. Search / footage map / describe / transcription answer `not_indexed`.
+  _Evidence: `test_twelvelabs.py` 59, `test_twelvelabs_index.py` 35, `test_service_twelvelabs.py`
+  34 passed, including the maintainer's state end to end over the real client (legacy index →
+  403 → one rebind → upload re-attached, no `POST /assets`, no multipart create) and an index
+  that stops answering mid-run (re-checked next slice, never `invalid_api_key`); the TL suites
+  around them 248 passed in all; `mypy .` and ruff clean. Live re-run pending (coordinator)._
+
+**Last updated:** 2026-10-03
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

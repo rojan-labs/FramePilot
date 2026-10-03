@@ -31,6 +31,7 @@ import {
   type EnsureMediaUnderstandingResult,
   type FootageMap,
   VisualIndexClient,
+  type VisualStatusResponse,
   summarizeFootageMap,
 } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
@@ -150,6 +151,29 @@ export async function fetchFootageMap(input: FootageMapInput): Promise<FootageMa
     chapters: map?.chapters.length ?? 0,
   });
   return map;
+}
+
+export interface VisualStatusInput {
+  readonly project: Project;
+  /** Overridable for tests; defaults to a client on the resolved sidecar URL. */
+  readonly client?: VisualIndexClient;
+}
+
+/**
+ * Read the project's preparation status: coverage, and the assets whose last attempt to
+ * be read failed (with the engine's reason). `undefined` when the sidecar is unreachable.
+ */
+export async function fetchVisualStatus(
+  input: VisualStatusInput,
+): Promise<VisualStatusResponse | undefined> {
+  const client = input.client ?? createVisualIndexClient();
+  const status = await client.status(input.project.id);
+  log.debug('visual-status → done', {
+    projectId: input.project.id,
+    available: status?.available ?? false,
+    failures: status?.failures.length ?? 0,
+  });
+  return status;
 }
 
 /** Fetch the footage map and render its compact AI-context digest. */

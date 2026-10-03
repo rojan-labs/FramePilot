@@ -25,15 +25,22 @@
  * advice: "Read this footage" runs the same preparation pass an import runs, streaming
  * its progress here. Without it the panel was a dead end — it pointed at a media-bin
  * action that does not exist, and Rebuild re-fetched a map that could never appear.
+ *
+ * A clip whose last read FAILED looks exactly like an unread one to the footage map
+ * (`not_indexed`), so the panel also reads the engine's status, which keeps each asset's
+ * last failure and its reason. Without it a refused clip was offered "Read this footage"
+ * forever and the editor never learned why it did not work.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import type { Asset, Project } from '@framepilot/timeline-schema';
-import type {
-  EnsureMediaUnderstandingResult,
-  FootageChapter,
-  FootageMap,
+import {
+  classifyUnderstandingReason,
+  type ClassifiedUnderstandingReason,
+  type FootageChapter,
+  type FootageMap,
+  type VisualAssetFailure,
 } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
@@ -53,7 +60,11 @@ import type { LucideIcon } from './icons.js';
 import { Tooltip } from './Tooltip.js';
 import type { UseEditor } from '../editor/useEditor.js';
 import { useAiConfig } from '../editor/useAiConfig.js';
-import { ensureProjectMediaUnderstanding, fetchFootageMap } from '../editor/visualIndex.js';
+import {
+  ensureProjectMediaUnderstanding,
+  fetchFootageMap,
+  fetchVisualStatus,
+} from '../editor/visualIndex.js';
 import { assetDisplayName } from '../editor/selectors.js';
 import { sourceToTimeline, timelineToSource } from '../editor/footageProjection.js';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
@@ -230,13 +241,21 @@ function isUnindexed(map: FootageMap | undefined): boolean {
 }
 
 /**
+ * What to do about a clip the provider refused. The engine's own pre-flight sentence
+ * already says "Export a smaller proxy…", so the step is added only when it is missing.
+ */
+const MEDIA_REJECTED_NEXT_STEP =
+  'Export a copy it can take (smaller, shorter, or a standard H.264 MP4), import that, and read it instead.';
+const ALREADY_SAYS_EXPORT = /\bexport\b/i;
+
+/**
  * Plain-language reason a read attempt failed, in editor language. Keyed off the
  * runtime's typed reason so each failure names its own next step — a wrong key is not
- * a network problem, and a still-running index is not a failure.
+ * a network problem, and a still-running index is not a failure. Where there is nothing
+ * better to say, the engine's own sentence is shown as it is: one sentence, no prefix.
  */
-function unreadableMessage(result: EnsureMediaUnderstandingResult): string {
-  if (result.status === 'ready') return '';
-  switch (result.reason) {
+function failureCopy({ reason, message }: ClassifiedUnderstandingReason): string {
+  switch (reason) {
     case 'unconfigured':
       return 'No understanding key is configured. Add a TwelveLabs or embeddings key in Settings, then read the footage.';
     case 'invalid_api_key':
@@ -255,9 +274,24 @@ function unreadableMessage(result: EnsureMediaUnderstandingResult): string {
       return 'Reading the footage was cancelled.';
     case 'timeout':
       return 'Reading the footage timed out before it finished. Try again.';
-    default:
-      return `Reading the footage didn’t finish: ${result.message}`;
+    case 'media_rejected':
+      return ALREADY_SAYS_EXPORT.test(message) ? message : `${message} ${MEDIA_REJECTED_NEXT_STEP}`;
+    case 'not_indexed':
+    case 'provider_unavailable':
+    case 'unknown':
+      return message;
+    default: {
+      const unhandled: never = reason;
+      return unhandled;
+    }
   }
+}
+
+/** One failed asset, ready to render: who it is and why, in editor language. */
+interface FailedClip {
+  readonly assetId: string;
+  readonly label: string;
+  readonly why: string;
 }
 
 /** `m:ss` for a source/timeline second, so spans read like a video scrubber. */
@@ -493,6 +527,20 @@ function ChapterSpine({
   );
 }
 
+/**
+ * The assets whose last read failed. A status read that fails, or an engine that predates
+ * `failures`, yields none — the panel then behaves exactly as it did without this.
+ */
+async function readLastFailures(project: Project): Promise<readonly VisualAssetFailure[]> {
+  try {
+    const status = await fetchVisualStatus({ project });
+    return status?.failures ?? [];
+  } catch (error) {
+    log.warn('understanding → status read failed', { error: String(error) });
+    return [];
+  }
+}
+
 export function FootageUnderstandingPanel({
   editor,
   project,
@@ -501,6 +549,9 @@ export function FootageUnderstandingPanel({
 }: FootageUnderstandingPanelProps): JSX.Element | null {
   const { config } = useAiConfig();
   const [view, setView] = useState<ViewState>({ kind: 'loading' });
+  // Each asset's last failed read, from the engine's status. Empty is the normal case,
+  // and also what an unreachable status read or an engine that predates it leaves here.
+  const [failures, setFailures] = useState<readonly VisualAssetFailure[]>([]);
   const reveal = useRevealVariants();
   // The teaching deck shows for a first-time editor and stays hidden once dismissed;
   // the header's guide toggle brings it back on demand.
@@ -524,12 +575,17 @@ export function FootageUnderstandingPanel({
   const load = useCallback(
     async (refresh: boolean): Promise<void> => {
       setView({ kind: 'loading' });
-      const map = await fetchFootageMap({
-        project: assetProject,
-        config,
-        refresh,
-        assetTime: true,
-      });
+      // Read together, once per open/refresh — never per render.
+      const [map, lastFailures] = await Promise.all([
+        fetchFootageMap({
+          project: assetProject,
+          config,
+          refresh,
+          assetTime: true,
+        }),
+        readLastFailures(assetProject),
+      ]);
+      setFailures(lastFailures);
       if (map === undefined) {
         log.warn('understanding → engine unreachable');
         setView({ kind: 'unreachable' });
@@ -564,7 +620,7 @@ export function FootageUnderstandingPanel({
     });
     if (result.status !== 'ready') {
       log.warn('understanding → read failed', { reason: result.reason });
-      setView({ kind: 'blocked', message: unreadableMessage(result) });
+      setView({ kind: 'blocked', message: failureCopy(result) });
       return;
     }
     await load(false);
@@ -608,6 +664,21 @@ export function FootageUnderstandingPanel({
 
   const map = view.kind === 'map' ? view.map : undefined;
   const hasChapters = map !== undefined && map.chapters.length > 0;
+  // A failure is shown only where it explains an empty map; a map with chapters already
+  // answers the question the panel is for.
+  const failedClips = useMemo<readonly FailedClip[]>(
+    () =>
+      failures.map((failure) => ({
+        assetId: failure.assetId,
+        label: assetLabel(failure.assetId),
+        why: failureCopy(classifyUnderstandingReason(failure.reason)),
+      })),
+    [failures, assetLabel],
+  );
+  const showFailures = map !== undefined && !hasChapters && failedClips.length > 0;
+  // The header action reads the footage whenever that is the next step: nothing read yet,
+  // or the last read failed. Otherwise it re-reads an existing map.
+  const offerRead = needsRead || showFailures;
   const distinctAssets = useMemo(
     () => (map ? new Set(map.chapters.map((c) => c.assetId ?? '—')).size : 0),
     [map],
@@ -657,7 +728,7 @@ export function FootageUnderstandingPanel({
             )}
             <Tooltip
               label={
-                needsRead
+                offerRead
                   ? 'Read this footage and build the map'
                   : 'Rebuild map (re-reads the footage)'
               }
@@ -669,7 +740,7 @@ export function FootageUnderstandingPanel({
                 type="button"
                 aria-label="Rebuild the footage map"
                 disabled={busy}
-                onClick={() => void (needsRead ? prepare() : load(true))}
+                onClick={() => void (offerRead ? prepare() : load(true))}
               >
                 <RotateCcw size={ICON_SIZE.sm} aria-hidden="true" />
               </Button>
@@ -725,7 +796,30 @@ export function FootageUnderstandingPanel({
               </Button>
             </div>
           )}
-          {map !== undefined && !hasChapters && (
+          {showFailures && (
+            <div className="understanding-empty" role="status">
+              <AlertTriangle size={20} aria-hidden="true" className="understanding-empty-icon" />
+              <p className="understanding-empty-text">
+                {failedClips.length === 1
+                  ? 'The last try to read this footage didn’t work.'
+                  : `The last try couldn’t read ${failedClips.length} clips.`}
+              </p>
+              <ul className="understanding-failures">
+                {failedClips.map((clip) => (
+                  <li key={clip.assetId} className="understanding-failure">
+                    <span className="understanding-failure-name" title={clip.label}>
+                      {clip.label}
+                    </span>
+                    <span className="understanding-failure-reason">{clip.why}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="secondary" type="button" onClick={() => void prepare()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {map !== undefined && !hasChapters && !showFailures && (
             <div className="understanding-empty" role="status">
               <MapIcon size={20} aria-hidden="true" className="understanding-empty-icon" />
               <p className="understanding-empty-text">{coverageMessage(map)}</p>

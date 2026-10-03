@@ -14,7 +14,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+import respx
 from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
@@ -25,6 +27,7 @@ from framepilot_engine.brain.ledger_models import ShotRecord
 from framepilot_engine.brain.models import VisualCaptionRow, VisualSpanRow
 from framepilot_engine.brain.store import BrainStore, open_brain
 from framepilot_engine.brain.twelvelabs import (
+    DEFAULT_BASE_URL,
     TaskStatus,
     TLChapter,
     TLClip,
@@ -32,11 +35,17 @@ from framepilot_engine.brain.twelvelabs import (
     TLHighlight,
     TLWord,
     TwelveLabsAuthError,
+    TwelveLabsClient,
     TwelveLabsClientResolution,
+    TwelveLabsIndexInaccessibleError,
+    TwelveLabsMediaRejectedError,
     TwelveLabsPegasusUnavailableError,
+    key_fingerprint,
 )
 from framepilot_engine.brain.twelvelabs_index import (
     TL_DESCRIBED_MODEL,
+    read_index_id,
+    read_video_mapping,
     store_index_id,
     store_video_mapping,
 )
@@ -74,6 +83,8 @@ class _FakeTL:
         gist: str = "",
         auth_fail: bool = False,
         pegasus_unavailable: bool = False,
+        reject: set[str] | None = None,
+        inaccessible: bool = False,
     ) -> None:
         self.clips = clips or []
         self.words = words or []
@@ -83,6 +94,12 @@ class _FakeTL:
         self.auth_fail = auth_fail
         self.pegasus_unavailable = pegasus_unavailable
         self.source_lookups = 0
+        #: File names TwelveLabs refuses for what they are (e.g. too long).
+        self.reject = reject or set()
+        self.uploads: list[str] = []
+        #: The saved index is another account's (the key was switched).
+        self.inaccessible = inaccessible
+        self.searches = 0
 
     def get_transcription(self, index_id: str, video_id: str) -> list[TLWord]:
         if self.auth_fail:
@@ -92,6 +109,8 @@ class _FakeTL:
     def _pegasus_guard(self) -> None:
         if self.auth_fail:
             raise TwelveLabsAuthError("bad key")
+        if self.inaccessible:
+            raise TwelveLabsIndexInaccessibleError("another account's index")
         if self.pegasus_unavailable:
             raise TwelveLabsPegasusUnavailableError("no entitlement")
 
@@ -112,12 +131,26 @@ class _FakeTL:
         self.source_lookups += 1
         return f"upload-{video_id}"
 
+    #: The real client derives this from its key; a fixed value is one stable "account".
+    key_fingerprint = "fp-current"
+
+    def index_accessible(self, index_id: str) -> bool:
+        return True
+
+    def find_index(self, name: str) -> str | None:
+        return None
+
     def create_index(self, name: str) -> str:
         if self.auth_fail:
             raise TwelveLabsAuthError("bad key")
         return "idx-1"
 
     def create_index_task(self, index_id: str, media_path: Path) -> str:
+        self.uploads.append(media_path.name)
+        if media_path.name in self.reject:
+            raise TwelveLabsMediaRejectedError(
+                _rejection_reason(media_path.name), code="video_duration_too_long"
+            )
         return "task-1"
 
     def get_task(self, task_id: str) -> TaskStatus:
@@ -126,9 +159,16 @@ class _FakeTL:
     def search(
         self, index_id: str, query: str, *, options: Any = None, page_limit: int = 10
     ) -> list[TLClip]:
+        self.searches += 1
         if self.auth_fail:
             raise TwelveLabsAuthError("bad key")
+        if self.inaccessible:
+            raise TwelveLabsIndexInaccessibleError("another account's index")
         return self.clips
+
+
+def _rejection_reason(file_name: str) -> str:
+    return f"TwelveLabs can't index {file_name}: the video is too long."
 
 
 def _client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fake: _FakeTL | None) -> TestClient:
@@ -195,6 +235,90 @@ def test_index_auth_failure_is_honest(tmp_path: Path, monkeypatch: pytest.Monkey
     client = _client(tmp_path, monkeypatch, _FakeTL(auth_fail=True))
     body = client.post("/brain/visual/index", json={"projectId": "p1"}).json()
     assert body["available"] is True and body["reason"] == "invalid_api_key"
+
+
+# --- files TwelveLabs refuses for what they are ----------------------------------
+
+
+def _seed_videos(root: Path, names: list[str]) -> None:
+    with open_brain(root, "p1") as store:
+        for index, name in enumerate(names):
+            (root / name).write_bytes(b"\x00\x00fake\x00\x00")
+            store.upsert_asset(
+                f"vid{index}", path=name, content_sha256=f"sha-{index}", probe=_video_probe()
+            )
+
+
+def _index_job(client: TestClient, *, max_slices: int = 20) -> dict[str, Any]:
+    """Drive one paced job the way the desktop loop does; return the last slice."""
+    body: dict[str, Any] = {"projectId": "p1", "maxAssets": 2, "tiers": ["labelled"]}
+    last: dict[str, Any] = {}
+    for _ in range(max_slices):
+        last = client.post("/brain/visual/index", json=body).json()
+        if not last["available"] or last["done"] or last.get("reason"):
+            return last
+        body["jobId"] = last["jobId"]
+    return last
+
+
+def test_rejected_file_reports_why_and_is_never_uploaded_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_videos(tmp_path, ["ro.mp4"])
+    fake = _FakeTL(reject={"ro.mp4"})
+    client = _client(tmp_path, monkeypatch, fake)
+
+    first = _index_job(client)
+    # The desktop shows `reason` verbatim: it must be the sentence, not "HTTP 400".
+    assert first["done"] is False
+    assert first["reason"] == _rejection_reason("ro.mp4")
+    assert first["items"][0]["reason"] == _rejection_reason("ro.mp4")
+    assert first["failed"] == 1
+
+    # The reported defect: the next job uploaded the same 1 GB again, 6 ms later.
+    second = _index_job(client)
+    assert second["reason"] == _rejection_reason("ro.mp4")
+    assert fake.uploads == ["ro.mp4"]
+
+
+def test_a_project_of_rejected_files_is_not_a_broken_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Five oversized clips must each be tried, not stop the run as "a bad index"."""
+    names = [f"clip{i}.mp4" for i in range(5)]
+    _seed_videos(tmp_path, names)
+    fake = _FakeTL(reject=set(names))
+    client = _client(tmp_path, monkeypatch, fake)
+
+    last = _index_job(client)
+
+    assert len(names) > service_module.TL_CONSECUTIVE_FAILURE_LIMIT + 1
+    assert sorted(fake.uploads) == names  # every file tried exactly once
+    assert last["cursor"] == len(names)
+    # A job that indexed nothing still never ends `done`, and says why.
+    assert last["done"] is False
+    assert last["reason"] == _rejection_reason("clip4.mp4")
+
+
+def test_a_rejected_file_does_not_stop_the_footage_behind_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_videos(tmp_path, ["huge.mp4", "a.mp4", "b.mp4"])
+    fake = _FakeTL(reject={"huge.mp4"})
+    client = _client(tmp_path, monkeypatch, fake)
+
+    last = _index_job(client)
+
+    assert last["done"] is True, last
+    assert last["reason"] is None
+    assert sorted(fake.uploads) == ["a.mp4", "b.mp4", "huge.mp4"]
+    with open_brain(tmp_path, "p1") as store:
+        statuses = {
+            asset_id: mapping.status
+            for asset_id in ("vid0", "vid1", "vid2")
+            if (mapping := read_video_mapping(store, asset_id)) is not None
+        }
+    assert statuses == {"vid0": "rejected", "vid1": "ready", "vid2": "ready"}
 
 
 def test_index_unavailable_without_projects_root(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -363,6 +487,143 @@ def test_search_auth_failure_is_honest(tmp_path: Path, monkeypatch: pytest.Monke
     client = _client(tmp_path, monkeypatch, _FakeTL(auth_fail=True))
     body = client.post("/brain/visual/search", json={"projectId": "p1", "query": "x"}).json()
     assert body["available"] is True and body["reason"] == "invalid_api_key"
+
+
+# --- the saved index belongs to another account (the key was switched) ------------
+
+
+def test_search_on_another_keys_index_is_not_indexed_without_a_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_asset(tmp_path, tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-old", key_fingerprint="fp-previous-account")
+    fake = _FakeTL()
+    client = _client(tmp_path, monkeypatch, fake)
+    body = client.post("/brain/visual/search", json={"projectId": "p1", "query": "x"}).json()
+    assert body["available"] is True and body["reason"] == "not_indexed"
+    assert fake.searches == 0
+
+
+def test_search_on_an_unreadable_index_is_not_indexed_not_a_bad_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_asset(tmp_path, tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store_index_id(store, "idx-old")  # legacy: no fingerprint, so the call is made
+    client = _client(tmp_path, monkeypatch, _FakeTL(inaccessible=True))
+    body = client.post("/brain/visual/search", json={"projectId": "p1", "query": "x"}).json()
+    assert body["available"] is True and body["reason"] == "not_indexed"
+
+
+def test_footage_map_on_an_unreadable_index_is_not_indexed_not_a_bad_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_ready_mapping(tmp_path)
+    client = _client(tmp_path, monkeypatch, _FakeTL(inaccessible=True))
+    body = _footage_map(client)
+    assert body["available"] is True and body["reason"] == "not_indexed"
+
+
+TL_KEY = "tl-key"
+OLD_INDEX = "6abffe6e15f501e4cc931e99"
+NEW_INDEX = "6ac003925babcc57e15d6e97"
+UPLOAD = "6ac008cf59655cfa9de0622d"
+INDEXED = "6ac0aaaa0000000000000001"
+NOT_READABLE = {
+    "code": "read_not_allowed",
+    "message": f"The caller is not authorized to read entity {OLD_INDEX}.",
+}
+
+
+def _tl_url(path: str) -> str:
+    return f"{DEFAULT_BASE_URL}{path}"
+
+
+def _real_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    """The route over the REAL TwelveLabs client, every request answered by respx."""
+    real = TwelveLabsClient(TL_KEY, http=httpx.Client())
+    monkeypatch.setattr(
+        service_module,
+        "resolve_twelvelabs",
+        lambda key=None: TwelveLabsClientResolution(client=real),
+    )
+    return TestClient(create_app(Settings(projects_root=tmp_path, twelvelabs_api_key=TL_KEY)))
+
+
+def _mock_new_account_attach() -> tuple[respx.Route, respx.Route]:
+    """The new account: no index of ours yet, the earlier upload readable and ready."""
+    respx.get(_tl_url("/indexes")).respond(200, json={"data": [], "page_info": {}})
+    create = respx.post(_tl_url("/indexes")).respond(201, json={"_id": NEW_INDEX})
+    respx.get(_tl_url(f"/assets/{UPLOAD}")).respond(
+        200, json={"_id": UPLOAD, "method": "multipart", "status": "ready"}
+    )
+    attach = respx.post(_tl_url(f"/indexes/{NEW_INDEX}/indexed-assets")).respond(
+        201, json={"_id": INDEXED, "asset_id": UPLOAD}
+    )
+    respx.get(_tl_url(f"/indexes/{NEW_INDEX}/indexed-assets/{INDEXED}")).respond(
+        200, json={"_id": INDEXED, "asset_id": UPLOAD, "status": "ready"}
+    )
+    return create, attach
+
+
+def _seed_uploaded_into_old_index(root: Path, *, fingerprint: str | None) -> None:
+    """The maintainer's project: 1 GB uploaded, token naming the old account's index."""
+    _seed_videos(root, ["ro.mp4"])
+    with open_brain(root, "p1") as store:
+        store_index_id(store, OLD_INDEX, key_fingerprint=fingerprint)
+        store_video_mapping(
+            store,
+            "vid0",
+            content_hash="sha-0",
+            status="indexing",
+            task_id=f"asset-v1:{OLD_INDEX}:{UPLOAD}",
+        )
+
+
+@respx.mock  # every unmocked request (an upload, say) fails the test
+def test_legacy_index_of_another_account_is_rebound_and_the_upload_re_attached(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_uploaded_into_old_index(tmp_path, fingerprint=None)
+    check = respx.get(_tl_url(f"/indexes/{OLD_INDEX}")).respond(403, json=NOT_READABLE)
+    create, attach = _mock_new_account_attach()
+    # Any upload would be unmocked and fail the test; these make the intent explicit.
+    direct = respx.post(_tl_url("/assets"))
+    multipart = respx.post(_tl_url("/assets/multipart-uploads"))
+
+    body = _index_job(_real_client(tmp_path, monkeypatch))
+
+    assert body["done"] is True, body
+    assert body["reason"] is None
+    assert body["indexed"] == 1
+    assert check.call_count == 1 and create.call_count == 1  # one rebind
+    assert UPLOAD.encode() in attach.calls[0].request.content
+    assert not direct.called and not multipart.called
+    with open_brain(tmp_path, "p1") as store:
+        assert read_index_id(store) == NEW_INDEX
+        mapping = read_video_mapping(store, "vid0")
+    assert mapping is not None and mapping.ready_in(NEW_INDEX)
+
+
+@respx.mock  # every unmocked request (an upload, say) fails the test
+def test_index_that_stops_answering_mid_run_is_rebound_on_the_next_slice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fingerprint-matched index that refuses the attach is re-checked, never 'bad key'."""
+    _seed_uploaded_into_old_index(tmp_path, fingerprint=key_fingerprint(TL_KEY))
+    old_attach = respx.post(_tl_url(f"/indexes/{OLD_INDEX}/indexed-assets")).respond(
+        403, json=NOT_READABLE
+    )
+    check = respx.get(_tl_url(f"/indexes/{OLD_INDEX}")).respond(403, json=NOT_READABLE)
+    create, attach = _mock_new_account_attach()
+
+    body = _index_job(_real_client(tmp_path, monkeypatch))
+
+    assert body["done"] is True, body
+    assert body["reason"] is None  # never invalid_api_key
+    assert old_attach.call_count == 1 and check.call_count == 1 and create.call_count == 1
+    assert attach.call_count == 1
 
 
 # --- describe --------------------------------------------------------------------

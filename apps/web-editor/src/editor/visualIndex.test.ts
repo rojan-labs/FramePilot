@@ -12,6 +12,7 @@ import { VisualIndexClient } from '@framepilot/ai-sdk';
 import {
   ensureProjectMediaUnderstanding,
   fetchFootageMap,
+  fetchVisualStatus,
   nvidiaEmbeddingsKeys,
   twelveLabsKey,
   understandingCredentials,
@@ -91,6 +92,14 @@ describe('the browser build, which has no sidecar', () => {
   it('resolves the footage map to undefined rather than rejecting', async () => {
     await expect(
       fetchFootageMap({ project: project(), config: config(), client: offlineClient() }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('resolves the status (and its failures) to undefined rather than rejecting', async () => {
+    // The understanding panel reads failures from here on every open; with no sidecar it
+    // must get "nothing to say", never a thrown error that blanks the panel.
+    await expect(
+      fetchVisualStatus({ project: project(), client: offlineClient() }),
     ).resolves.toBeUndefined();
   });
 });

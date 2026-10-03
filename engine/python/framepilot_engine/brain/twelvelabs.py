@@ -30,17 +30,43 @@ Design rules mirror :mod:`framepilot_engine.brain.visual_embed`:
 - **Honest failures.** An SDK :class:`~twelvelabs.core.api_error.ApiError` or a
   transport error is translated to a typed :class:`TwelveLabsError`
   (401/403 → :class:`TwelveLabsAuthError`; a generate call against a Marengo-only
-  index → :class:`TwelveLabsIndexNotGenerativeError`); the routes translate that
+  index → :class:`TwelveLabsIndexNotGenerativeError`; a file TwelveLabs refuses
+  for what it IS → :class:`TwelveLabsMediaRejectedError`; a valid key reading an
+  index another account owns → :class:`TwelveLabsIndexInaccessibleError`, never an
+  auth error); the routes translate that
   into an ``available=True`` response carrying a typed ``reason``, never a
   fabricated result. TwelveLabs never fabricates a video the user did not upload.
 - **Secrets stay out of logs.** Only HTTP status codes, index/video/task ids, and
-  result counts are logged; never the API key or media bytes.
+  result counts are logged; never the API key, media bytes, or a presigned chunk
+  URL (those are bearer credentials for the upload).
+
+Uploading local media — WHY two paths and a pre-flight:
+
+- ``POST /assets`` (``method="direct"``) takes local video/audio only **up to
+  200 MB** (SDK ``assets.create`` docs). A bigger file streams in full and is then
+  refused with HTTP 400 ``video_filesize_too_large``: a 1 GB camera clip burned
+  ~200 s of upload that way, then the next job uploaded it again.
+- Local **video** up to **10 GB** goes through the **multipart upload** API
+  (SDK ``multipart_upload`` docs). We drive its low-level calls ourselves rather
+  than the SDK's ``upload_file`` helper, which writes chunk copies into a
+  ``<stem>_chunks/`` folder beside the media — i.e. into the user's footage
+  folder — and PUTs through the global ``httpx.put``, bypassing the injected
+  client (so neither our timeouts nor the wire-level tests would apply).
+- A file over 10 GB, or audio over 200 MB (multipart is video-only), is refused
+  **before a byte is sent** with :class:`TwelveLabsMediaRejectedError`.
+
+A rejection that is a property of the FILE (size, length, resolution, format —
+:class:`TwelveLabsMediaRejectedError`) is permanent for those bytes, unlike a
+rate limit or an outage; the caller remembers it so it is never re-uploaded
+(:data:`TL_UPLOAD_POLICY_VERSION`).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import math
 import mimetypes
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -50,7 +76,13 @@ from pathlib import Path
 from typing import Any, ClassVar, NoReturn
 
 import httpx
-from twelvelabs import IndexesCreateRequestModelsItem, SyncResponseFormat
+from twelvelabs import (
+    CompletedChunk,
+    IndexesCreateRequestModelsItem,
+    PresignedUrlChunk,
+    ReportChunkBatchResponse,
+    SyncResponseFormat,
+)
 from twelvelabs import TwelveLabs as _TwelveLabsSDK
 from twelvelabs.core.api_error import ApiError
 from twelvelabs.core.request_options import RequestOptions
@@ -66,21 +98,33 @@ __all__ = [
     "DEFAULT_SEARCH_OPTIONS",
     "DEFAULT_TIMEOUT_SECONDS",
     "DEFAULT_TRANSCRIPTION_OPTIONS",
+    "DIRECT_UPLOAD_MAX_BYTES",
+    "MULTIPART_UPLOAD_MAX_BYTES",
     "NO_API_KEY_REASON",
     "PEGASUS_UNAVAILABLE_REASON",
+    "PREFLIGHT_AUDIO_TOO_LARGE_CODE",
+    "PREFLIGHT_FILE_TOO_LARGE_CODE",
+    "TL_UPLOAD_POLICY_VERSION",
     "TLChapter",
     "TLClip",
     "TLGist",
     "TLHighlight",
     "TLWord",
     "TaskStatus",
+    "TwelveLabsAssetInaccessibleError",
     "TwelveLabsAuthError",
     "TwelveLabsClient",
     "TwelveLabsClientResolution",
     "TwelveLabsError",
+    "TwelveLabsIndexInaccessibleError",
     "TwelveLabsIndexNotGenerativeError",
+    "TwelveLabsMediaRejectedError",
     "TwelveLabsPegasusUnavailableError",
+    "asset_task_token",
+    "key_fingerprint",
     "resolve_twelvelabs",
+    "task_token_index",
+    "task_token_uploaded_asset",
 ]
 
 #: TwelveLabs REST base (API version 1.3).
@@ -135,6 +179,66 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 #: a genuinely hung connection so the paced slice can never block forever.
 DEFAULT_UPLOAD_TIMEOUT_SECONDS = 900.0
 
+#: Largest local video/audio file ``POST /assets`` (``method="direct"``) accepts.
+#: WHY: the SDK's ``assets.create`` docs (twelvelabs 1.2.9) cap "Video and audio,
+#: local files" at 200 MB. Anything bigger is streamed in full and only THEN refused
+#: (HTTP 400 ``video_filesize_too_large``), so it must take the multipart path. Decimal
+#: megabytes on purpose: if TwelveLabs means 200 MiB, the files in between still upload
+#: fine through multipart; the other reading would send a few too-big files direct.
+DIRECT_UPLOAD_MAX_BYTES = 200 * 1000 * 1000
+
+#: Largest local video the multipart upload API accepts. WHY: the SDK's
+#: ``multipart_upload.create`` docs: "Local video files up to 10 GB" (Pegasus 1.5 takes
+#: the same ceiling). A bigger file is refused before a single byte is sent. Decimal for
+#: the same conservative reason as :data:`DIRECT_UPLOAD_MAX_BYTES`.
+MULTIPART_UPLOAD_MAX_BYTES = 10 * 1000 * 1000 * 1000
+
+#: How FramePilot sends bytes to TwelveLabs. Persisted next to a remembered rejection so
+#: that a CHANGE to the upload path re-tries bytes an older path was refused for. Bump it
+#: whenever the upload logic below changes what TwelveLabs can accept. v1 sent every file
+#: direct (and was refused for anything over 200 MB); v2 adds multipart up to 10 GB.
+TL_UPLOAD_POLICY_VERSION = 2
+
+#: FramePilot's own machine codes for a pre-flight refusal (no request was made), in
+#: the same ``snake_case`` style as TwelveLabs' codes so callers read one vocabulary.
+PREFLIGHT_FILE_TOO_LARGE_CODE = "file_too_large"
+PREFLIGHT_AUDIO_TOO_LARGE_CODE = "audio_file_too_large"
+
+#: Attempts per multipart chunk PUT before the upload gives up. A presigned PUT to
+#: object storage fails transiently now and then (a reset connection, a 503); three
+#: tries ride that out, while a chunk that keeps failing is a real outage the caller
+#: should hear about rather than a loop that re-sends a gigabyte forever.
+_CHUNK_PUT_ATTEMPTS = 3
+#: First retry delay for a failed chunk; doubled on each further attempt (2 s, 4 s).
+_CHUNK_RETRY_BACKOFF_SECONDS = 2.0
+#: Chunks reported to TwelveLabs per ``report_chunk_batch`` call. The API asks for
+#: batched reports; reporting as we go (not all at the end) keeps the session's
+#: server-side progress real if the upload is interrupted.
+_CHUNK_REPORT_BATCH = 10
+#: Most presigned URLs one ``get_additional_presigned_urls`` call may return (API cap).
+_PRESIGNED_URL_BATCH_MAX = 50
+#: Log a progress line every this many chunks, so a 10-minute upload is visibly alive.
+_CHUNK_PROGRESS_LOG_EVERY = 10
+#: Content type for a raw multipart chunk PUT (what object storage expects).
+_CHUNK_CONTENT_TYPE = "application/octet-stream"
+
+#: The machine code TwelveLabs answers when the key is valid but the entity (an index,
+#: an uploaded asset) belongs to ANOTHER account or no longer exists for this one:
+#: ``403 {"code":"read_not_allowed","message":"The caller is not authorized to read
+#: entity <id>."}`` — observed live after a project's key was switched to a different
+#: account. It is about the ENTITY, never the key, so it must not read as a bad key.
+_ENTITY_NOT_READABLE_CODE = "read_not_allowed"
+#: Statuses on which :data:`_ENTITY_NOT_READABLE_CODE` is honoured.
+_ENTITY_NOT_READABLE_STATUSES = frozenset({403, 404})
+
+#: Domain separator for :func:`key_fingerprint`, so the digest is useless for anything
+#: but recognising "the same key as before" (and a version, should the scheme change).
+_KEY_FINGERPRINT_DOMAIN = b"framepilot:twelvelabs-key-fingerprint:v1\x00"
+#: Hex characters kept: 64 bits tells keys apart and is not a usable hash of the key.
+_KEY_FINGERPRINT_HEX_CHARS = 16
+#: How many indexes one name lookup reads (first page only; the name filter keeps it small).
+_INDEX_LOOKUP_PAGE_LIMIT = 50
+
 #: Typed reason when no key is configured (mirrors ``visual_embed.NO_API_KEY_REASON``).
 NO_API_KEY_REASON = "no_api_key"
 
@@ -186,6 +290,56 @@ class TwelveLabsIndexNotGenerativeError(TwelveLabsError):
     """
 
 
+class TwelveLabsIndexInaccessibleError(TwelveLabsError):
+    """The key is fine, but the index (or entity) it names is not this account's.
+
+    TwelveLabs answers ``read_not_allowed`` (HTTP 403) when a project's saved index was
+    created under a DIFFERENT TwelveLabs account — the user switched keys — or is gone.
+    Before this type it was read as a rejected key, so a user whose key worked was told
+    to fix it, forever. The index route answers it by binding the project to an index
+    of the current account; read-only routes report the project as not indexed yet.
+    """
+
+
+class TwelveLabsAssetInaccessibleError(TwelveLabsError):
+    """An UPLOADED asset this account cannot read (another account's upload).
+
+    Raised only by :meth:`TwelveLabsClient.get_task` when reading the uploaded asset
+    itself fails with ``read_not_allowed`` — distinct from the index being unreadable,
+    so a caller re-attaching an earlier upload to a new index knows to upload the file
+    again rather than to rebind the index.
+    """
+
+
+class TwelveLabsMediaRejectedError(TwelveLabsError):
+    """TwelveLabs will not take THIS file as it is (size, length, resolution, format).
+
+    Distinct from every other failure because it is **permanent for these bytes**:
+    a rate limit, an outage, or a bad key can clear on retry, but a 12 GB file or a
+    video TwelveLabs judges too long never will. The caller persists it and stops
+    re-uploading the same bytes (``twelvelabs_index.poll_index_asset``), and it is a
+    property of the file — never evidence that the index or account is broken.
+
+    ``str(exc)`` is written for a video editor ("ro.mp4 is 12.3 GB; TwelveLabs accepts
+    files up to 10 GB…"), not "HTTP 400"; the machine ``code`` (TwelveLabs' own, e.g.
+    ``video_filesize_too_large``, or a FramePilot pre-flight code) stays available.
+    """
+
+    def __init__(self, message: str, *, code: str, http_status: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        #: The HTTP status TwelveLabs answered with; ``None`` for a pre-flight refusal.
+        self.http_status = http_status
+
+    def naming(self, file_name: str) -> TwelveLabsMediaRejectedError:
+        """The same rejection, re-worded to name the file (the API error cannot)."""
+        return TwelveLabsMediaRejectedError(
+            _media_rejection_message(self.code, self.http_status, file_name),
+            code=self.code,
+            http_status=self.http_status,
+        )
+
+
 @dataclass(frozen=True)
 class TaskStatus:
     """State of one media-indexing operation.
@@ -219,6 +373,41 @@ class TaskStatus:
     def done(self) -> bool:
         """True when polling should stop (ready or failed)."""
         return self.ready or self.failed
+
+
+def key_fingerprint(api_key: str) -> str:
+    """A short, non-reversible tag that recognises the same TwelveLabs key again.
+
+    Stored next to a project's index id so a CHANGED key (often a different account,
+    whose indexes the new key cannot read) is noticed before any call fails. Never the
+    key, never reversible: a domain-separated SHA-256, truncated.
+    """
+    digest = hashlib.sha256(_KEY_FINGERPRINT_DOMAIN + api_key.strip().encode("utf-8"))
+    return digest.hexdigest()[:_KEY_FINGERPRINT_HEX_CHARS]
+
+
+def asset_task_token(index_id: str, asset_id: str) -> str:
+    """The resumable token that attaches uploaded ``asset_id`` to ``index_id``.
+
+    :meth:`TwelveLabsClient.get_task` waits for the asset to be ready, then attaches it
+    — so re-tokening an EARLIER upload for a new index re-attaches it without uploading
+    the file again.
+    """
+    return _task_token(_ASSET_TASK_PREFIX, index_id, asset_id)
+
+
+def task_token_index(task_id: str | None) -> str | None:
+    """The index a FramePilot task token belongs to, or ``None`` (legacy/unknown)."""
+    token = _parse_task_token(task_id) if task_id else None
+    return token[1] if token is not None else None
+
+
+def task_token_uploaded_asset(task_id: str | None) -> str | None:
+    """The uploaded-asset id an ``asset-v1`` token carries, or ``None``."""
+    token = _parse_task_token(task_id) if task_id else None
+    if token is None or token[0] != _ASSET_TASK_PREFIX:
+        return None
+    return token[2]
 
 
 def _task_token(kind: str, index_id: str, remote_id: str) -> str:
@@ -351,10 +540,23 @@ class TwelveLabsClient:
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         upload_timeout: float = DEFAULT_UPLOAD_TIMEOUT_SECONDS,
         sdk: _TwelveLabsSDK | None = None,
+        direct_upload_max_bytes: int = DIRECT_UPLOAD_MAX_BYTES,
+        max_upload_bytes: int = MULTIPART_UPLOAD_MAX_BYTES,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._model_name = model_name
+        self._key_fingerprint = key_fingerprint(api_key)
         self._timeout = timeout
         self._upload_timeout = upload_timeout
+        # The size limits are parameters (defaulting to TwelveLabs' documented ones) so
+        # the multipart path is testable with a few bytes instead of a 200 MB fixture;
+        # ``sleep`` is the chunk-retry backoff, injectable so retries cost no wall clock.
+        self._direct_upload_max_bytes = direct_upload_max_bytes
+        self._max_upload_bytes = max_upload_bytes
+        self._sleep = sleep
+        # Multipart chunks are PUT to presigned object-storage URLs outside the SDK, and
+        # must go through this same injected client so timeouts and ``respx`` apply.
+        self._http = http
         # ``sdk`` is an injection seam for tests that want to stub the SDK directly;
         # production always builds one over the injected httpx client so ``respx``
         # intercepts every call at the wire level. The SDK sends ``x-api-key`` and
@@ -365,6 +567,11 @@ class TwelveLabsClient:
             timeout=timeout,
             httpx_client=http,
         )
+
+    @property
+    def key_fingerprint(self) -> str:
+        """:func:`key_fingerprint` of this client's key (safe to store and to log)."""
+        return self._key_fingerprint
 
     # -- error translation ------------------------------------------------------
 
@@ -420,6 +627,33 @@ class TwelveLabsClient:
         _log.info("ACT twelvelabs index created: %s", index_id)
         return index_id
 
+    def index_accessible(self, index_id: str) -> bool:
+        """Whether this key can read ``index_id`` (False: another account's, or gone).
+
+        :raises TwelveLabsError: On any other failure (a rejected key stays an auth error).
+        """
+        try:
+            with self._translate_errors():
+                self._sdk.indexes.retrieve(index_id)
+        except TwelveLabsIndexInaccessibleError:
+            return False
+        return True
+
+    def find_index(self, name: str) -> str | None:
+        """The id of this account's index called exactly ``name``, or ``None``.
+
+        Lets a project that switches back to an earlier account reuse the index it
+        already has there (and every asset indexed in it) instead of making another.
+
+        :raises TwelveLabsError: On any API/transport failure.
+        """
+        with self._translate_errors():
+            page = self._sdk.indexes.list(index_name=name, page_limit=_INDEX_LOOKUP_PAGE_LIMIT)
+        for index in page.items or []:
+            if index.index_name == name and isinstance(index.id, str) and index.id:
+                return index.id
+        return None
+
     # -- indexing tasks ---------------------------------------------------------
 
     def create_index_task(self, index_id: str, media_path: Path) -> str:
@@ -431,17 +665,78 @@ class TwelveLabsClient:
         audio and video; :meth:`get_task` attaches the ready upload to the index
         and then polls that indexed asset without blocking a request thread.
 
-        :raises TwelveLabsError: On any API/transport failure.
+        The upload path is chosen by size (see the module docstring): up to
+        :data:`DIRECT_UPLOAD_MAX_BYTES` goes direct; larger video goes multipart; a file
+        TwelveLabs could never take is refused before anything is sent.
+
+        :raises TwelveLabsMediaRejectedError: The file can't be indexed as it is (too
+            big, too long, unsupported) — permanent for these bytes.
+        :raises TwelveLabsError: On any other API/transport failure.
         """
         size_bytes = media_path.stat().st_size if media_path.exists() else -1
+        media_type = mimetypes.guess_type(media_path.name)[0] or "application/octet-stream"
+        self._preflight(media_path.name, size_bytes, media_type)
+        multipart = size_bytes > self._direct_upload_max_bytes
         _log.info(
-            "ACT twelvelabs upload start: index=%s file=%s size=%.1fMB",
+            "ACT twelvelabs upload start: index=%s file=%s size=%.1fMB method=%s",
             index_id,
             media_path.name,
             size_bytes / (1024 * 1024) if size_bytes >= 0 else -1.0,
+            "multipart" if multipart else "direct",
         )
         started = time.monotonic()
-        media_type = mimetypes.guess_type(media_path.name)[0] or "application/octet-stream"
+        try:
+            asset_id = (
+                self._upload_multipart(media_path, size_bytes)
+                if multipart
+                else self._upload_direct(media_path, media_type)
+            )
+        except TwelveLabsMediaRejectedError as exc:
+            raise exc.naming(media_path.name) from exc
+        task_id = _task_token(_ASSET_TASK_PREFIX, index_id, asset_id)
+        _log.info(
+            "ACT twelvelabs upload done: asset=%s index=%s in %.1fs",
+            asset_id,
+            index_id,
+            time.monotonic() - started,
+        )
+        return task_id
+
+    def _preflight(self, file_name: str, size_bytes: int, media_type: str) -> None:
+        """Refuse a file TwelveLabs could never accept, before a single byte is sent.
+
+        :raises TwelveLabsMediaRejectedError: Over the multipart ceiling, or audio too
+            big for the direct path (multipart upload is video-only per the SDK docs).
+        """
+        if size_bytes > self._max_upload_bytes:
+            _log.warning(
+                "twelvelabs ✗ pre-flight: file=%s size=%d over the %d-byte upload limit",
+                file_name,
+                size_bytes,
+                self._max_upload_bytes,
+            )
+            raise TwelveLabsMediaRejectedError(
+                f"{file_name} is {_format_size(size_bytes)}; TwelveLabs accepts files up to "
+                f"{_format_size(self._max_upload_bytes)}. Export a smaller proxy to index "
+                "it with TwelveLabs.",
+                code=PREFLIGHT_FILE_TOO_LARGE_CODE,
+            )
+        if size_bytes > self._direct_upload_max_bytes and media_type.startswith("audio/"):
+            _log.warning(
+                "twelvelabs ✗ pre-flight: audio file=%s size=%d over the %d-byte direct limit",
+                file_name,
+                size_bytes,
+                self._direct_upload_max_bytes,
+            )
+            raise TwelveLabsMediaRejectedError(
+                f"{file_name} is {_format_size(size_bytes)}; TwelveLabs accepts audio files "
+                f"up to {_format_size(self._direct_upload_max_bytes)}. Export a shorter or "
+                "more compressed copy to index it with TwelveLabs.",
+                code=PREFLIGHT_AUDIO_TOO_LARGE_CODE,
+            )
+
+    def _upload_direct(self, media_path: Path, media_type: str) -> str:
+        """``POST /assets`` the whole file in one request; returns the asset id."""
         with media_path.open("rb") as handle, self._translate_errors():
             resp = self._sdk.assets.create(
                 method="direct",
@@ -451,14 +746,147 @@ class TwelveLabsClient:
         asset_id = resp.id
         if not isinstance(asset_id, str) or not asset_id:
             raise TwelveLabsError("TwelveLabs asset upload returned no id.")
-        task_id = _task_token(_ASSET_TASK_PREFIX, index_id, asset_id)
+        return asset_id
+
+    def _upload_multipart(self, media_path: Path, size_bytes: int) -> str:
+        """Upload a large video through a multipart session; returns the asset id.
+
+        Sequential on purpose: one chunk is in memory at a time (bounded whatever the
+        file size), each read straight from the media at its offset — nothing is ever
+        written to disk. The returned asset then follows the same ``processing`` →
+        ``ready`` → attach-to-index path as a direct upload (:meth:`get_task`).
+
+        :raises TwelveLabsError: On an API failure, or a chunk that keeps failing.
+        """
+        with self._translate_errors():
+            session = self._sdk.multipart_upload.create(
+                filename=media_path.name, type="video", total_size=size_bytes
+            )
+        upload_id = session.upload_id
+        asset_id = session.asset_id
+        chunk_size = session.chunk_size
+        if not upload_id or not asset_id or not chunk_size or chunk_size <= 0:
+            raise TwelveLabsError(
+                "TwelveLabs multipart upload session is missing its id, asset id, or chunk size."
+            )
+        total_chunks = max(1, math.ceil(size_bytes / chunk_size))
+        urls = _presigned_url_map(session.upload_urls)
+        headers = {"Content-Type": _CHUNK_CONTENT_TYPE, **(session.upload_headers or {})}
         _log.info(
-            "ACT twelvelabs upload done: asset=%s index=%s in %.1fs",
+            "ACT twelvelabs multipart session: asset=%s upload=%s chunks=%d chunk=%.1fMB",
             asset_id,
-            index_id,
-            time.monotonic() - started,
+            upload_id,
+            total_chunks,
+            chunk_size / (1024 * 1024),
         )
-        return task_id
+        pending: list[CompletedChunk] = []
+        last_report: ReportChunkBatchResponse | None = None
+        with media_path.open("rb") as handle:
+            for chunk_index in range(1, total_chunks + 1):  # the API numbers chunks from 1
+                offset = (chunk_index - 1) * chunk_size
+                length = min(chunk_size, size_bytes - offset)
+                handle.seek(offset)
+                data = handle.read(length)
+                if len(data) != length:
+                    raise TwelveLabsError(
+                        f"{media_path.name} changed size while it was uploading to TwelveLabs."
+                    )
+                etag = self._put_chunk(upload_id, chunk_index, total_chunks, data, urls, headers)
+                pending.append(
+                    CompletedChunk(
+                        chunk_index=chunk_index, proof=etag, proof_type="etag", chunk_size=length
+                    )
+                )
+                if len(pending) >= _CHUNK_REPORT_BATCH or chunk_index == total_chunks:
+                    with self._translate_errors():
+                        last_report = self._sdk.multipart_upload.report_chunk_batch(
+                            upload_id, completed_chunks=pending
+                        )
+                    pending = []
+                if chunk_index % _CHUNK_PROGRESS_LOG_EVERY == 0:
+                    _log.info(
+                        "twelvelabs multipart progress: asset=%s %d/%d chunks",
+                        asset_id,
+                        chunk_index,
+                        total_chunks,
+                    )
+        completed = last_report.total_completed if last_report is not None else None
+        if completed is not None and completed < total_chunks:
+            raise TwelveLabsError(
+                f"TwelveLabs registered {completed} of {total_chunks} uploaded chunks; "
+                "the upload is incomplete."
+            )
+        return asset_id
+
+    def _put_chunk(
+        self,
+        upload_id: str,
+        chunk_index: int,
+        total_chunks: int,
+        data: bytes,
+        urls: dict[int, str],
+        headers: dict[str, str],
+    ) -> str:
+        """PUT one chunk to its presigned URL, with bounded retries; returns its ETag.
+
+        A retry asks for a FRESH URL: the API documents presigned URLs as single-use
+        and expiring after an hour, and says to retry failed chunks with new ones.
+
+        :raises TwelveLabsError: When the chunk still fails after the last attempt.
+        """
+        problem = "no upload URL"
+        for attempt in range(1, _CHUNK_PUT_ATTEMPTS + 1):
+            if attempt > 1 or chunk_index not in urls:
+                self._fetch_presigned_urls(upload_id, chunk_index, total_chunks, urls)
+            url = urls.pop(chunk_index, None)
+            if url is not None:
+                try:
+                    resp = self._http.put(
+                        url, content=data, headers=headers, timeout=self._upload_timeout
+                    )
+                except httpx.HTTPError as exc:
+                    # The type only: the message of a transport error can carry the URL,
+                    # and a presigned URL is a bearer credential for the upload.
+                    problem = type(exc).__name__
+                else:
+                    etag = str(resp.headers.get("ETag", "")).strip('"')
+                    if resp.is_success and etag:
+                        return etag
+                    problem = f"HTTP {resp.status_code}" if not resp.is_success else "no ETag"
+            if attempt < _CHUNK_PUT_ATTEMPTS:
+                delay = _CHUNK_RETRY_BACKOFF_SECONDS * 2 ** (attempt - 1)
+                _log.warning(
+                    "twelvelabs chunk %d/%d upload failed (%s); retry %d/%d in %.0fs",
+                    chunk_index,
+                    total_chunks,
+                    problem,
+                    attempt,
+                    _CHUNK_PUT_ATTEMPTS - 1,
+                    delay,
+                )
+                self._sleep(delay)
+        _log.warning(
+            "twelvelabs ✗ chunk %d/%d upload gave up after %d attempts (%s)",
+            chunk_index,
+            total_chunks,
+            _CHUNK_PUT_ATTEMPTS,
+            problem,
+        )
+        raise TwelveLabsError(
+            f"TwelveLabs upload failed: part {chunk_index} of {total_chunks} could not be "
+            f"sent after {_CHUNK_PUT_ATTEMPTS} attempts ({problem})."
+        )
+
+    def _fetch_presigned_urls(
+        self, upload_id: str, start: int, total_chunks: int, urls: dict[int, str]
+    ) -> None:
+        """Fetch presigned URLs for chunks ``start``.. (up to the API's 50) into ``urls``."""
+        count = min(_PRESIGNED_URL_BATCH_MAX, total_chunks - start + 1)
+        with self._translate_errors():
+            resp = self._sdk.multipart_upload.get_additional_presigned_urls(
+                upload_id, start=start, count=count
+            )
+        urls.update(_presigned_url_map(resp.upload_urls))
 
     def get_task(self, task_id: str) -> TaskStatus:
         """Advance or poll one resumable media-indexing operation.
@@ -486,9 +914,19 @@ class TwelveLabsClient:
         return TaskStatus(task_id=task_id, status=status, video_id=video_id)
 
     def _advance_uploaded_asset(self, task_id: str, index_id: str, asset_id: str) -> TaskStatus:
-        """Wait for an upload, then attach it to the requested index exactly once."""
-        with self._translate_errors():
-            asset = self._sdk.assets.retrieve(asset_id)
+        """Wait for an upload, then attach it to the requested index exactly once.
+
+        :raises TwelveLabsAssetInaccessibleError: This key cannot read the upload (it
+            was made under another account) — upload the file again.
+        """
+        try:
+            with self._translate_errors():
+                asset = self._sdk.assets.retrieve(asset_id)
+        except TwelveLabsIndexInaccessibleError as exc:
+            raise TwelveLabsAssetInaccessibleError(
+                "The earlier TwelveLabs upload of this file belongs to a different "
+                "TwelveLabs account; it has to be uploaded again."
+            ) from exc
         asset_status = asset.status
         if not isinstance(asset_status, str):
             raise TwelveLabsError("TwelveLabs asset status missing.")
@@ -893,17 +1331,26 @@ def _decode_analyze_json(raw: object) -> dict[str, object] | None:
 def _raise_typed(exc: ApiError, *, pegasus: bool) -> NoReturn:
     """Translate an SDK :class:`ApiError` into FramePilot's typed error hierarchy.
 
-    Preserves the pre-SDK status-code contract: 401 (and non-Pegasus 403) → auth;
+    Preserves the pre-SDK status-code contract: 401 (and non-Pegasus 403) → auth,
+    except a 403/404 ``read_not_allowed`` (the entity is another account's) →
+    :class:`TwelveLabsIndexInaccessibleError`;
     on a generative call 402/403 → no Pegasus entitlement and a 400
-    ``index_not_supported_for_generate`` → a Marengo-only index; anything else →
-    a generic failure. Messages carry only the status code and machine ``code`` —
-    never the API key or response body text.
+    ``index_not_supported_for_generate`` → a Marengo-only index; a 413/415, or a
+    400/422 whose ``code`` is about the media (``video_*``/``audio_*``/``file_*``) →
+    :class:`TwelveLabsMediaRejectedError`; anything else → a generic failure.
+    Messages carry only the status code and machine ``code`` (a media rejection: plain
+    words plus the code on the exception) — never the API key or response body text.
     """
     status = exc.status_code or 0
     code = _api_error_code(exc.body)
     if status == 401:
         _log.warning("twelvelabs ✗ rejected the API key (HTTP 401)")
         raise TwelveLabsAuthError("TwelveLabs rejected the API key (HTTP 401).") from exc
+    if status in _ENTITY_NOT_READABLE_STATUSES and code == _ENTITY_NOT_READABLE_CODE:
+        _log.warning("twelvelabs ✗ entity not readable by this key (HTTP %d %s)", status, code)
+        raise TwelveLabsIndexInaccessibleError(
+            "The saved TwelveLabs index belongs to a different TwelveLabs account or was deleted."
+        ) from exc
     if pegasus and status in (402, 403):
         _log.warning("twelvelabs ✗ not entitled to Pegasus (HTTP %d)", status)
         raise TwelveLabsPegasusUnavailableError(
@@ -918,9 +1365,98 @@ def _raise_typed(exc: ApiError, *, pegasus: bool) -> NoReturn:
             "TwelveLabs index does not support generate (no Pegasus model); "
             "re-index to enable the Pegasus footage map."
         ) from exc
+    if _is_media_rejection(status, code):
+        _log.warning("twelvelabs ✗ media rejected (HTTP %d code=%s)", status, code or "-")
+        rejection_code = code or f"http_{status}"
+        raise TwelveLabsMediaRejectedError(
+            _media_rejection_message(rejection_code, status),
+            code=rejection_code,
+            http_status=status,
+        ) from exc
     _log.warning("twelvelabs ✗ API error (HTTP %d code=%s)", status, code or "-")
     detail = f" ({code})" if code else ""
     raise TwelveLabsError(f"TwelveLabs API error (HTTP {status}){detail}.") from exc
+
+
+#: Statuses that refuse the media itself whatever the code says: 413 Payload Too Large,
+#: 415 Unsupported Media Type.
+_MEDIA_REJECTION_STATUSES = frozenset({413, 415})
+#: Statuses on which a media-describing ``code`` marks a permanent rejection of the file.
+#: Deliberately not 401/403 (the key), 409 (a conflict), 429 (a rate limit), or 5xx
+#: (an outage): those can clear, and remembering them would block a file forever.
+_MEDIA_CODE_STATUSES = frozenset({400, 422})
+#: TwelveLabs names media problems by what they are about: ``video_filesize_too_large``,
+#: ``video_duration_too_long``, ``video_resolution_too_low``, ``video_file_broken``…
+_MEDIA_CODE_PREFIXES = ("video_", "audio_", "file_")
+#: A media-prefixed code that is about a missing RESOURCE, not about the bytes.
+_NOT_MEDIA_CODE_SUFFIXES = ("_not_found",)
+
+#: Plain-words reason per media-code fragment, most specific first. A video editor reads
+#: these in the panel; the machine code stays on the exception for logs and logic.
+_MEDIA_REJECTION_PHRASES: tuple[tuple[str, str], ...] = (
+    ("filesize", "the file is larger than TwelveLabs accepts"),
+    ("too_large", "the file is larger than TwelveLabs accepts"),
+    ("duration_too_long", "the video is too long"),
+    ("duration_too_short", "the video is too short"),
+    ("aspect", "its aspect ratio is not supported"),
+    ("resolution_too_low", "its resolution is too low"),
+    ("resolution_too_high", "its resolution is too high"),
+    ("resolution", "its resolution is not supported"),
+    ("broken", "the file could not be read and may be damaged"),
+    ("corrupt", "the file could not be read and may be damaged"),
+    ("codec", "its codec is not supported"),
+    ("format", "its format is not supported"),
+    ("unsupported", "its format is not supported"),
+)
+
+
+def _is_media_rejection(status: int, code: str | None) -> bool:
+    """Whether an API error refuses the FILE itself — permanent for these bytes."""
+    if status in _MEDIA_REJECTION_STATUSES:
+        return True
+    if status not in _MEDIA_CODE_STATUSES or not code:
+        return False
+    return code.startswith(_MEDIA_CODE_PREFIXES) and not code.endswith(_NOT_MEDIA_CODE_SUFFIXES)
+
+
+def _media_rejection_message(
+    code: str | None, http_status: int | None, file_name: str | None = None
+) -> str:
+    """A video editor's sentence for a media rejection ("TwelveLabs can't index ro.mp4: …").
+
+    Falls back to the machine code in parentheses when the code is one we have no words
+    for, so the message is never less informative than the raw error was.
+    """
+    subject = file_name or "this file"
+    phrase: str | None = None
+    for fragment, words in _MEDIA_REJECTION_PHRASES:
+        if code and fragment in code:
+            phrase = words
+            break
+    if phrase is None and http_status == 413:
+        phrase = "the file is larger than TwelveLabs accepts"
+    if phrase is None and http_status == 415:
+        phrase = "its format is not supported"
+    if phrase is None:
+        return f"TwelveLabs can't index {subject} ({code or f'HTTP {http_status}'})."
+    return f"TwelveLabs can't index {subject}: {phrase}."
+
+
+def _format_size(size_bytes: int) -> str:
+    """A file size the way a video editor reads one: ``12.3 GB`` / ``250 MB`` (decimal)."""
+    if size_bytes >= 1000**3:
+        gigabytes = f"{size_bytes / 1000**3:.1f}".removesuffix(".0")
+        return f"{gigabytes} GB"
+    return f"{size_bytes / 1000**2:.0f} MB"
+
+
+def _presigned_url_map(chunks: Sequence[PresignedUrlChunk] | None) -> dict[int, str]:
+    """``chunk_index → url`` for the presigned URLs a multipart response carried."""
+    return {
+        chunk.chunk_index: chunk.url
+        for chunk in chunks or ()
+        if isinstance(chunk.chunk_index, int) and isinstance(chunk.url, str) and chunk.url
+    }
 
 
 def _api_error_code(body: object) -> str | None:
