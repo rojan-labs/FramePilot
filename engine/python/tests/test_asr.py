@@ -798,6 +798,49 @@ def test_transcribe_local_runs_ffmpeg_then_whisper_cli_and_parses_output(
     assert "-ojf" in whisper_argv
 
 
+def test_transcribe_local_bounds_whisper_by_audio_length_not_the_media_timeout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The reported defect: local transcription of a 7-minute voiceover died at 60 s.
+
+    The service passes its 60 s media-probe timeout, and whisper-cli shared it — but
+    recognition took 263 s for that 415 s clip. The decode keeps the caller's bound;
+    whisper-cli gets one that grows with the decoded audio.
+    """
+    monkeypatch.setenv("FRAMEPILOT_WHISPER_CLI", "/opt/whisper-cli")
+    model_dir = tmp_path / "models"
+    monkeypatch.setenv("FRAMEPILOT_ASR_MODEL_DIR", str(model_dir))
+    model_dir.mkdir(parents=True)
+    (model_dir / "ggml-large-v3-turbo-q5_0.bin").write_bytes(b"fake-model")
+    media = tmp_path / "voiceover.m4a"
+    media.write_bytes(b"not-real-media")
+    audio_seconds = 415
+
+    timeouts: dict[str, float | None] = {}
+
+    def fake_run(argv: Sequence[str], timeout: float | None) -> None:
+        if argv[0] == "/opt/whisper-cli":
+            timeouts["whisper"] = timeout
+            prefix = Path(argv[argv.index("-of") + 1])
+            prefix.with_suffix(".json").write_text(json.dumps(_FIXTURE_JSON))
+            return
+        timeouts["decode"] = timeout
+        # A mono 16 kHz 16-bit WAV of the voiceover's length, as ffmpeg would write it.
+        Path(argv[-1]).write_bytes(b"\x00" * (44 + audio_seconds * 16000 * 2))
+
+    asr.transcribe_local(media, run=fake_run, timeout=60.0)
+
+    assert timeouts["decode"] == 60.0
+    assert timeouts["whisper"] == audio_seconds * asr.WHISPER_SECONDS_PER_AUDIO_SECOND
+
+
+def test_whisper_timeout_has_a_floor_for_short_clips() -> None:
+    assert asr.whisper_timeout_seconds(3.0) == asr.WHISPER_MIN_TIMEOUT_SECONDS
+    # A caller's larger configured bound is never lowered.
+    assert asr.whisper_timeout_seconds(3.0, floor=900.0) == 900.0
+    assert asr.whisper_timeout_seconds(-1.0) == asr.WHISPER_MIN_TIMEOUT_SECONDS
+
+
 def test_transcribe_local_raises_when_no_json_output_produced(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
