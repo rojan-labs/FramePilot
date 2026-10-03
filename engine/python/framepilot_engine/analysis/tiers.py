@@ -93,7 +93,11 @@ ANALYZER_VERSIONS: dict[AnalysisKind, int] = {
     AnalysisKind.BLACK: 1,
     AnalysisKind.BEATS: 1,
     AnalysisKind.FREEZE: 1,
-    AnalysisKind.TRANSCRIPTION: 1,
+    # v2 (2026-10-03): word times come from whisper.cpp DTW (flash attention off) with a
+    # median-relative duration cap, and punctuation-only tokens are no longer words. A
+    # cached v1 row carries spans like "." 0.02-24.96 s that cuts and captions read as
+    # speech. Kept equal to `audio/asr.py`'s TRANSCRIPT_TIMING_VERSION.
+    AnalysisKind.TRANSCRIPTION: 2,
 }
 
 # An analyzer missing a version would only surface as a KeyError inside the cache
