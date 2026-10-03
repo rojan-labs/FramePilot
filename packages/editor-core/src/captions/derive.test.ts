@@ -1253,3 +1253,64 @@ describe('stacked clips over the same sequence time', () => {
     }
   });
 });
+
+describe('speech follows what is heard (clipIsAudible)', () => {
+  // Run `001be135`: a narrated recap's own soundtrack, muted under a separate voiceover,
+  // carried the project transcript. Reordering its shots then moved the captions with the
+  // silent soundtrack's words instead of the narration the viewer hears.
+  const muted = (timeline: Timeline): Timeline => ({
+    ...timeline,
+    tracks: timeline.tracks.map((track) => ({ ...track, muted: true })),
+  });
+
+  it('marks every span on a muted track as inaudible, and others as audible', () => {
+    expect(buildTimelineMap(rippledTimeline()).spans.every((s) => s.audible === true)).toBe(true);
+    expect(buildTimelineMap(muted(rippledTimeline())).spans.every((s) => s.audible === false)).toBe(
+      true,
+    );
+  });
+
+  it('maps no word through a muted track', () => {
+    const mapped = mapTranscript(buildTimelineMap(muted(rippledTimeline())), sourceTranscript());
+    expect(mapped.words).toHaveLength(0);
+    expect(mapped.runs).toHaveLength(0);
+    expect(mapped.droppedCount).toBe(sourceTranscript().length);
+  });
+
+  it('maps no word through a clip whose audio_gain is muted, and still maps its neighbours', () => {
+    const timeline = rippledTimeline();
+    const silenced: Timeline = {
+      ...timeline,
+      tracks: timeline.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip, index) =>
+          index === 0
+            ? {
+                ...clip,
+                effects: [
+                  {
+                    id: `${clip.id}__gain`,
+                    type: 'audio_gain',
+                    params: { gainDb: 0, muted: true },
+                    keyframes: [],
+                  },
+                ],
+              }
+            : clip,
+        ),
+      })),
+    };
+    const mapped = mapTranscript(buildTimelineMap(silenced), sourceTranscript());
+    expect(mapped.words.some((word) => word.clipId === 'clip_0')).toBe(false);
+    expect(mapped.words.some((word) => word.clipId === 'clip_1')).toBe(true);
+  });
+
+  it('derives no caption cue from speech nobody hears', () => {
+    const cues = deriveCaptionCues(
+      buildTimelineMap(muted(rippledTimeline())),
+      sourceTranscript(),
+      config(),
+    );
+    expect(cues).toHaveLength(0);
+  });
+});

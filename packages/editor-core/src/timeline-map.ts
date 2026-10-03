@@ -98,6 +98,36 @@ export interface ClipSpan {
    * all three cases.
    */
   readonly speed: number;
+  /**
+   * Does this clip's sound reach the mix? `false` when its track is muted or its own
+   * `audio_gain` says `muted` — see {@link clipIsAudible}. Absent reads as audible, so a
+   * span built by hand in a test keeps the behaviour it always had.
+   */
+  readonly audible?: boolean;
+}
+
+/**
+ * Does a clip's sound reach the mix?
+ *
+ * The render silences two things: every clip on a muted track — video tracks included, the
+ * compiler skips a video clip's audio when its track is muted — and a clip whose
+ * `audio_gain` effect is `muted`. Speech on either is not heard, so nothing that describes
+ * what the viewer HEARS (captions, the mapped transcript, the word-boundary checks) may be
+ * built from it.
+ *
+ * Run `001be135` is why this is asked at all: a narrated recap's own soundtrack (muted under
+ * a separate voiceover) carried the project transcript, so after its shots were reordered the
+ * captions followed the silent soundtrack's words and the critic judged every picture cut
+ * against speech nobody would hear.
+ */
+export function clipIsAudible(
+  track: { readonly muted?: boolean | undefined },
+  clip: { readonly effects: readonly { readonly type: string; readonly params?: unknown }[] },
+): boolean {
+  if (track.muted === true) return false;
+  const gain = clip.effects.find((effect) => effect.type === 'audio_gain');
+  const params = gain?.params as { readonly muted?: unknown } | undefined;
+  return params?.muted !== true;
 }
 
 /**
@@ -194,6 +224,7 @@ export function buildTimelineMap(timeline: Timeline): TimelineMap {
         sourceStart: clip.sourceStart,
         sourceEnd: clip.sourceEnd,
         speed: normalizeSpeed(clip.speed),
+        audible: clipIsAudible(track, clip),
       });
     }
   }

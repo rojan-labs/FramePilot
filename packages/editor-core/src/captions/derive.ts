@@ -266,6 +266,10 @@ function indexSpansBySource(spans: readonly ClipSpan[]): SourceSpanIndex {
     // the whole range onto the held frame — every one of those words at the same
     // instant, none of them audible.
     if (spanIsFrozen(span)) continue;
+    // A word on a muted clip is not heard either, so it is not captioned or mapped there
+    // (`timeline-map.ts#clipIsAudible`). When every clip of the asset that carries the
+    // transcript is silent, nothing maps — which is the truth about what the viewer hears.
+    if (span.audible === false) continue;
     const list = grouped.get(span.assetId);
     if (list === undefined) grouped.set(span.assetId, [span]);
     else list.push(span);
