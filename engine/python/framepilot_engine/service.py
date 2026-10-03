@@ -182,6 +182,7 @@ from framepilot_engine.brain.models import (
 from framepilot_engine.brain.pack_worker import PackWorkerError, parse_pack_handle
 from framepilot_engine.brain.sidecars import export_asset_sidecar, import_sidecars
 from framepilot_engine.brain.similar import (
+    OWNER_TYPE_CAPTION,
     AssetDigest,
     blend_hits,
     build_embedding_rows,
@@ -206,6 +207,7 @@ from framepilot_engine.brain.store import (
 )
 from framepilot_engine.brain.twelvelabs import (
     PEGASUS_UNAVAILABLE_REASON,
+    VISUAL_SEARCH_OPTIONS,
     TLChapter,
     TwelveLabsAuthError,
     TwelveLabsClient,
@@ -5795,10 +5797,12 @@ def create_app(
     ) -> VisualSearchResponse:
         """Serve visual search through TwelveLabs (the ``twelveLabsKey`` backend).
 
-        TwelveLabs fuses visual + audio + speech internally, so its ranked clips
-        are mapped straight onto the evidence-packet contract (no local vector KNN
-        / FTS). A project doc still supplies the clips + transcript used to enrich
-        ``transcriptOverlap`` (plan MI5.2). Honest-unavailable: an unindexed
+        Asks for the ``visual`` modality only (:data:`VISUAL_SEARCH_OPTIONS`): this route
+        answers what is ON SCREEN, and the speech and audio modalities made narrated
+        footage answer from its words instead. Ranked clips map straight onto the
+        evidence-packet contract (no local vector KNN / FTS). A project doc still
+        supplies the clips + transcript used to enrich ``transcriptOverlap`` (plan
+        MI5.2). Honest-unavailable: an unindexed
         project reports ``not_indexed``; an auth failure ``invalid_api_key``; a
         transport failure is ``available=False`` so the caller degrades cleanly.
         """
@@ -5816,7 +5820,9 @@ def create_app(
         if index_id is None:
             return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         try:
-            clips = client.search(index_id, req.query, page_limit=max(req.k, 10))
+            clips = client.search(
+                index_id, req.query, options=VISUAL_SEARCH_OPTIONS, page_limit=max(req.k, 10)
+            )
         except TwelveLabsIndexInaccessibleError:
             return VisualSearchResponse(available=True, backend="twelvelabs", reason="not_indexed")
         except TwelveLabsAuthError:
@@ -6401,12 +6407,16 @@ def create_app(
 
     @app.post("/brain/visual/search", response_model=VisualSearchResponse)
     def brain_visual_search_route(req: VisualSearchRequest) -> VisualSearchResponse:
-        """Fused visual search over vectors + captions + transcript (plan MI5.1/§3.4).
+        """Fused visual search over frame vectors + frame captions (plan MI5.1/§3.4).
 
         Embeds the query cross-modally (nemotron ``input_type='query'`` — never
-        stored), runs the visual KNN, caption/transcript FTS, and text-vector
-        recall in one brain session, then fuses them by reciprocal rank into
-        evidence packets (:mod:`framepilot_engine.brain.visual_search`). An
+        stored), runs the visual KNN, caption FTS, and text-vector recall over
+        CAPTIONS in one brain session, then fuses them by reciprocal rank into
+        evidence packets (:mod:`framepilot_engine.brain.visual_search`). The
+        transcript is deliberately not a lane: this route answers what is on screen,
+        and a narrated video's words used to rank its spans by when something was
+        SAID (desktop run 001be135). ``transcriptOverlap`` still reports the words
+        under each span, labelled as such. An
         optional project source supplies the clips that project spans onto
         timeline time and the transcript for ``transcriptOverlap`` (plan MI5.2).
         Honest-unavailable: no sandbox root or unusable brain → ``available=False``;
@@ -6477,10 +6487,11 @@ def create_app(
                     model=query_space,
                 )
                 caption_fts = store.search_captions(req.query, limit=VISUAL_SEARCH_POOL)
-                transcript_fts = store.search_transcript(req.query, limit=VISUAL_SEARCH_POOL)
                 semantic: list[SearchHit] = []
                 if text_res.embedder is not None:
-                    rows = store.list_embeddings(text_res.embedder.model_id)
+                    rows = store.list_embeddings(
+                        text_res.embedder.model_id, owner_type=OWNER_TYPE_CAPTION
+                    )
                     semantic = semantic_hits(
                         text_res.embedder, req.query, rows, limit=VISUAL_SEARCH_POOL
                     )
@@ -6502,7 +6513,7 @@ def create_app(
         packets = build_evidence_packets(
             visual_hits=visual_hits,
             caption_fts_hits=caption_fts,
-            transcript_fts_hits=transcript_fts,
+            transcript_fts_hits=[],
             semantic_hits=semantic,
             spans=spans,
             captions=captions,
@@ -6513,13 +6524,11 @@ def create_app(
             time_range=req.time_range,
         )
         _log.info(
-            "ACT visual search: project=%s backend=%s visual=%d caption=%d transcript=%d "
-            "semantic=%d packets=%d",
+            "ACT visual search: project=%s backend=%s visual=%d caption=%d semantic=%d packets=%d",
             req.project_id,
             backend,
             len(visual_hits),
             len(caption_fts),
-            len(transcript_fts),
             len(semantic),
             len(packets),
         )

@@ -100,6 +100,7 @@ class _FakeTL:
         #: The saved index is another account's (the key was switched).
         self.inaccessible = inaccessible
         self.searches = 0
+        self.search_options: Any = None
 
     def get_transcription(self, index_id: str, video_id: str) -> list[TLWord]:
         if self.auth_fail:
@@ -160,6 +161,7 @@ class _FakeTL:
         self, index_id: str, query: str, *, options: Any = None, page_limit: int = 10
     ) -> list[TLClip]:
         self.searches += 1
+        self.search_options = options
         if self.auth_fail:
             raise TwelveLabsAuthError("bad key")
         if self.inaccessible:
@@ -470,6 +472,9 @@ def test_search_maps_twelvelabs_clips_to_packets(
     assert packet["t0"] == 0.5 and packet["t1"] == 1.5
     assert packet["sources"] == ["twelvelabs"]
     assert "app" in packet["transcriptOverlap"]  # from the project transcript
+    # A picture search asks TwelveLabs for the picture only — never the speech or audio
+    # modalities, which made a narrated video answer from its words (desktop run 001be135).
+    assert fake.search_options == ("visual",)
 
 
 def test_search_reports_not_indexed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

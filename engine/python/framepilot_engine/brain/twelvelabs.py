@@ -105,6 +105,7 @@ __all__ = [
     "PREFLIGHT_AUDIO_TOO_LARGE_CODE",
     "PREFLIGHT_FILE_TOO_LARGE_CODE",
     "TL_UPLOAD_POLICY_VERSION",
+    "VISUAL_SEARCH_OPTIONS",
     "TLChapter",
     "TLClip",
     "TLGist",
@@ -161,6 +162,13 @@ DEFAULT_INDEX_OPTIONS = ("visual", "audio")
 #: search time on any visual+audio index. Kept configurable per call (image
 #: queries pass ``("visual",)``).
 DEFAULT_SEARCH_OPTIONS = ("visual", "audio", "transcription")
+
+#: What a PICTURE search asks for: the frames, and nothing the footage says or plays.
+#: ``search_visual`` promises what is on screen, and fusing in the speech modalities made
+#: narrated footage answer from its words — desktop run 001be135's recap video carried its
+#: own narration, so every "find the shot of X" came back at the moment the narrator said X,
+#: and the agent laid the footage out in source order believing it had matched the picture.
+VISUAL_SEARCH_OPTIONS = ("visual",)
 
 #: How the ``transcription`` search modality matches, when it is requested: both
 #: ``lexical`` (exact words) and ``semantic`` (meaning), mirroring the dashboard.
@@ -1212,7 +1220,8 @@ class TwelveLabsClient:
             "Break this video into sequential chapters that cover the entire "
             "timeline in order, with no gaps or overlaps. For each chapter give "
             "its start and end time in seconds, a short title, and a one-sentence "
-            "summary of what happens.",
+            "summary of what is SEEN on screen: who and what is shown, where, and "
+            "what they do. Describe the picture, not the dialogue or narration.",
             self._CHAPTER_SCHEMA,
         )
         chapters = _parse_chapters(payload)
