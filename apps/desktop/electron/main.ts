@@ -237,6 +237,8 @@ import { ProjectFileWatcher } from './projects/project-watcher.js';
 import { ProjectCommandService } from './projects/project-command-service.js';
 import { mergeLiveProjectForHost } from './projects/project-transport.js';
 import { defaultProjectPath, resolveProjectsDir } from './projects/projects-dir.js';
+import { serveProjectList } from './projects/project-list.js';
+import { createProjectListIO } from './projects/project-list-io.js';
 import {
   importMediaFile,
   sweepUnreferencedAttachments,
@@ -1617,6 +1619,17 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(IpcChannels.projectRecent, () => recentFiles.list());
+
+  // The home screen's project list: recents first, then every other project in the folder.
+  // Read-only and sandboxed to the projects root. It resolves the folder WITHOUT creating it
+  // (`ensureProjectsDir` would mkdir), so a missing folder just lists nothing.
+  ipcMain.handle(IpcChannels.projectList, (_event, request: unknown) =>
+    serveProjectList(
+      request,
+      createProjectListIO(resolveProjectsDir(process.env, app.getPath('documents'))),
+      () => recentFiles.list(),
+    ),
+  );
 
   ipcMain.handle(
     IpcChannels.projectOpen,

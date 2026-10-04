@@ -2,16 +2,16 @@
  * HomeScreen — the full-viewport launch screen shown when no project is open.
  *
  * The launch surface stays deliberately quiet: brand + appearance control in the
- * header, two obvious project actions, then a bounded scrolling list of recent
- * projects. Recents use metadata only, so drawing a long list never parses full
- * project files.
+ * header, two obvious project actions, then a bounded scrolling list of projects. On
+ * desktop that list pages through every project in the projects folder (recently opened
+ * first) with a "Load more" control; see {@link useHomeProjects}. Drawing it never parses
+ * full project files.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@framepilot/ui';
-import type { RecentProject } from '../editor/bridge.js';
-import { getBridge, isDesktop } from '../editor/bridge.js';
-import { BROWSER_PATH_PREFIX, listBrowserProjectSummaries } from '../editor/persistence.js';
+import { isDesktop } from '../editor/bridge.js';
 import { useSettings } from '../editor/useSettings.js';
+import { useHomeProjects } from './useHomeProjects.js';
 import { Tooltip } from './Tooltip.js';
 import { Contrast, FileText, FolderOpen, Plus, X } from './icons.js';
 import './HomeScreen.css';
@@ -34,18 +34,6 @@ export interface HomeScreenProps {
   readonly onDismissOpenError?: () => void;
 }
 
-interface RecentEntry {
-  path: string;
-  name: string;
-  openedAt: number;
-}
-
-/**
- * Keep the launch list useful for people with many projects while bounding the
- * amount of DOM work. The list itself scrolls, so page layout never grows with it.
- */
-const MAX_RECENTS = 100;
-
 function formatDate(ms: number): string {
   const date = new Date(ms);
   const now = Date.now();
@@ -63,8 +51,9 @@ export function HomeScreen({
   openError,
   onDismissOpenError,
 }: HomeScreenProps): JSX.Element {
-  const [recents, setRecents] = useState<RecentEntry[]>([]);
   const desktop = isDesktop();
+  const projects = useHomeProjects(desktop);
+  const listsAllProjects = projects.source === 'all';
   const { settings, update: updateSettings } = useSettings();
   const [systemPrefersDark, setSystemPrefersDark] = useState(
     () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true,
@@ -84,32 +73,6 @@ export function HomeScreen({
   const toggleTheme = useCallback(() => {
     updateSettings({ theme: effectiveTheme === 'dark' ? 'light' : 'dark' });
   }, [effectiveTheme, updateSettings]);
-
-  useEffect(() => {
-    if (desktop) {
-      const bridge = getBridge();
-      if (!bridge) return;
-      bridge
-        .recentProjects()
-        .then((items: RecentProject[]) => {
-          setRecents([...items].sort((a, b) => b.openedAt - a.openedAt).slice(0, MAX_RECENTS));
-        })
-        .catch(() => {
-          /* Recents are a convenience; project actions remain available on failure. */
-        });
-    } else {
-      // Summaries only: no full project blob is parsed just to draw the launch list.
-      setRecents(
-        listBrowserProjectSummaries()
-          .map(({ id, name, openedAt }) => ({
-            path: `${BROWSER_PATH_PREFIX}${id}`,
-            name,
-            openedAt,
-          }))
-          .slice(0, MAX_RECENTS),
-      );
-    }
-  }, [desktop]);
 
   return (
     <div className="launch-screen">
@@ -186,12 +149,12 @@ export function HomeScreen({
         </section>
 
         <section className="launch-recents" aria-labelledby="launch-recents-heading">
-          <h2 id="launch-recents-heading">Recent projects</h2>
+          <h2 id="launch-recents-heading">{listsAllProjects ? 'Projects' : 'Recent projects'}</h2>
 
           <div className="launch-recent-scroll">
-            {recents.length > 0 ? (
+            {projects.entries.length > 0 ? (
               <ul className="launch-recent-list">
-                {recents.map((entry) => (
+                {projects.entries.map((entry) => (
                   <li key={entry.path}>
                     <button
                       type="button"
@@ -204,17 +167,41 @@ export function HomeScreen({
                         <span className="launch-recent-name">{entry.name}</span>
                         <span className="launch-recent-path">{entry.path}</span>
                       </span>
-                      {entry.openedAt > 0 && (
-                        <span className="launch-recent-date">{formatDate(entry.openedAt)}</span>
+                      {entry.date > 0 && (
+                        <span
+                          className="launch-recent-date"
+                          title={entry.recent ? 'Last opened' : 'Last changed'}
+                        >
+                          {formatDate(entry.date)}
+                        </span>
                       )}
                     </button>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="launch-empty">No recent projects yet.</p>
+              <p className="launch-empty">
+                {listsAllProjects ? 'No projects yet.' : 'No recent projects yet.'}
+              </p>
             )}
           </div>
+
+          {projects.hasMore && projects.total !== null && (
+            <div className="launch-recent-footer">
+              <span className="launch-recent-count">
+                Showing {projects.entries.length} of {projects.total}
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                loading={projects.loadingMore}
+                onClick={projects.loadMore}
+              >
+                Load more
+              </Button>
+            </div>
+          )}
         </section>
       </main>
     </div>
